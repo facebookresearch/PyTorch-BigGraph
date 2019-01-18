@@ -12,8 +12,7 @@ from unittest import TestCase
 
 import attr
 
-from deeplearning.projects.filament2.schema import \
-    unpack_optional, Loader, Dumper, schema, Schema
+from torchbiggraph.schema import unpack_optional, Loader, Dumper, schema, Schema
 
 
 class TestUnpackOptional(TestCase):

@@ -9,7 +9,7 @@
 from itertools import product
 from unittest import TestCase
 
-from deeplearning.projects.filament2.util import PartitionOrder, create_partition_pairs
+from torchbiggraph.util import PartitionOrder, create_partition_pairs
 
 
 class TestCreatePartitionPairs(TestCase):

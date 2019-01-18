@@ -10,7 +10,7 @@ from unittest import TestCase
 
 import attr
 
-from deeplearning.projects.filament2.stats import stats, Stats
+from torchbiggraph.stats import stats, Stats
 
 
 @stats

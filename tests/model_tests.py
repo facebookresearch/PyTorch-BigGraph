@@ -18,9 +18,9 @@ import torch
 import torch.nn as nn
 from tensorlist.tensorlist import TensorList
 
-from deeplearning.projects.filament2.config import Operator, Metric, LossFn, \
-    EntitySchema, RelationSchema
-from deeplearning.projects.filament2.model import (
+from torchbiggraph.config import Operator, Metric, LossFn, EntitySchema, \
+    RelationSchema
+from torchbiggraph.model import (
     match_shape,
     # Embeddings
     SimpleEmbedding, FeaturizedEmbedding,
@@ -35,7 +35,7 @@ from deeplearning.projects.filament2.model import (
     # Model
     MultiRelationEmbedder,
 )
-from deeplearning.projects.filament2.util import Side
+from torchbiggraph.util import Side
 
 
 def assertTensorEqual(self, actual, expected):
