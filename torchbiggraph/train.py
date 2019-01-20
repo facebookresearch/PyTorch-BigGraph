@@ -259,8 +259,11 @@ def train(config, rank=0, mp_queue=None):
         optimizer.share_memory()
         return optimizer
 
+    # background_io is only supported in single-machine mode
+    background_io = config.background_io and config.numMachines == 1
+
     checkpoint_manager = CheckpointManager(config.outdir,
-            background=config.background_io,
+            background=background_io,
             rank=rank,
             num_machines=config.numMachines,
             partition_server_ranks=partition_server_ranks)
@@ -394,7 +397,7 @@ def train(config, rank=0, mp_queue=None):
             model.clear_embeddings(entity)
 
         if newP is None:  # there are no new embeddings to load
-            return
+            return io_bytes
 
         # 3. load new embeddings into the model/optimizer, either from disk
         #    or the temporary dictionary
@@ -506,7 +509,7 @@ def train(config, rank=0, mp_queue=None):
 
                 io_bytes += swap_partitioned_embeddings(oldP, curP)
 
-                if partition_count < total_pairs - 1 and config.background_io:
+                if partition_count < total_pairs - 1 and background_io:
                     assert config.numMachines == 1
                     checkpoint_manager.wait_events()
 
