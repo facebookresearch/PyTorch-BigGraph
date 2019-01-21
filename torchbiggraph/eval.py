@@ -9,6 +9,7 @@
 import argparse
 import time
 from itertools import chain
+from typing import Generator, Optional, Tuple
 
 import attr
 import torch
@@ -104,7 +105,9 @@ def eval_one_thread(rank, config, model, lhs, rhs, rel):
     return stats
 
 
-def do_eval(config):
+def do_eval_and_report_stats(
+    config: ConfigSchema,
+) -> Generator[Tuple[int, Optional[Tuple[int, int]], EvalStats], None, None]:
     """Computes eval metrics (r1/r10/r50) for a checkpoint with trained
        embeddings.
     """
@@ -190,6 +193,8 @@ def do_eval(config):
 
                 log("( %d , %d ): %s" % (lhsP, rhsP, mean_stats))
 
+                yield epoch, (lhsP, rhsP), mean_stats
+
                 # clean up memory
                 for e in lhs_partitioned_types:
                     model.clear_embeddings(e)
@@ -201,7 +206,17 @@ def do_eval(config):
         log("Epoch %d full stats: %s" % (epoch + 1, mean_epoch_stats))
         log("")
 
+        yield epoch, None, mean_epoch_stats
+
     join_workers(processes, qIn, qOut)
+
+
+def do_eval(
+    config: ConfigSchema,
+) -> None:
+    # Create and run the generator until exhaustion.
+    for _ in do_eval_and_report_stats(config):
+        pass
 
 
 def main():

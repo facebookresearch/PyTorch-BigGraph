@@ -12,7 +12,7 @@ import sys
 import time
 from enum import Enum
 from itertools import chain
-from typing import Optional
+from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import attr
 import torch
@@ -20,12 +20,12 @@ import torch.distributed as td
 import torch.optim as optim
 
 from .config import parse_config, ConfigSchema
-from .lockserver import setup_lock_server, Bucket
-from .parameterserver import setup_parameter_server_thread, \
-    setup_parameter_server
 from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader
+from .lockserver import setup_lock_server, Bucket
 from .model import make_model, override_model
+from .parameterserver import setup_parameter_server_thread, \
+    setup_parameter_server
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_workers, join_workers, fast_approx_rand, DummyOptimizer, \
@@ -173,7 +173,10 @@ def init_embs(entity, N, D, scale):
     return fast_approx_rand(N, D).mul_(scale), None
 
 
-def train(config, rank=0, mp_queue=None):
+def train_and_report_stats(
+    config: ConfigSchema,
+    rank: int = 0,
+) -> Generator[Tuple[int, Optional[EvalStats], TrainStats, Optional[EvalStats]], None, None]:
     """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
     from disk, runs HOGWILD training on them, and writes partitions back to disk.
     """
@@ -183,7 +186,7 @@ def train(config, rank=0, mp_queue=None):
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     log("Loading entity counts...")
-    entity_counts = {}
+    entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.numPartitions):
@@ -338,7 +341,7 @@ def train(config, rank=0, mp_queue=None):
 
     if config.numMachines > 1:
         # start communicating shared parameters with the parameter server
-        added_to_parameter_client = set()
+        added_to_parameter_client: Set[int] = set()
         for k, v in model.state_dict().items():
             if v._cdata not in added_to_parameter_client:
                 added_to_parameter_client.add(v._cdata)
@@ -482,7 +485,7 @@ def train(config, rank=0, mp_queue=None):
             curP = None
             while remaining > 0:
                 oldP = curP
-                io_time = 0
+                io_time = 0.
                 io_bytes = 0
                 if config.numMachines > 1:
                     curP, remaining = lock_client.acquire_pair(rank, maybe_oldP=oldP)
@@ -548,6 +551,7 @@ def train(config, rank=0, mp_queue=None):
                     edge_perm = torch.randperm(N)
 
                 # HOGWILD evaluation before training
+                eval_stats_before: Optional[EvalStats] = None
                 if num_eval_edges > 0:
                     log_status("Waiting for workers to perform evaluation")
                     eval_stats_before = distribute_action_among_workers(
@@ -574,6 +578,7 @@ def train(config, rank=0, mp_queue=None):
                 log_status("%s" % stats, always=True)
 
                 # HOGWILD eval after training
+                eval_stats_after: Optional[EvalStats] = None
                 if num_eval_edges > 0:
                     log_status("Waiting for workers to perform evaluation")
                     eval_stats_after = distribute_action_among_workers(
@@ -582,16 +587,7 @@ def train(config, rank=0, mp_queue=None):
                     log("stats after %s: %s" % (curP, eval_stats_after))
 
                 # Add train/eval metrics to queue
-                if mp_queue is not None:
-                    mp_queue.put({
-                        "Train_loss": (current_index, stats.loss),
-                        "Train_violators_lhs": (current_index, stats.violators_lhs),
-                        "Train_violators_rhs": (current_index, stats.violators_rhs),
-                        "Eval_Before_MRR": (current_index, eval_stats_before.mrr
-                            if num_eval_edges > 0 else 0),
-                        "Eval_After_MRR": (current_index, eval_stats_after.mrr
-                            if num_eval_edges > 0 else 0),
-                    })
+                yield current_index, eval_stats_before, stats, eval_stats_after
 
                 partition_count += 1
 
@@ -658,6 +654,15 @@ def train(config, rank=0, mp_queue=None):
     # FIXME join distributed workers (not really necessary)
 
     log("Exiting")
+
+
+def train(
+    config: ConfigSchema,
+    rank: int = 0,
+) -> None:
+    # Create and run the generator until exhaustion.
+    for _ in train_and_report_stats(config, rank):
+        pass
 
 
 def main():
