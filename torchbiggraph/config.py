@@ -274,7 +274,7 @@ class ConfigSchema(Schema):
     )
 
 
-def parse_config(config, overrides=None):
+def parse_config_base(config, overrides=None):
     spec = importlib.util.spec_from_file_location("config_module", config)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -299,7 +299,11 @@ def parse_config(config, overrides=None):
                 user_config[key] = value
             except Exception as e:
                 assert False, "Can't parse override: {} . {}".format(override, e)
+    return user_config
 
+
+def parse_config(config, overrides=None):
+    user_config = parse_config_base(config, overrides)
     full_config = ConfigSchema.from_dict(user_config)
     # Late import to avoid circular dependency.
     from . import util
