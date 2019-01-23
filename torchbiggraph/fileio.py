@@ -12,8 +12,8 @@ import sys
 
 import h5py
 import torch
-from tensorlist.tensorlist import TensorList
-from torch_extra.rpc.rpc import (
+from torch_extensions.tensorlist.tensorlist import TensorList
+from torch_extensions.rpc.rpc import (
     _serialize as torch_rpc_serialize,
     _deserialize as torch_rpc_deserialize,
 )

@@ -16,7 +16,7 @@ from unittest import TestCase
 
 import torch
 import torch.nn as nn
-from tensorlist.tensorlist import TensorList
+from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.config import Operator, Metric, LossFn, EntitySchema, \
     RelationSchema

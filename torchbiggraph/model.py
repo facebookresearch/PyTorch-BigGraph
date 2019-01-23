@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tensorlist.tensorlist import TensorList
+from torch_extensions.tensorlist.tensorlist import TensorList
 
 from .config import LossFn, Operator, Metric, EntitySchema, RelationSchema, ConfigSchema
 from .util import log, Side

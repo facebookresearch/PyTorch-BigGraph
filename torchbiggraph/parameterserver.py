@@ -52,7 +52,7 @@ class ParameterServer(object):
     get tensors by string key. Operations on the parameter server are globally
     synchronous.
 
-    FIXME: torch_extra.rpc should be fixed to not require torch.serialization,
+    FIXME: torch_extensions.rpc should be fixed to not require torch.serialization,
     then most of this code can be removed.
     FIXME: torch.distributed.recv should not require you to provide the
     tensor to write to; the type and size should be sent in the header.

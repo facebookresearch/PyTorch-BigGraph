@@ -7,7 +7,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-from tensorlist.tensorlist import TensorList
+from torch_extensions.tensorlist.tensorlist import TensorList
 
 
 class EntityList(object):

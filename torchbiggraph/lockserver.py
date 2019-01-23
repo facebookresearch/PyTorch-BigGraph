@@ -10,7 +10,7 @@ import sys
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 import torch.multiprocessing as mp
-from torch_extra.rpc.rpc import Client, Server
+from torch_extensions.rpc.rpc import Client, Server
 
 from .util import log, init_process_group, Side
 
