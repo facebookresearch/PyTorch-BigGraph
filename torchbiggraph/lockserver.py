@@ -23,7 +23,7 @@ class Bucket(NamedTuple):
         return "( %d , %d )" % (self.lhs + 1, self.rhs + 1)
 
 
-class FilamentLockServer(Server):
+class LockServer(Server):
 
     def new_epoch(
         self,
@@ -132,10 +132,10 @@ class FilamentLockServer(Server):
         return res
 
 
-class FilamentLockClient(Client):
+class LockClient(Client):
 
     def __init__(self, server_rank):
-        super(FilamentLockClient, self).__init__(FilamentLockServer, server_rank)
+        super(LockClient, self).__init__(LockServer, server_rank)
 
 
 def _start_lock_server(init_method, world_size, num_clients, server_rank, groups):
@@ -144,7 +144,7 @@ def _start_lock_server(init_method, world_size, num_clients, server_rank, groups
                        world_size=world_size,
                        rank=server_rank,
                        groups=groups)
-    s = FilamentLockServer(num_clients)
+    s = LockServer(num_clients)
     s.start()
 
 
@@ -159,6 +159,6 @@ def setup_lock_server(is_server_node, server_rank, world_size, num_clients, init
         p_server.daemon = True
         p_server.start()
 
-    client = FilamentLockClient(server_rank)
+    client = LockClient(server_rank)
 
     return client

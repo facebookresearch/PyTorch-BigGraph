@@ -56,7 +56,7 @@ def eval_one_batch(model, batch_lhs, batch_rhs, batch_rel):
           + .5 * compute_randomized_auc(scores[1], scores[3], B)
 
     # it's kind of weird that we average violators from LHS and RHS
-    # but I'm just going to copy filament1 for now
+    # but I'm just going to copy the old version for now
 
     return EvalStats(
         pos_rank=(lrank.float().sum().item() + rrank.float().sum().item()) / 2,

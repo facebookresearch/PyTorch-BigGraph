@@ -14,7 +14,7 @@ from .parameterserver import ParameterServer
 from .util import init_process_group
 
 # This is a small binary that just runs a partition server.
-# You need to run this if you run a distributed filament run and set
+# You need to run this if you run a distributed run and set
 # numPartitionServers > 1.
 
 

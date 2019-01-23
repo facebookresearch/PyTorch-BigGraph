@@ -543,7 +543,7 @@ Mask = List[Tuple[Union[int, slice, Sequence[int], torch.LongTensor], ...]]
 
 class MultiRelationEmbedder(nn.Module):
     """
-    The filament multi-relation embedding model.
+    A multi-relation embedding model.
 
     Graph embedding on multiple relations over multiple entity types. Each
     relation consists of a lhs and rhs entity type, and optionally a relation

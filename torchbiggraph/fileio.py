@@ -108,7 +108,8 @@ def process_io_command(cmd, path, data):
         return (cmd, None, None)
 
 
-VERSION_FILE = 'FILAMENT_CHECKPOINT_VERSION'
+VERSION_FILE = 'CHECKPOINT_VERSION'
+
 
 class PartitionClient(object):
     """A wrapper around ParameterServerClient that knows how to read and write
@@ -146,9 +147,10 @@ class CheckpointManager(object):
 
     Swapped-out partitions are saved to disk with a temporary extension, and when
     `commit()` is called, that extension is marked as the 'checkpoint' extension
-    via the FILAMENT_CHECKPOINT_VERSION file. This scheme is chosen to work with
-    gluster across multiple machines, since it guarantees close/open data
-    consistency but no metadata consistency (so os.rename is out).
+    via the CHECKPOINT_VERSION file. This scheme is chosen to work with shared
+    filesystems (specifically, Gluster) which guarantee close/open data consistency
+    but no metadata consistency (so os.rename is out).
+
     """
 
     def __init__(self, path, rank=-1, num_machines=1, background=False, partition_server_ranks=None):

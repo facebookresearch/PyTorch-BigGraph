@@ -17,7 +17,7 @@ from .util import log, init_process_group
 
 
 ################################################################################
-# Parameter server
+# Generic parameter server
 ################################################################################
 
 
@@ -221,10 +221,7 @@ class ParameterServerClient(object):
 
 
 class GradientParameterServerClient(object):
-    """This class implements a trick that we found useful for parameter
-    servers in Filament1:
-
-    We keep track of the last pull of each tensor from the server, and then when
+    """We keep track of the last pull of each tensor from the server, and then when
     a push is requested, we accumulate the difference between the pulled tensor
     and the current version
     """
@@ -271,7 +268,7 @@ class GradientParameterServerClient(object):
         self._client.join()
 
 ################################################################################
-# Filament-specific
+# Project-specific additions
 ################################################################################
 
 
