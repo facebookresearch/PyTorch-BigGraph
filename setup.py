@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
-import setuptools
+from setuptools import setup, find_packages
 
-with open("README.md", "r") as f:
+with open("README.md", "rt") as f:
     long_description = f.read()
 
-with open('requirements.txt') as f:
+with open("requirements.txt", "rt") as f:
     requirements = f.readlines()
 
-setuptools.setup(
+setup(
     name="torchbiggraph",
     version="1.dev",
     description="A distributed system to learn embeddings of large graphs",
@@ -31,15 +31,7 @@ setuptools.setup(
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     keywords="machine-learning knowledge-base graph-embedding link-prediction",
-    packages=[
-        "torchbiggraph",
-        "torch_extensions.rpc",
-        "torch_extensions.tensorlist",
-    ],
-    package_dir={
-        "torchbiggraph": "torchbiggraph",
-        "torch_extensions": "torch_extensions",
-    },
+    packages=find_packages(exclude=["tests"]),
     install_requires=requirements,
     entry_points={
         "console_scripts": [
