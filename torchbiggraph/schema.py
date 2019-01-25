@@ -8,6 +8,7 @@
 
 from abc import ABC, abstractmethod
 from enum import Enum
+from inspect import isclass
 from itertools import chain
 from typing import Any, ClassVar, Dict, List, Optional, Type
 
@@ -30,6 +31,13 @@ def unpack_optional(type_):
     if type_ is not Optional[candidate_arg]:
         raise TypeError("Not an optional type")
     return candidate_arg
+
+
+def has_origin(type_, base_type):
+    try:
+        return issubclass(type_.__origin__, base_type)
+    except (AttributeError, TypeError):
+        return False
 
 
 class DeepTypeError(TypeError):
@@ -128,21 +136,21 @@ class Mapper(ABC):
             if data is None:
                 return None
             return self.map_with_type(data, base_type)
-        if issubclass(type_, bool):
+        if isclass(type_) and issubclass(type_, bool):
             return self.map_bool(data)
-        if issubclass(type_, int):
+        if isclass(type_) and issubclass(type_, int):
             return self.map_int(data)
-        if issubclass(type_, float):
+        if isclass(type_) and issubclass(type_, float):
             return self.map_float(data)
-        if issubclass(type_, str):
+        if isclass(type_) and issubclass(type_, str):
             return self.map_str(data)
-        if issubclass(type_, Enum):
+        if isclass(type_) and issubclass(type_, Enum):
             return self.map_enum(data, type_)
-        if issubclass(type_, List):
+        if has_origin(type_, list):
             return self.map_list(data, type_)
-        if issubclass(type_, Dict):
+        if has_origin(type_, dict):
             return self.map_dict(data, type_)
-        if issubclass(type_, Schema):
+        if isclass(type_) and issubclass(type_, Schema):
             return self.map_schema(data, type_)
         raise NotImplementedError("Unknown type: %s" % type_)
 
@@ -224,22 +232,26 @@ class Schema:
             pass
         else:
             return "?%s" % cls.represent_type(base_type)
-        if issubclass(type_, Enum):
+        if isclass(type_) and issubclass(type_, Enum):
             return "(%s)" % '|'.join(member.name.lower() for member in type_)
-        if issubclass(type_, List):
+        if has_origin(type_, list):
             element_type, = type_.__args__
             return "[%s]" % cls.represent_type(element_type)
-        if issubclass(type_, Dict):
+        if has_origin(type_, dict):
             key_type, value_type = type_.__args__
             return "{%s: %s}" % (cls.represent_type(key_type),
                                  cls.represent_type(value_type))
-        if issubclass(type_, Schema):
+        if isclass(type_) and issubclass(type_, Schema):
             return "%s" % type_.NAME
         return type_.__name__
 
     @classmethod
     def help(cls):
         subschemas = []
+
+        def append_if_subschema(s):
+            if isclass(s) and issubclass(s, Schema) and s not in subschemas:
+                subschemas.append(s)
 
         lines = []
         lines.append("%s:" % cls.NAME)
@@ -254,16 +266,13 @@ class Schema:
                 type_ = unpack_optional(type_)
             except TypeError:
                 pass
-            if issubclass(type_, Schema) and type_ not in subschemas:
-                subschemas.append(type_)
-            if isinstance(type_, type) and issubclass(type_, List):
-                subtype, = type_.__args__
-                if issubclass(subtype, Schema) and subtype not in subschemas:
-                    subschemas.append(subtype)
-            elif isinstance(type_, type) and issubclass(type_, Dict):
-                _, subtype = type_.__args__
-                if issubclass(subtype, Schema) and subtype not in subschemas:
-                    subschemas.append(subtype)
+            append_if_subschema(type_)
+            if has_origin(type_, list):
+                element_type, = type_.__args__
+                append_if_subschema(element_type)
+            elif has_origin(type_, dict):
+                _, value_type = type_.__args__
+                append_if_subschema(value_type)
         lines.append("")
         lines.append("")
 
