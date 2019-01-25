@@ -31,7 +31,7 @@ setup(
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     keywords="machine-learning knowledge-base graph-embedding link-prediction",
-    packages=find_packages(exclude=["tests"]),
+    packages=find_packages(exclude=["docs", "tests"]),
     install_requires=requirements,
     entry_points={
         "console_scripts": [
