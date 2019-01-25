@@ -12,7 +12,7 @@
 # flake8: noqa
 
 from enum import Enum
-from unittest import TestCase
+from unittest import TestCase, main
 
 import torch
 import torch.nn as nn
@@ -1769,3 +1769,7 @@ class TestModel(TestCase):
             [-1.0000e+09, -1.0000e+09],
         ]))
         loss.backward()
+
+
+if __name__ == '__main__':
+    main()

@@ -7,7 +7,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from itertools import product
-from unittest import TestCase
+from unittest import TestCase, main
 
 from torchbiggraph.util import PartitionOrder, create_partition_pairs
 
@@ -41,3 +41,7 @@ class TestCreatePartitionPairs(TestCase):
                         (tuple(pair) for pair in actual_pairs_tensor.tolist()),
                         product(range(nparts_lhs), range(nparts_rhs))
                     )
+
+
+if __name__ == '__main__':
+    main()

@@ -6,7 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from unittest import TestCase
+from unittest import TestCase, main
 
 import attr
 
@@ -51,3 +51,7 @@ class TestConfig(TestCase):
             str(SampleStats(my_int_metric=1, my_float_metric=0.2, count=3)),
             "my_int_metric:  1 , my_float_metric:  0.2 , count:  3",
         )
+
+
+if __name__ == '__main__':
+    main()

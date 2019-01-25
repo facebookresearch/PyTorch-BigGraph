@@ -8,7 +8,7 @@
 
 from enum import Enum
 from typing import ClassVar, Dict, List, Optional, Union
-from unittest import TestCase
+from unittest import TestCase, main
 
 import attr
 
@@ -368,3 +368,7 @@ class TestConfig(TestCase):
                 '',
             ]
         )
+
+
+if __name__ == '__main__':
+    main()
