@@ -14,7 +14,7 @@ import attr
 
 import torchbiggraph.converters.utils as utils
 from torchbiggraph.config import parse_config
-from torchbiggraph.converters.input_to_filament import convert_input_data
+from torchbiggraph.converters.data_processor import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 

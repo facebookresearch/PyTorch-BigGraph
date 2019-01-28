@@ -2,3 +2,4 @@ attrs>=18.2.0
 h5py
 numpy
 torch>=1.0
+tqdm
