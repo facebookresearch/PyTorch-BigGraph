@@ -1,10 +1,10 @@
-# Pytorch-BigGraph
+# PyTorch-BigGraph
 
-Pytorch-BigGraph (PBG) is a system for producing graph embeddings for large, multi-relation graphs, particularly large web interaction graphs with up to billions of entities and trillions of edges.
+PyTorch-BigGraph (PBG) is a system for producing graph embeddings for large, multi-relation graphs, particularly large web interaction graphs with up to billions of entities and trillions of edges.
 
-PBG is described in [Pytorch-BigGraph: A Large-Scale GraphEmbedding Framework](http://arxiv.org/FIXME) (SysML '19).
+PBG is described in [PyTorch-BigGraph: A Large-Scale GraphEmbedding Framework](http://arxiv.org/FIXME) (SysML '19).
 
-PBG takes as input a list of graph edges (src, dest[, relation]) and produces a feature vector (embedding) for each entity. The entity embeddings are constructed so that entities that are connected by an edge are nearby in the vector space, while unconnected entities are farther apart. As a consequence, 'similar' entities (entities that have a similar distribution of neighbors) will have similar embeddings.
+PBG takes as input a list of graph edges `(source, destination[, relation])` and produces a feature vector (embedding) for each entity. The entity embeddings are constructed so that entities that are connected by an edge are nearby in the vector space, while unconnected entities are farther apart. As a consequence, 'similar' entities (entities that have a similar distribution of neighbors) will have similar embeddings.
 
 TODO something about multi-relation
 
@@ -13,41 +13,45 @@ The graph embedding models provided by Pytorch-BigGraph are similar to those use
 PBG is designed to scale to huge graphs via 
 - Graph partitioning, which allows PBG to train models that are too large to fit in memory
 - Optional distributed execution across multiple machines
-- Multi-threaded (HOGWILD) execution on each machine
-- Batched negative sampling, allowing for processing >1 million edges/sec/machine with 100 negative edges per positive edge
-- Implemented entirely in PyTorch with flexible configuration for models,
+- Multi-threaded execution on each machine
+- Batched negative sampling, allowing for processing >1 million edges/sec/machine with 100 negatives per edge
 
 PBG is *not* for model exploration with exotic models on small graphs, e.g. graph convnets, deep networks, etc.
 
 ## Requirements
 
-Python 3.6+
-Pytorch 1.0+
-No GPU required. We recommend a machine with a high number of cores, as training speed will be proportional to number of cores.
-**Distributed mode:** Multiple machines with a shared filesystem (for checkpointing). We recommend at least 10Gbps bandwidth between machines. Distributed execution uses [torch.distributed](https://pytorch.org/docs/stable/distributed.html), which uses the Gloo package which runs on top of TCP or MPI.
+- Python 3.6+
+- Pytorch 1.0+
+- No GPU required
+- We recommend a machine with a high number of cores for fast training on large graphs
+
+**Distributed mode only:** 
+- Multiple machines with a shared filesystem (for checkpointing).
+- at least 10Gbps bandwidth between machines recommended
+- PBG uses [torch.distributed](https://pytorch.org/docs/stable/distributed.html), which uses the Gloo package which runs on top of TCP or MPI.
 
 ## Getting Started
 
 1. Make sure you have Python 3.6+ installed. We recommend [Anaconda](https://www.anaconda.com/download) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
 2. Install [Pytorch](https://pytorch.org/get-started/locally/).
 3. `git clone https://github.com/facebookresearch/pytorch-biggraph`
-4. `cd pytorch-biggraph``
-5. `python setup.py install
+4. `cd pytorch-biggraph`
+5. `pip install -r requirements.txt`
+6. `python setup.py install`
 
 TODO @lerks what about conda/pip?
 
 ### Example Datasets
 
-We've included some scripts that train embeddings for some example dataset from [our paper](http://arxiv.org/FIXME) end-to-end. That includes downloading the datasets, converting them to the partitioned PBG format, training the embedding, and evaluating the quality of the embeddings.
+PBG contains scripts to train embeddings for some example datasets from the [PBG paper](http://arxiv.org/FIXME) end-to-end. That includes downloading the datasets, converting them to the partitioned PBG format, training the embedding, and evaluating the quality of the embeddings.
 
 ```
-cd pytorch-biggraph/examples
 # train an embedding for the fb15k knowledge graph dataset
 # TODO info about dynrel mode
-python fb15k.py
+python examples/fb15k.py
 
 # train an embedding for livejournal's interaction graph
-python livejournal.py
+python examples/livejournal.py
 ```
 
 ### Your Own Dataset
@@ -61,17 +65,17 @@ NOTE: If your edgelist is too large or not amenable to a text input format, you 
 2. Convert your data into PBG's input format.
 ```
 $ cd pytorch-biggraph
-$ bin/edgelist_to_filament.py my_config.py ... # FIXME
+$ bin/torchbiggraph_data_processor my_config.py ... # FIXME
 ```
 
 3. Train a model
 ```
-$ bin/train.py my_config.py [-p param=override_value]
+$ bin/torchbiggraph_train my_config.py [-p param=override_value]
 ```
 
 4. *Optional*: Evaluate the model on a held-out test set. Note that during training, PBG will intermittently evaluate your model on a held-out fraction of the data, so this is not necessary unless you have an explicit test set you are interested in evaluating on.
 ```
-$ bin/eval.py my_config.py
+$ bin/torchbiggraph_eval my_config.py
 ```
 
 5. *Optional*: Convert the learned embeddings to csv format:
@@ -79,8 +83,6 @@ $ bin/eval.py my_config.py
 $ bin/embeddings_to_csv.py my_config.py --out my_embeddings_tsv
 ```
 
-
-```
 ## License
 
 torchbiggraph is BSD licensed, as found in the LICENSE file.
