@@ -140,8 +140,7 @@ class FeaturizedEmbedding(AbstractEmbedding):
 
     def sample_entities(self, *dims: int) -> torch.FloatTensor:
         raise NotImplementedError(
-            "Cannot sample entities for featurized entities." +
-            "Set numUniformNegs=0 if using featurized entities.")
+            "Cannot sample entities for featurized entities.")
 
 
 class AbstractOperator(nn.Module, ABC):
@@ -771,16 +770,18 @@ class MultiRelationEmbedder(nn.Module):
             neg_embs = torch.empty(num_chunks, 0, dim)
 
         elif type_ is Negatives.CHUNK:
-            if num_uniform_neg == 0:
-                neg_embs = pos_embs
-            else:
-                neg_embs = torch.cat([
-                    pos_embs,
-                    self.adjust_embs(
-                        module.sample_entities(num_chunks, num_uniform_neg),
-                        rel=rel, side=side,
-                    ),
-                ], dim=1)
+            neg_embs = pos_embs
+            if num_uniform_neg > 0:
+                try:
+                    uniform_neg_embs = module.sample_entities(
+                        num_chunks, num_uniform_neg)
+                except NotImplementedError:
+                    pass  # only use pos_embs i.e. batch negatives
+                else:
+                    neg_embs = torch.cat([
+                        pos_embs,
+                        self.adjust_embs(uniform_neg_embs, rel=rel, side=side)
+                    ], dim=1)
 
             chunk_indices = torch.arange(chunk_size)
             last_chunk_indices = chunk_indices[:last_chunk_size]
