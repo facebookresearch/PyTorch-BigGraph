@@ -481,6 +481,8 @@ def init_process_group(backend='gloo',
     # the old behavior we use a ridiculously high default timeout.
     timeout = timedelta(days=365)
     log("init_process_group start")
+    if init_method is None:
+        raise RuntimeError("distributedInitMethod must be set when numMachines > 1")
     torch.distributed.init_process_group(backend,
                                          init_method=init_method,
                                          world_size=world_size,

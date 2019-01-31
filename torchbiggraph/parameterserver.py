@@ -119,7 +119,11 @@ class ParameterServer(object):
             torch.distributed.recv(size, src=rank)
             size = size.tolist()
         tensor_type = _tensor_types[ttype]
+        if not accum and overwrite and key in self.parameters:
+            # avoid holding onto 2x the memory
+            del self.parameters[key]
         data = tensor_type(*size)
+
         torch.distributed.recv(data, src=rank)
 
         if accum:
