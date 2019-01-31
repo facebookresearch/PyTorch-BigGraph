@@ -386,6 +386,9 @@ def train_and_report_stats(
                                          part)
                 if optim_key in optimizers:
                     del optimizers[optim_key]
+                # these variables are holding large objects; let them be freed
+                del embs
+                del optim_state
 
             if config.numMachines > 1:
                 lock_client.release_pair(oldP)

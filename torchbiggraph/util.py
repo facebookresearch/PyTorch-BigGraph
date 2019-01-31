@@ -107,12 +107,20 @@ def chunk_by_index(index, *others):
     return chunked
 
 
+def product(L):
+    p = 1
+    for i in L:
+        p *= i
+    return p
+
+
 def fast_approx_rand(*size):
-    # FIXME: remove the explicit conversion to int once torch.Size() is fixed:
-    #        https://github.com/pytorch/pytorch/issues/5663
-    res = torch.Tensor(torch.Size(int(i) for i in size))
-    if res.nelement() < 1000003:
+    numel = product(size)
+    if numel < 1000003:
         return torch.rand(size)
+    # construct the tensor storage in shared mem so we don't have to copy it
+    storage = torch.Storage._new_shared(numel)
+    res = torch.Tensor(storage).view(*size)
     rand = torch.rand(1000003)
     i = 0
     while i < res.nelement():

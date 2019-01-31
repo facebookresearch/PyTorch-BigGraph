@@ -22,6 +22,25 @@ from .entitylist import EntityList
 from .util import log, vlog, create_workers, join_workers
 
 
+def torch_load_shared(filename):
+    """Perform torch.load, with copy-free load of FloatTensors into shared memory."""
+
+    # `torch.load` calls the `map_location` function on `storage` immediately
+    # after it is constructed (before it is written to). Since the storage is not
+    # accessed, no physical memory is allocated to the original until after it is moved to
+    # shared memory.
+    #
+    # I construct a new storage rather than calling `share_memory_()` because
+    # it avoids an extra copy of the uninitialized tensor into shared memory,
+    # and is thus almost 2x faster.
+    #
+    # Note: an alternative (if this stops working) is to temporarily override
+    # torch.FloatStorage.__new__ to point to _new_shared, then call `torch.load`.
+
+    return torch.load(filename,
+                      map_location=lambda storage, _: storage._new_shared(storage.size()))
+
+
 class EdgeReader(object):
     """Reads partitioned edgelists from disk, in the format
     created by edge_downloader.py.
@@ -100,7 +119,7 @@ def process_io_command(cmd, path, data):
         return (cmd, path, None)
     elif cmd == 'load':
         vlog("Worker thread starting load of %s" % path)
-        res = torch.load(path)
+        res = torch_load_shared(path)
         vlog("Worker thread done load of %s" % path)
         return (cmd, path, res)
     elif cmd == 'event':
@@ -130,7 +149,7 @@ class PartitionClient(object):
     def get(self, entity, part):
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
-        embs = client.get(key + "__embs")
+        embs = client.get(key + "__embs", shared=True)
         optim_state = torch_rpc_deserialize(client.get(key + "__optim"))
         return (embs, optim_state)
 
@@ -287,7 +306,7 @@ class CheckpointManager(object):
             # we know there should be a file, we may just have to wait for it
             # to sync on gfsai (for distributed)
             # note, the outer function is retryable, so this doesn't have to be
-            return torch.load(file_path)
+            return torch_load_shared(file_path)
         else:
             return None
 

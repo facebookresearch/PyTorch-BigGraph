@@ -43,6 +43,7 @@ _tensor_types = [
     torch.LongTensor,
 ]
 
+
 _tensor_type_idx = {t().type(): i for i, t in enumerate(_tensor_types)}
 
 
@@ -166,7 +167,7 @@ class ParameterServerClient(object):
                                    self.server_rank)
         torch.distributed.send(src, self.server_rank)
 
-    def get(self, key, dst=None):
+    def get(self, key, dst=None, shared=False):
         """Get a tensor from the server.
         """
         cmd_rpc = torch.LongTensor([GET_CMD, len(key), dst is None, 0, 0, 0])
@@ -178,10 +179,14 @@ class ParameterServerClient(object):
             ndim, ttype = meta
             if ndim.item() == -1:
                 return None
-            tensor_type = _tensor_types[ttype.item()]
             size = torch.LongTensor(ndim.item()).fill_(-1)
             torch.distributed.recv(size, src=self.server_rank)
-            dst = tensor_type(*size.tolist())
+            tensor_type = _tensor_types[ttype.item()]
+            if shared:
+                dst_storage = tensor_type().storage_type()._new_shared(size.prod())
+                dst = tensor_type(dst_storage).view(*size.tolist())
+            else:
+                dst = tensor_type(*size.tolist())
         torch.distributed.recv(dst, src=self.server_rank)
         return dst
 
