@@ -54,7 +54,7 @@ class EntitySchema(Schema):
                           "of partitions"},
     )
     # TODO Turn into bool.
-    featurized: Optional[int] = attr.ib(
+    featurized: int = attr.ib(
         default=0,
         metadata={'help': "Whether we use featurized representation for the "
                           "entity."},
@@ -69,14 +69,14 @@ class RelationSchema(Schema):
     name: str = attr.ib()
     lhs: str = attr.ib()
     rhs: str = attr.ib()
-    weight: Optional[float] = attr.ib(
+    weight: float = attr.ib(
         default=1.0,
     )
-    operator: Optional[Operator] = attr.ib(
+    operator: Operator = attr.ib(
         default=Operator.NONE,
         metadata={'help': "Relation operator."},
     )
-    all_rhs_negs: Optional[int] = attr.ib(
+    all_rhs_negs: int = attr.ib(
         default=0,
         metadata={'help': "Use all RHS entities as negatives (StarSpace style) "
                           "rather than negative sampling."},
@@ -90,36 +90,36 @@ class ConfigSchema(Schema):
 
     # model config
 
-    model: Optional[str] = attr.ib(
+    model: str = attr.ib(
         default='f2_model',
         metadata={'help': "Model name."},
     )
     dimension: int = attr.ib(
         metadata={'help': "Embedding dimension."},
     )
-    relations: Optional[List[RelationSchema]] = attr.ib(
+    relations: List[RelationSchema] = attr.ib(
         metadata={'help': "List of relation configs, matching the relation "
                           "type ids in the edge list."},
     )
-    entities: Optional[Dict[str, EntitySchema]] = attr.ib(
+    entities: Dict[str, EntitySchema] = attr.ib(
         metadata={'help': "Dictionary {name: config} for each entity type."},
     )
-    metric: Optional[Metric] = attr.ib(
+    metric: Metric = attr.ib(
         default=Metric.COS,
         metadata={'help': "Distance metric"},
     )
-    lossFn: Optional[LossFn] = attr.ib(
+    lossFn: LossFn = attr.ib(
         default=LossFn.RANKING,
         metadata={'help': "Loss function"},
     )
     # TODO Turn into bool.
-    bias: Optional[int] = attr.ib(
+    bias: int = attr.ib(
         default=0,
         metadata={'help': "Add a bias term to the embeddings. Should be "
                           "enabled for logit/softmax embeddings"},
     )
     # TODO Turn into bool.
-    globalEmb: Optional[int] = attr.ib(
+    globalEmb: int = attr.ib(
         default=1,
         metadata={'help': "Use a learned global embedding feature for each "
                           "entity type"},
@@ -132,14 +132,14 @@ class ConfigSchema(Schema):
         default=0.1,
         metadata={'help': "margin for ranking loss"},
     )
-    initScale: Optional[float] = attr.ib(
+    initScale: float = attr.ib(
         default=1e-3,
         metadata={'help': "scale for randomly initialized entity embeddings"},
     )
 
     # data config
 
-    entityPath: Optional[str] = attr.ib(
+    entityPath: str = attr.ib(
         metadata={'help': "Path to directory containing entity metadata (from "
                           "download_entities.py)."},
     )
@@ -148,7 +148,7 @@ class ConfigSchema(Schema):
                           "(partitioned) edgelists (from download_edges.py). "
                           "Each path corresponds to one epoch."},
     )
-    outdir: Optional[str] = attr.ib(
+    outdir: str = attr.ib(
         metadata={'help': "Directory to write embeddings (will continue from "
                           "checkpoint if it exists)."},
     )
@@ -160,24 +160,24 @@ class ConfigSchema(Schema):
 
     # training config
 
-    batchSize: Optional[int] = attr.ib(
+    batchSize: int = attr.ib(
         default=1000,
         metadata={'help': "Number of edges per batch."},
     )
-    workers: Optional[int] = attr.ib(
+    workers: int = attr.ib(
         default=40,
         metadata={'help': "Number of worker threads for HOGWILD training."},
     )
-    lr: Optional[float] = attr.ib(
+    lr: float = attr.ib(
         default=1e-2,
         metadata={'help': "Learning rate for the optimizer."},
     )
-    numEpochs: Optional[int] = attr.ib(
+    numEpochs: int = attr.ib(
         default=1,
         metadata={'help': "Number of times to iterate through the edges for "
                           "training (i.e. through all the edgePaths)"},
     )
-    numEdgeChunks: Optional[int] = attr.ib(
+    numEdgeChunks: int = attr.ib(
         default=1,
         metadata={'help': "Number of times to iterate through all the "
                           "partitions during each epoch/edgePath, training on "
@@ -186,12 +186,12 @@ class ConfigSchema(Schema):
                           "multi-partition models, at the cost of more time "
                           "spent on I/O."},
     )
-    numUniformNegs: Optional[int] = attr.ib(
+    numUniformNegs: int = attr.ib(
         default=50,
         metadata={'help': "The number of uniformly-sampled negatives per "
                           "positive."},
     )
-    numBatchNegs: Optional[int] = attr.ib(
+    numBatchNegs: int = attr.ib(
         default=50,
         metadata={'help': "The number of negatives sampled from the batch, per "
                           "positive."},
@@ -201,19 +201,19 @@ class ConfigSchema(Schema):
         metadata={'help': "The order in which to iterate over left-hand-side "
                           "and right-hand-side partitions."},
     )
-    evalFraction: Optional[float] = attr.ib(
+    evalFraction: float = attr.ib(
         default=0.05,
         metadata={'help': "The fraction of edges to withhold from training and "
                           "use to track evaluation metrics during training."},
     )
-    evalNumUniformNegs: Optional[int] = attr.ib(
+    evalNumUniformNegs: int = attr.ib(
         default=1000,
         metadata={'help': "The value that overrides the number of "
                           "uniformly-sampled negatives per positive during the "
                           "evaluation steps that occur before and after each "
                           "training step."},
     )
-    evalNumBatchNegs: Optional[int] = attr.ib(
+    evalNumBatchNegs: int = attr.ib(
         default=1000,
         metadata={'help': "The value that overrides the number of negatives "
                           "per positive sampled from the batch during the "
@@ -224,11 +224,11 @@ class ConfigSchema(Schema):
     # expert options
 
     # TODO Turn into bool.
-    background_io: Optional[int] = attr.ib(
+    background_io: int = attr.ib(
         default=0,
         metadata={'help': "Do load/save in a background process"},
     )
-    verbose: Optional[int] = attr.ib(
+    verbose: int = attr.ib(
         default=1,
         metadata={'help': "Verbosity level"},
     )
@@ -247,11 +247,11 @@ class ConfigSchema(Schema):
 
     # distributed training config options
 
-    numMachines: Optional[int] = attr.ib(
+    numMachines: int = attr.ib(
         default=1,
         metadata={'help': "Number of machines for distributed training."},
     )
-    numPartitionServers: Optional[int] = attr.ib(
+    numPartitionServers: int = attr.ib(
         default=-1,
         metadata={'help': "If -1, use machines as partition servers. If 0, no "
                           "partition servers (swap partitions through disk). "
@@ -265,7 +265,7 @@ class ConfigSchema(Schema):
                           "(e.g., file:// or tcp://) supported by PyTorch."}
     )
     # TODO Turn into bool.
-    distributedTreeInitOrder: Optional[int] = attr.ib(
+    distributedTreeInitOrder: int = attr.ib(
         default=1,
         metadata={'help': "If enabled, then only one partition starts as "
                           "'initialized', and a pair can only be trained if "
