@@ -10,6 +10,12 @@ Welcome to torchbiggraph's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   data_model
+   scoring
+   batch_preparation
+   loss_optimization
+   evaluation
+   featurized_entities
 
 
 Indices and tables
