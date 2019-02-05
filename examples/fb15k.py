@@ -72,7 +72,7 @@ def main():
     train(train_config)
 
     evalPath = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
-    relations = [attr.evolve(r, all_rhs_negs=1) for r in config.relations]
+    relations = [attr.evolve(r, all_rhs_negs=True) for r in config.relations]
     eval_config = attr.evolve(config, edgePaths=evalPath, relations=relations)
 
     do_eval(eval_config)

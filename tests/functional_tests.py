@@ -138,7 +138,7 @@ class TestFunctional(TestCase):
             base_config,
             entityPath=dataset.entity_path.name,
             edgePaths=[dataset.relation_paths[1].name],
-            relations=[attr.evolve(relation_config, all_rhs_negs=1)],
+            relations=[attr.evolve(relation_config, all_rhs_negs=True)],
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)

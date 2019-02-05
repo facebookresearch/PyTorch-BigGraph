@@ -53,9 +53,8 @@ class EntitySchema(Schema):
                           "Typically, should be either 1 or the global number "
                           "of partitions"},
     )
-    # TODO Turn into bool.
-    featurized: int = attr.ib(
-        default=0,
+    featurized: bool = attr.ib(
+        default=False,
         metadata={'help': "Whether we use featurized representation for the "
                           "entity."},
     )
@@ -76,8 +75,8 @@ class RelationSchema(Schema):
         default=Operator.NONE,
         metadata={'help': "Relation operator."},
     )
-    all_rhs_negs: int = attr.ib(
-        default=0,
+    all_rhs_negs: bool = attr.ib(
+        default=False,
         metadata={'help': "Use all RHS entities as negatives (StarSpace style) "
                           "rather than negative sampling."},
     )
@@ -112,15 +111,13 @@ class ConfigSchema(Schema):
         default=LossFn.RANKING,
         metadata={'help': "Loss function"},
     )
-    # TODO Turn into bool.
-    bias: int = attr.ib(
-        default=0,
+    bias: bool = attr.ib(
+        default=False,
         metadata={'help': "Add a bias term to the embeddings. Should be "
                           "enabled for logit/softmax embeddings"},
     )
-    # TODO Turn into bool.
-    globalEmb: int = attr.ib(
-        default=1,
+    globalEmb: bool = attr.ib(
+        default=True,
         metadata={'help': "Use a learned global embedding feature for each "
                           "entity type"},
     )
@@ -223,9 +220,8 @@ class ConfigSchema(Schema):
 
     # expert options
 
-    # TODO Turn into bool.
-    background_io: int = attr.ib(
-        default=0,
+    background_io: bool = attr.ib(
+        default=False,
         metadata={'help': "Do load/save in a background process"},
     )
     verbose: int = attr.ib(
@@ -264,9 +260,8 @@ class ConfigSchema(Schema):
                           "of a distributed run. Must start with a scheme "
                           "(e.g., file:// or tcp://) supported by PyTorch."}
     )
-    # TODO Turn into bool.
-    distributedTreeInitOrder: int = attr.ib(
-        default=1,
+    distributedTreeInitOrder: bool = attr.ib(
+        default=True,
         metadata={'help': "If enabled, then only one partition starts as "
                           "'initialized', and a pair can only be trained if "
                           ">=1 of its LHS or RHS partition is initialized. "
@@ -294,7 +289,10 @@ def parse_config_base(config, overrides=None):
                     pass
                 if isinstance(param_type, type) and issubclass(param_type, list):
                     value = value.split(",")
-                if isinstance(param_type, type) and not issubclass(param_type, Enum):
+                # Convert numbers (caution: ignore bools, which are ints)
+                if isinstance(param_type, type) \
+                        and issubclass(param_type, (int, float)) \
+                        and not issubclass(param_type, bool):
                     value = param_type(value)
                 user_config[key] = value
             except Exception as e:

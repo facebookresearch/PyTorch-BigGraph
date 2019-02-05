@@ -22,6 +22,10 @@ import attr
 schema = attr.s(kw_only=True, slots=True, frozen=True)  # noqa
 
 
+TRUE_STRINGS = {"1", "y", "yes", "true"}
+FALSE_STRINGS = {"0", "n", "no", "false"}
+
+
 # Optional[foo] is an alias for Union[foo, NoneType], but Unions are weird.
 def unpack_optional(type_):
     try:
@@ -61,11 +65,9 @@ class DeepTypeError(TypeError):
 
 class Mapper(ABC):
 
-    @staticmethod
-    def map_bool(data: Any) -> bool:
-        if not isinstance(data, bool):
-            raise DeepTypeError("Not a bool")
-        return data
+    @abstractmethod
+    def map_bool(self, data: Any) -> bool:
+        pass
 
     @staticmethod
     def map_int(data: Any) -> int:
@@ -78,7 +80,7 @@ class Mapper(ABC):
         # Integers are real numbers: ints are floats.
         if not isinstance(data, (int, float)):
             raise DeepTypeError("Not a float")
-        return data
+        return float(data)
 
     @staticmethod
     def map_str(data: Any) -> str:
@@ -158,8 +160,28 @@ class Mapper(ABC):
 class Loader(Mapper):
 
     @staticmethod
+    def map_bool(data: Any) -> bool:
+        if not isinstance(data, bool):
+            # Be lenient.
+            if isinstance(data, int):
+                if data == 0:
+                    return False
+                if data == 1:
+                    return True
+            if isinstance(data, str):
+                if data.lower() in TRUE_STRINGS:
+                    return True
+                if data.lower() in FALSE_STRINGS:
+                    return False
+            raise DeepTypeError("Not a bool")
+        return data
+
+    @staticmethod
     def map_enum(data: Any, type_: Type[Enum]) -> Enum:
         if not isinstance(data, str):
+            # Be lenient.
+            if isinstance(data, type_):
+                return data
             raise TypeError("Not a str: %s" % data)
         return type_[data.upper()]
 
@@ -185,6 +207,12 @@ class Loader(Mapper):
 
 
 class Dumper(Mapper):
+
+    @staticmethod
+    def map_bool(data: Any) -> bool:
+        if not isinstance(data, bool):
+            raise DeepTypeError("Not a bool")
+        return data
 
     @staticmethod
     def map_enum(data: Any, type_: Type[Enum]) -> str:

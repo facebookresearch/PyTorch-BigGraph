@@ -31,7 +31,7 @@ def getConf():
         outdir='model/livejournal',
 
         dimension=1024,
-        globalEmb=0,
+        globalEmb=False,
         lr=0.001,
         hogwild_delay=2
     )

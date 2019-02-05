@@ -33,7 +33,7 @@ def getConf():
         outdir='model/fb15k',
 
         dimension=100,
-        globalEmb=0,
+        globalEmb=False,
         maxNorm=1,
         margin=0.2,
         metric='dot',

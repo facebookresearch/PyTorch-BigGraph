@@ -837,7 +837,7 @@ class TestModel(TestCase):
         ]))
         entity_dict = {"foo_entity": EntitySchema(
             numPartitions=1,
-            featurized=1 if entities is Entities.FEATURIZED else 0,
+            featurized=entities is Entities.FEATURIZED,
         )}
         relation_list = [RelationSchema(
             name="bar_relation",
@@ -845,7 +845,7 @@ class TestModel(TestCase):
             rhs="foo_entity",
             weight=1.0,
             operator=operator,
-            all_rhs_negs=1 if negatives is Negatives.ALL else 0,
+            all_rhs_negs=negatives is Negatives.ALL,
         )]
         model = MultiRelationEmbedder(
             dim=5,
