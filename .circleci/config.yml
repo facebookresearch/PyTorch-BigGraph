@@ -1,0 +1,116 @@
+version: 2.1
+
+executors:
+  default_executor:
+    docker:
+      - image: circleci/python:3.6
+    working_directory: ~/PyTorch-BigGraph
+
+commands:
+  # Need this because env vars added to the executors aren't expanded/interpolated.
+  # This means that both `~` and `$HOME` would be treated as literals.
+  export_env_vars:
+    steps:
+      - run:
+          name: Export environment variables
+          command: |
+            echo 'export PYTHONUSERBASE=~/local_python' >> $BASH_ENV
+  cached_checkout:
+    steps:
+      - restore_cache:
+          keys:
+            - source-v1-{{ .Branch }}-{{ .Revision }}
+            - source-v1-{{ .Branch }}-
+            - source-v1-
+      - checkout
+      - save_cache:
+          key: source-v1-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - .git
+  install_dependencies:
+    parameters:
+      requirements_file:
+        type: string
+      summary_file:
+        type: string
+    steps:
+      - restore_cache:
+          keys:
+            - local-python-v1-{{ .Branch }}-
+            - local-python-v1-
+      - run:
+          name: Set up local Python environment
+          command: |
+            pip install --user --requirement << parameters.requirements_file >> --upgrade --upgrade-strategy eager --progress-bar off
+            pip freeze --user > << parameters.summary_file >>
+      - save_cache:
+          key: local-python-v1-{{ .Branch }}-{{ checksum "<< parameters.summary_file >>" }}
+          paths:
+            - ~/local_python
+  load_installed_dependencies:
+    parameters:
+      summary_file:
+        type: string
+    steps:
+      - restore_cache:
+          keys:
+            - local-python-v1-{{ .Branch }}-{{ checksum "<< parameters.summary_file >>" }}
+            - local-python-v1-{{ .Branch }}-
+            - local-python-v1-
+      - run:
+          name: Set up local Python environment
+          command: |
+            pip install --user --requirement << parameters.summary_file >> --progress-bar off
+
+jobs:
+  build-install:
+    executor: default_executor
+    steps:
+      - export_env_vars
+      - cached_checkout
+      - install_dependencies:
+          requirements_file: requirements.txt
+          summary_file: ~/pip_freeze.txt
+      - run:
+          name: Install PyTorch-BigGraph
+          command: |
+            python3 -m venv --system-site-packages ~/venv
+            . ~/venv/bin/activate
+            python3 setup.py install
+      - persist_to_workspace:
+          root: "~"
+          paths:
+            - pip_freeze.txt
+            - venv
+      - persist_to_workspace:
+          root: tests
+          paths:
+            - "*.py"
+  test:
+    executor: default_executor
+    steps:
+      - export_env_vars
+      - attach_workspace:
+          at: "~"
+      - load_installed_dependencies:
+          summary_file: ~/pip_freeze.txt
+      - attach_workspace:
+          at: tests
+      - run:
+          name: Test all the things!
+          command: |
+            . ~/venv/bin/activate
+            python3 tests/functional_tests.py
+            python3 tests/model_tests.py
+            python3 tests/schema_tests.py
+            python3 tests/stats_tests.py
+            python3 tests/util_tests.py
+
+workflows:
+  version: 2
+  build-install-test:
+    jobs:
+      - build-install
+      - test:
+          requires:
+            - build-install
