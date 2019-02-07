@@ -12,20 +12,20 @@ Training proceeds by iterating over the edges, through various nested loops. The
 outermost one walks through so-called **epochs**. Each epoch is independent and
 essentially equivalent to every other one. Their goal is to repeat the inner loop
 until convergence. Each epoch visits all the edges exactly once. The number of
-epochs is specified in the ``numEpochs`` configuration parameter.
+epochs is specified in the ``num_epochs`` configuration parameter.
 
-The edges are partitioned into **edge sets** (one for each directory of the ``edgePaths``
+The edges are partitioned into **edge sets** (one for each directory of the ``edge_paths``
 configuration key) and, within each epoch, the edge sets are traversed in order.
 
 When iterating over an edge set, each of its buckets is first divided into
 equally sized **chunks**: each chunk spans a contiguous interval of edges (in the
 order they are stored in the files) and the number of chunks can be tweaked
-using the ``numEdgeChunks`` configuration key. The training first operates
+using the ``num_edge_chunks`` configuration key. The training first operates
 on the all the first chunks of all buckets, then on all of their second chunks,
 and so on.
 
 Next, the algorithm iterates over the **buckets**. The order in which buckets are
-processed depends on the value of the ``partitionOrder`` configuration key. In
+processed depends on the value of the ``bucket_order`` configuration key. In
 addition to a random permutation, there are methods that try to have successive
 buckets share a common partition: this allows for that partition to be reused,
 thus allowing it to be kept in memory rather than being unloaded and another one
@@ -46,14 +46,14 @@ The number of such workers is determined by the ``workers`` parameter.
 The way each worker trains on its set of edges depends on whether
 :ref:`dynamic relations <dynamic-relations>` are in use. The simplest scenario is if
 they are, in which case the edges are split into contiguous **batches** (each one having
-the size specified in the ``batchSize`` configuration key, except possibly the last
+the size specified in the ``batch_size`` configuration key, except possibly the last
 one which could be smaller). Training is then performed on that batch before moving
 on to the next one.
 
 When dynamic relations are not in use, however, the loss can only be computed on
 a set of edges that are all of the same type. Thus the worker first randomly
 samples a relation type, with probability proportional to the number of edges
-of that type that are left in the pool. It then takes the first ``batchSize`` relations of
+of that type that are left in the pool. It then takes the first ``batch_size`` relations of
 that type (or fewer, if not enough of them are left), removes them from the pool and
 performs training on them.
 
@@ -62,8 +62,8 @@ performs training on them.
 Distributed mode
 ================
 
-Talk about what invocations need to be done (``numMachines`` trainers plus, in
-case, ``numPartitionServers`` partition servers)
+Talk about what invocations need to be done (``num_machines`` trainers plus, in
+case, ``num_partition_servers`` partition servers)
 
 Talk about what processes they each spawn, how they communicate (using ``torch.distributed``, or queues, or the filesystem, ...)
 

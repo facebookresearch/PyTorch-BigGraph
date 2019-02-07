@@ -54,10 +54,10 @@ def main():
     utils.extract_tar(fpath)
     print('Downloaded and extracted file.')
 
-    edgePaths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
+    edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
     convert_input_data(
         args.config,
-        edgePaths,
+        edge_paths,
         isDynamic=1,
         srcCol=0,
         destCol=2,
@@ -67,13 +67,13 @@ def main():
     config = parse_config(args.config, overrides)
 
     trainPath = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
-    train_config = attr.evolve(config, edgePaths=trainPath)
+    train_config = attr.evolve(config, edge_paths=trainPath)
 
     train(train_config)
 
     evalPath = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
-    relations = [attr.evolve(r, all_rhs_negs=True) for r in config.relations]
-    eval_config = attr.evolve(config, edgePaths=evalPath, relations=relations)
+    relations = [attr.evolve(r, all_negs=True) for r in config.relations]
+    eval_config = attr.evolve(config, edge_paths=evalPath, relations=relations)
 
     do_eval(eval_config)
 

@@ -21,7 +21,7 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
-from .config import PartitionOrder
+from .config import BucketOrder
 
 
 T = TypeVar("T")
@@ -193,22 +193,22 @@ def join_workers(processes, qIn, qOut):
 # config routines
 
 def get_partitioned_types(config):
-    # Currently, we only allow a single value of numPartitions other than 1.
-    # Eventually, we will allow arbitrary nested numPartitions.
-    max_parts = max(e.numPartitions for e in config.entities.values())
+    # Currently, we only allow a single value of num_partitions other than 1.
+    # Eventually, we will allow arbitrary nested num_partitions.
+    max_parts = max(e.num_partitions for e in config.entities.values())
     for e in config.entities.values():
-        assert e.numPartitions == 1 or e.numPartitions == max_parts, (
-            "Currently numPartitions must be either 1 or a single value across "
+        assert e.num_partitions == 1 or e.num_partitions == max_parts, (
+            "Currently num_partitions must be either 1 or a single value across "
             "all entities.")
 
     # Figure out how many lhs and rhs partitions we need
     nparts_rhs, nparts_lhs = 1, 1
     lhs_partitioned_types, rhs_partitioned_types = set(), set()
     for relation in config.relations:
-        if config.entities[relation.lhs].numPartitions != 1:
+        if config.entities[relation.lhs].num_partitions != 1:
             lhs_partitioned_types.add(relation.lhs)
             nparts_lhs = max_parts
-        if config.entities[relation.rhs].numPartitions != 1:
+        if config.entities[relation.rhs].num_partitions != 1:
             rhs_partitioned_types.add(relation.rhs)
             nparts_rhs = max_parts
 
@@ -216,7 +216,7 @@ def get_partitioned_types(config):
 
 
 def update_config_for_dynamic_relations(config):
-    dynamic_rel_path = os.path.join(config.entityPath, "dynamic_rel_count.pt")
+    dynamic_rel_path = os.path.join(config.entity_path, "dynamic_rel_count.pt")
     if os.path.exists(dynamic_rel_path):
         num_dynamic_rels = torch.load(dynamic_rel_path)
         log("Found file at %s ; enabling dynamic rel batches with %d relations" %
@@ -224,17 +224,17 @@ def update_config_for_dynamic_relations(config):
         assert len(config.relations) == 1, """
             Dynamic relations are enabled so there should only be a single entry
             in config.relations with config for all relations."""
-        return attr.evolve(config, numDynamicRels=num_dynamic_rels)
+        return attr.evolve(config, num_dynamic_rels=num_dynamic_rels)
     return config
 
 
 # train
-def create_partition_pairs(nparts_lhs, nparts_rhs, partition_order: PartitionOrder):
+def create_partition_pairs(nparts_lhs, nparts_rhs, bucket_order: BucketOrder):
     """Create all pairs of tuples (<LHS partition ID>, <RHS partition ID>), and
-    sort the tuples according to partitionOrder.
+    sort the tuples according to bucket_order.
     """
 
-    if partition_order is PartitionOrder.CHAINED_SYMMETRIC_PAIRS:
+    if bucket_order is BucketOrder.CHAINED_SYMMETRIC_PAIRS:
         """
         Create an ordering of the partition pairs that ensures that the
         mirror-image of any partition pair is adjacent to it if it exists. For
@@ -265,10 +265,10 @@ def create_partition_pairs(nparts_lhs, nparts_rhs, partition_order: PartitionOrd
 
         return torch.FloatTensor(flattened_pairs).int()
 
-    elif partition_order is PartitionOrder.INSIDE_OUT \
-            or partition_order is PartitionOrder.OUTSIDE_IN:
+    elif bucket_order is BucketOrder.INSIDE_OUT \
+            or bucket_order is BucketOrder.OUTSIDE_IN:
 
-        # For partition_order == 'inside_out', sort the partition pairs so that
+        # For bucket_order == 'inside_out', sort the partition pairs so that
         # the first row and first column of tuples are iterated over last,
         # preceded by the second row and second column, etc., such that the very
         # first partition pair is the last row and last column.
@@ -281,7 +281,7 @@ def create_partition_pairs(nparts_lhs, nparts_rhs, partition_order: PartitionOrd
         # ]. Note that the partition pairs will be shuffled within each row
         # listed above.)
         #
-        # For partition_order == 'outside_in', sort the partition pairs so that
+        # For bucket_order == 'outside_in', sort the partition pairs so that
         # the first row and first column of tuples are iterated over first, then
         # the second row and second column, etc.
         # (Example: if the LHS and RHS each contain 4 partitions, the ordering
@@ -302,12 +302,12 @@ def create_partition_pairs(nparts_lhs, nparts_rhs, partition_order: PartitionOrd
 
         num_layers = min([nparts_lhs, nparts_rhs])
         all_pairs: List[List[int]] = []
-        if partition_order is PartitionOrder.INSIDE_OUT:
+        if bucket_order is BucketOrder.INSIDE_OUT:
             layers = range(num_layers - 1, -1, -1)
-        elif partition_order is PartitionOrder.OUTSIDE_IN:
+        elif bucket_order is BucketOrder.OUTSIDE_IN:
             layers = range(num_layers)
         else:
-            raise ValueError('Unrecognized partition_order value!')
+            raise ValueError('Unrecognized bucket_order value!')
         for layer_idx in layers:
             pairs_for_this_layer = create_partition_pairs_for_one_layer(
                 nparts_lhs=nparts_lhs,
@@ -317,7 +317,7 @@ def create_partition_pairs(nparts_lhs, nparts_rhs, partition_order: PartitionOrd
             all_pairs += np.random.permutation(pairs_for_this_layer).tolist()
         return torch.FloatTensor(all_pairs).int()
 
-    elif partition_order is PartitionOrder.RANDOM:
+    elif bucket_order is BucketOrder.RANDOM:
 
         partition_pairs = torch.stack([
             torch.arange(0, nparts_lhs).expand(nparts_rhs, nparts_lhs).t(),
@@ -328,7 +328,7 @@ def create_partition_pairs(nparts_lhs, nparts_rhs, partition_order: PartitionOrd
         return partition_pairs[torch.randperm(partition_pairs.size(0))].int()
 
     else:
-        raise NotImplementedError("Unknown partition order: %s" % partition_order)
+        raise NotImplementedError("Unknown bucket order: %s" % bucket_order)
 
 
 def create_partition_pairs_for_one_layer(nparts_lhs, nparts_rhs, layer_idx):
@@ -482,7 +482,7 @@ def init_process_group(backend='gloo',
     timeout = timedelta(days=365)
     log("init_process_group start")
     if init_method is None:
-        raise RuntimeError("distributedInitMethod must be set when numMachines > 1")
+        raise RuntimeError("distributed_init_method must be set when num_machines > 1")
     torch.distributed.init_process_group(backend,
                                          init_method=init_method,
                                          world_size=world_size,

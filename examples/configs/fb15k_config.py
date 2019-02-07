@@ -9,15 +9,15 @@
 entity_base = "data/FB15k"
 
 
-def getConf():
+def get_torchbiggraph_conf():
 
     config = dict(
-        entityPath=entity_base,
+        entity_path=entity_base,
 
-        numEpochs=200,
+        num_epochs=200,
 
         entities={
-            'all': {'numPartitions': 1},
+            'all': {'num_partitions': 1},
         },
 
         relations=[{
@@ -27,19 +27,18 @@ def getConf():
             'operator': 'translation'
         }],
 
-        edgePaths=[],
+        edge_paths=[],
 
-        model='fb15k_dynamic',
-        outdir='model/fb15k',
+        checkpoint_path='model/fb15k',
 
         dimension=100,
-        globalEmb=False,
-        maxNorm=1,
+        global_emb=False,
+        max_norm=1,
         margin=0.2,
-        metric='dot',
+        comparator='dot',
         lr=0.1,
-        numUniformNegs=0,
-        numBatchNegs=100,
+        num_uniform_negs=0,
+        num_batch_negs=100,
     )
 
     return config

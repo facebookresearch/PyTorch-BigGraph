@@ -44,6 +44,10 @@ def has_origin(type_, base_type):
         return False
 
 
+def mixed_case_to_lowercase(key: str) -> str:
+    return "".join("_%s" % c.lower() if c.isupper() else c for c in key)
+
+
 class DeepTypeError(TypeError):
 
     def __init__(self, message):
@@ -191,6 +195,8 @@ class Loader(Mapper):
         fields = attr.fields_dict(type_)
         kwargs = {}
         for key, value in data.items():
+            # Convert legacy mixedCase to lower_case.
+            key = mixed_case_to_lowercase(key)
             try:
                 field = fields[key]
             except LookupError:

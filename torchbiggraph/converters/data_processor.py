@@ -24,7 +24,7 @@ def build_entity_dict(
     rdict,
     entities,
     relations,
-    edgePaths,
+    edge_paths,
     isDynamic,
     srcCol,
     destCol,
@@ -38,11 +38,11 @@ def build_entity_dict(
     for entity, entity_config in entities.items():
         print(entity, entity_config)
         freq = entityMinCount
-        npart = entity_config.numPartitions
+        npart = entity_config.num_partitions
         entity_dict[entity] = Dictionary(freq, 'ENTITY', entity, npart)
 
     # read entities in files to build entity dict
-    for edgepath in edgePaths:
+    for edgepath in edge_paths:
         print(edgepath)
         if isDynamic:
             cols = [srcCol, destCol]
@@ -79,7 +79,7 @@ def build_entity_dict(
 
 def build_relation_dict(
     relations,
-    edgePaths,
+    edge_paths,
     isDynamic,
     relationCol,
     relationMinCount,
@@ -91,7 +91,7 @@ def build_relation_dict(
     if isDynamic:
         assert relationCol is not None, \
             "Need to set relationCol in dynamic mode."
-        for edgepath in edgePaths:
+        for edgepath in edge_paths:
             rdict.add_from_file(edgepath, [relationCol])
         rdict.filter_and_shuffle()
 
@@ -104,17 +104,17 @@ def build_relation_dict(
     return rdict
 
 
-def generate_entity_size_file(entities, entityPath, entity_dict):
+def generate_entity_size_file(entities, entity_path, entity_dict):
     # save entity file
     for entity, entity_config in entities.items():
-        npart = entity_config.numPartitions
+        npart = entity_config.num_partitions
         part_size = entity_dict[entity].part_size()
 
         for i in range(1, npart + 1):
             torch.save(
                 part_size,
                 os.path.join(
-                    entityPath,
+                    entity_path,
                     'entity_count_%s_%d.pt' % (entity, i)
                 )
             )
@@ -223,7 +223,7 @@ def convert_and_partition_data(
 
 def convert_input_data(
     config,
-    edgePaths,
+    edge_paths,
     isDynamic=0,
     srcCol=0,
     destCol=1,
@@ -232,13 +232,13 @@ def convert_input_data(
     relationMinCount=1,
 ):
 
-    entities, relations, entityPath = validate_config(config)
+    entities, relations, entity_path = validate_config(config)
 
-    os.makedirs(entityPath, exist_ok=True)
+    os.makedirs(entity_path, exist_ok=True)
 
     rdict = build_relation_dict(
         relations,
-        edgePaths,
+        edge_paths,
         isDynamic,
         relationCol,
         relationMinCount
@@ -248,7 +248,7 @@ def convert_input_data(
         rdict,
         entities,
         relations,
-        edgePaths,
+        edge_paths,
         isDynamic,
         srcCol,
         destCol,
@@ -259,19 +259,19 @@ def convert_input_data(
     if isDynamic:
         torch.save(
             rdict.size(),
-            os.path.join(entityPath, 'dynamic_rel_count.pt')
+            os.path.join(entity_path, 'dynamic_rel_count.pt')
         )
 
     edict_params = {k : v.get_params() for k, v in edict.items()}
     rdict_params = rdict.get_params()
     torch.save(
         (edict_params, rdict_params),
-        os.path.join(entityPath, 'dict.pt')
+        os.path.join(entity_path, 'dict.pt')
     )
 
-    generate_entity_size_file(entities, entityPath, edict)
+    generate_entity_size_file(entities, entity_path, edict)
 
-    for edgepath in edgePaths:
+    for edgepath in edge_paths:
         convert_and_partition_data(
             edict,
             rdict,
@@ -290,13 +290,13 @@ def validate_config(config):
     # validate entites and relations config
     entities_config = user_config.get("entities")
     relations_config = user_config.get("relations")
-    entityPath = user_config.get("entityPath")
+    entity_path = user_config.get("entity_path")
     if not isinstance(entities_config, dict):
         raise TypeError("Config entities is not of type dict")
     if not isinstance(relations_config, list):
         raise TypeError("Config relations is not of type list")
-    if not isinstance(entityPath, str):
-        raise TypeError("Config entityPath is not of type str")
+    if not isinstance(entity_path, str):
+        raise TypeError("Config entity_path is not of type str")
 
     entities = {}
     relations = []
@@ -305,7 +305,7 @@ def validate_config(config):
     for relation in relations_config:
         relations.append(RelationSchema.from_dict(relation))
 
-    return entities, relations, entityPath
+    return entities, relations, entity_path
 
 
 def main():
@@ -317,7 +317,7 @@ def main():
     )
     parser.add_argument('config', help='Path to config file')
 
-    parser.add_argument('edgePaths', nargs='*', help='Input file paths')
+    parser.add_argument('edge_paths', nargs='*', help='Input file paths')
     parser.add_argument('-r', '--relationCol', type=int,
                         help='Column index for relation entity')
     parser.add_argument('-s', '--srcCol', type=int, required=True,
@@ -335,7 +335,7 @@ def main():
 
     convert_input_data(
         opt.config,
-        opt.edgePaths,
+        opt.edge_paths,
         opt.isDynamic,
         opt.srcCol,
         opt.destCol,

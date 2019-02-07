@@ -79,17 +79,17 @@ a file named :file:`entity_count_{type}_{part}.pt` for each entity type identifi
 by ``type`` and each partition ``part``. These files must contain a
 PyTorch-flavored pickled integer (i.e., the format produced by :func:`torch.save`),
 which is the number of entities in that partition. The directory where all these
-files reside must be specified as the ``entityPath`` key of the configuration file.
+files reside must be specified as the ``entity_path`` key of the configuration file.
 
 It is possible to provide an initial value for the embeddings, by specifying a
-value for the ``loadPath`` configuration key, which is the name of a directory that
+value for the ``init_path`` configuration key, which is the name of a directory that
 contains files in a format similar to the output format detailed in
 :ref:`output-format`: the :file:`METADATA_1` file can be omitted, the optimizer
 state can be ``None`` and, optionally, one can also omit the :file:`CHECKPOINT_VERSION`
 file and avoid adding a version suffix to any file.
 
 .. todo::
-    If no initial value is provided, it will be auto-generated, using ``initScale``.
+    If no initial value is provided, it will be auto-generated, using ``init_scale``.
 
 Edges
 -----
@@ -114,7 +114,7 @@ of the left- and right-hand side entities within their respective partitions.
     uniformly spread across all buckets.
 
 These files, for all buckets, must be stored in the same directory, which must
-be passed as the ``edgePaths`` configuration key. That key can actually contain
+be passed as the ``edge_paths`` configuration key. That key can actually contain
 a list of paths, each pointing to a directory of the format described above: in
 that case the graph will contain the union of all their edges.
 
@@ -125,7 +125,7 @@ allowed to contain loops, that is, edges with the same entity on both sides)
 
 .. note::
     When using dynamic relations there also needs to be an additional file,
-    named :file:`dynamic_rel_count.pt`, in the ``entityPath`` directory.
+    named :file:`dynamic_rel_count.pt`, in the ``entity_path`` directory.
 
 .. _output-format:
 
@@ -133,7 +133,7 @@ Output format
 =============
 
 The training's checkpoints are also its output, and they are written to the directory
-given as the ``outdir`` parameter in the configuration. Checkpoints are identified
+given as the ``checkpoint_path`` parameter in the configuration. Checkpoints are identified
 by successive positive integers, starting from 1, and all the files belonging to
 a certain checkpoint have their names end with :file:`.{version}`.
 

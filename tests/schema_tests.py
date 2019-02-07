@@ -201,7 +201,8 @@ class TestLoader(BaseMapperMixin, TestCase):
                     "my_bool": True,
                     "my_int": -2,
                     "my_float": 3.14,
-                    "my_str": "bar",
+                    # Test mixedCase to lower_case conversion.
+                    "myStr": "bar",
                     "my_enum": "eggs",
                     "my_optional_str": None,
                     "my_list": ["spam", "ham"],

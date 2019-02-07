@@ -74,7 +74,7 @@ def eval_many_batches(config, model, lhs, rhs, rel):
     if model.num_dynamic_rels > 0:
         offset, N = 0, rel.size(0)
         while offset < N:
-            B = min(N - offset, config.batchSize)
+            B = min(N - offset, config.batch_size)
             all_stats.append(eval_one_batch(
                 model,
                 lhs[offset:offset + B],
@@ -83,7 +83,7 @@ def eval_many_batches(config, model, lhs, rhs, rel):
             offset += B
     else:
         _, lhs_chunked, rhs_chunked = chunk_by_index(rel, lhs, rhs)
-        B = config.batchSize
+        B = config.batch_size
         for rel_type, (lhs_rel, rhs_rel) in enumerate(zip(lhs_chunked, rhs_chunked)):
             if lhs_rel.nelement() == 0:
                 continue
@@ -114,7 +114,7 @@ def do_eval_and_report_stats(
 
     config = update_config_for_dynamic_relations(config)
 
-    checkpoint_manager = CheckpointManager(config.outdir)
+    checkpoint_manager = CheckpointManager(config.checkpoint_path)
 
     def load_embeddings(entity, part=0):
         data = checkpoint_manager.read(entity, part, strict=True)
@@ -138,15 +138,15 @@ def do_eval_and_report_stats(
     model.eval()
 
     for entity, econfig in config.entities.items():
-        if econfig.numPartitions == 1:
+        if econfig.num_partitions == 1:
             embs = load_embeddings(entity)
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)
 
-    for epoch in range(len(config.edgePaths)):  # FIXME: maybe just one epoch?
-        edgePath = config.edgePaths[epoch]
+    for epoch in range(len(config.edge_paths)):  # FIXME: maybe just one epoch?
+        edgePath = config.edge_paths[epoch]
         log("Starting epoch %d / %d; edgePath= %s" %
-            (epoch + 1, len(config.edgePaths), config.edgePaths[epoch]))
+            (epoch + 1, len(config.edge_paths), config.edge_paths[epoch]))
         edge_reader = EdgeReader(edgePath)
 
         all_epoch_stats = []

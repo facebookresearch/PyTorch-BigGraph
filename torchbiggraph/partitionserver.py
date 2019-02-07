@@ -15,17 +15,17 @@ from .util import init_process_group
 
 # This is a small binary that just runs a partition server.
 # You need to run this if you run a distributed run and set
-# numPartitionServers > 1.
+# num_partition_servers > 1.
 
 
 def run_partition_server(config, rank=0):
-    barrier_group_ranks = list(range(config.numMachines))
-    init_process_group(rank=config.numMachines * 3 + 1 + rank,
-                       init_method=config.distributedInitMethod,
-                       world_size=config.numMachines * 3 + 1 + config.numPartitionServers,
+    barrier_group_ranks = list(range(config.num_machines))
+    init_process_group(rank=config.num_machines * 3 + 1 + rank,
+                       init_method=config.distributed_init_method,
+                       world_size=config.num_machines * 3 + 1 + config.num_partition_servers,
                        groups=[barrier_group_ranks],  # ugh
                        )
-    ps = ParameterServer(config.numMachines)
+    ps = ParameterServer(config.num_machines)
     ps.start()
 
 

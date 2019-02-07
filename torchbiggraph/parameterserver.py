@@ -400,7 +400,7 @@ def setup_parameter_server(server_rank,
     }
 
     # set up the parameter server on rank 0, but as a separate node
-    # with MPI rank numMachines
+    # with MPI rank num_machines
     p_server = mp.Process(target=_start_parameter_server,
                           args=(process_group_params, server_rank, num_clients)
                           )

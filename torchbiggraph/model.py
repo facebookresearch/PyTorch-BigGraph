@@ -16,7 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
-from .config import LossFn, Operator, Metric, EntitySchema, RelationSchema, ConfigSchema
+from .config import LossFunction, Operator, Comparator, EntitySchema, RelationSchema, ConfigSchema
 from .util import log, Side
 
 
@@ -267,9 +267,9 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
         return embeddings + self.translations[operator_idxs]
 
 
-class AbstractMetric(nn.Module, ABC):
+class AbstractComparator(nn.Module, ABC):
 
-    """Calculate distances between pairs of given vectors in a certain space.
+    """Calculate scores between pairs of given vectors in a certain space.
 
     The input consists of four tensors each representing a set of vectors: one
     set for each pair of the product between <left-hand side vs right-hand side>
@@ -282,24 +282,25 @@ class AbstractMetric(nn.Module, ABC):
         L+: C x P x D     R+: C x P x D     L-: C x L x D     R-: C x R x D
 
     The output consists of three tensors:
-    - One for the distances between the corresponding pairs in L+ and R+. That
-      is, for each chunk on one side, each vector of that chunk is compared only
+    - One for the scores between the corresponding pairs in L+ and R+. That is,
+      for each chunk on one side, each vector of that chunk is compared only
       with the corresponding vector in the corresponding chunk on the other
       side. Think of it as the "inner" product of the two sides, or a matching.
-    - Two for the distances between R+ and L- and between L+ and R-, where for
-      each pair of corresponding chunks, all the vectors on one side are
-      compared with all the vectors on the other side. Think of it as a
-      per-chunk "outer" product, or a complete bipartite graph.
+    - Two for the scores between R+ and L- and between L+ and R-, where for each
+      pair of corresponding chunks, all the vectors on one side are compared
+      with all the vectors on the other side. Think of it as a per-chunk "outer"
+      product, or a complete bipartite graph.
     Hence the sizes of the three output tensors are:
 
         ⟨L+,R+⟩: C x P     R+ ⊗ L-: C x P x L     L+ ⊗ R-: C x P x R
 
-    Some metrics may need to peform a certain operation in the same way on all
-    input vectors (say, normalizing them) before starting to compare them. When
-    some vectors are used as both positives and negatives, the operation should
-    ideally only be performed once. For that to occur, metrics expose a prepare
-    method that the user should call on the vectors before passing them to the
-    forward method, taking care of calling it only once on duplicated inputs.
+    Some comparators may need to peform a certain operation in the same way on
+    all input vectors (say, normalizing them) before starting to compare them.
+    When some vectors are used as both positives and negatives, the operation
+    should ideally only be performed once. For that to occur, comparators expose
+    a prepare method that the user should call on the vectors before passing
+    them to the forward method, taking care of calling it only once on
+    duplicated inputs.
 
     """
 
@@ -321,7 +322,7 @@ class AbstractMetric(nn.Module, ABC):
         pass
 
 
-class DotMetric(AbstractMetric):
+class DotComparator(AbstractComparator):
 
     def prepare(
         self,
@@ -350,7 +351,7 @@ class DotMetric(AbstractMetric):
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
-class CosMetric(AbstractMetric):
+class CosComparator(AbstractComparator):
 
     def prepare(
         self,
@@ -383,17 +384,17 @@ class CosMetric(AbstractMetric):
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
-class BiasedMetric(AbstractMetric):
+class BiasedComparator(AbstractComparator):
 
-    def __init__(self, base_metric):
+    def __init__(self, base_comparator):
         super().__init__()
-        self.base_metric = base_metric
+        self.base_comparator = base_comparator
 
     def prepare(
         self,
         embs: torch.FloatTensor,
     ) -> torch.FloatTensor:
-        return torch.cat([embs[..., :1], self.base_metric.prepare(embs[..., 1:])], dim=-1)
+        return torch.cat([embs[..., :1], self.base_comparator.prepare(embs[..., 1:])], dim=-1)
 
     def forward(
         self,
@@ -407,7 +408,7 @@ class BiasedMetric(AbstractMetric):
         match_shape(lhs_neg, num_chunks, -1, dim)
         match_shape(rhs_neg, num_chunks, -1, dim)
 
-        pos_scores, lhs_neg_scores, rhs_neg_scores = self.base_metric.forward(
+        pos_scores, lhs_neg_scores, rhs_neg_scores = self.base_comparator.forward(
             lhs_pos[..., 1:], rhs_pos[..., 1:], lhs_neg[..., 1:], rhs_neg[..., 1:])
 
         lhs_pos_bias = lhs_pos[..., 0]
@@ -569,10 +570,10 @@ class MultiRelationEmbedder(nn.Module):
         num_batch_negs: int,
         num_uniform_negs: int,
         margin: float = 0.1,
-        metric: Metric = Metric.COS,
+        comparator: Comparator = Comparator.COS,
         global_emb: bool = False,
         max_norm: Optional[float] = None,
-        loss_fn: LossFn = LossFn.RANKING,
+        loss_fn: LossFunction = LossFunction.RANKING,
         bias: bool = False,
         num_dynamic_rels: int = 0,
     ):
@@ -612,7 +613,7 @@ class MultiRelationEmbedder(nn.Module):
                     self.rhs_operators.append(DiagonalOperator(self.dim))
                 elif r.operator is Operator.TRANSLATION:
                     self.rhs_operators.append(TranslationOperator(self.dim))
-                elif r.operator is Operator.AFFINE_RHS:
+                elif r.operator is Operator.AFFINE:
                     self.rhs_operators.append(AffineOperator(self.dim))
                 else:
                     raise NotImplementedError("Unknown operator: %s" % r.operator)
@@ -620,27 +621,27 @@ class MultiRelationEmbedder(nn.Module):
         self.num_batch_negs: int = num_batch_negs
         self.num_uniform_negs: int = num_uniform_negs
 
-        if metric is Metric.DOT:
-            self.metric = DotMetric()
-        elif metric is Metric.COS:
-            self.metric = CosMetric()
+        if comparator is Comparator.DOT:
+            self.comparator = DotComparator()
+        elif comparator is Comparator.COS:
+            self.comparator = CosComparator()
         else:
-            raise NotImplementedError("Unknown metric: %s" % metric)
+            raise NotImplementedError("Unknown comparator: %s" % comparator)
 
         if bias:
-            self.metric = BiasedMetric(self.metric)
+            self.comparator = BiasedComparator(self.comparator)
 
-        if loss_fn is LossFn.LOGISTIC:
+        if loss_fn is LossFunction.LOGISTIC:
             self.loss_fn = LogisticLoss()
-        elif loss_fn is LossFn.RANKING:
+        elif loss_fn is LossFunction.RANKING:
             self.loss_fn = RankingLoss(margin)
-        elif loss_fn is LossFn.SOFTMAX:
+        elif loss_fn is LossFunction.SOFTMAX:
             self.loss_fn = SoftmaxLoss()
         else:
             raise NotImplementedError("Unknown loss function: %s" % loss_fn)
 
-        if loss_fn is LossFn.LOGISTIC and metric is Metric.COS:
-            log("WARNING: You have logit loss and cosine distance. Are you sure?")
+        if loss_fn is LossFunction.LOGISTIC and comparator is Comparator.COS:
+            log("WARNING: You have logistic loss and cosine distance. Are you sure?")
 
         self.lhs_embs: nn.ParameterDict = nn.ModuleDict()
         self.rhs_embs: nn.ParameterDict = nn.ModuleDict()
@@ -721,8 +722,8 @@ class MultiRelationEmbedder(nn.Module):
         else:
             embs = side.pick(self.lhs_operators, self.rhs_operators)[rel](embs)
 
-        # 3. Prepare for the metric.
-        embs = self.metric.prepare(embs)
+        # 3. Prepare for the comparator.
+        embs = self.comparator.prepare(embs)
 
         return embs
 
@@ -891,7 +892,7 @@ class MultiRelationEmbedder(nn.Module):
             lhs_pos = self.adjust_embs(lhs_pos, rel=None, side=Side.LHS)
             rhs_pos = self.adjust_embs(rhs_pos, rel=None, side=Side.RHS)
 
-        if relation.all_rhs_negs:
+        if relation.all_negs:
             chunk_size = num_pos
             lhs_negatives = rhs_negatives = Negatives.ALL
             lhs_num_uniform_negs = rhs_num_uniform_negs = 0
@@ -901,7 +902,7 @@ class MultiRelationEmbedder(nn.Module):
             lhs_num_uniform_negs = rhs_num_uniform_negs = self.num_uniform_negs
 
         # Legacy...
-        if self.num_dynamic_rels == 0 and relation.all_rhs_negs:
+        if self.num_dynamic_rels == 0 and relation.all_negs:
             lhs_negatives = Negatives.NONE
 
         num_chunks = (num_pos - 1) // chunk_size + 1  # ceil(num_pos / chunk_size)
@@ -925,7 +926,7 @@ class MultiRelationEmbedder(nn.Module):
             rhs_neg, rhs_ignore_mask = self.prepare_negatives(
                 rhs, rhs_pos, rhs_module, rhs_negatives, rhs_num_uniform_negs,
                 rel=rel, side=Side.RHS)
-            pos_scores, lhs_neg_scores, rhs_neg_scores = self.metric(
+            pos_scores, lhs_neg_scores, rhs_neg_scores = self.comparator(
                 lhs_pos, rhs_pos, lhs_neg, rhs_neg)
             lhs_pos_scores = rhs_pos_scores = pos_scores
 
@@ -936,9 +937,9 @@ class MultiRelationEmbedder(nn.Module):
             rhs_neg, rhs_ignore_mask = self.prepare_negatives(
                 rhs, rhs_pos, rhs_module, rhs_negatives, rhs_num_uniform_negs,
                 rel=None, side=Side.RHS)
-            lhs_pos_scores, lhs_neg_scores, _ = self.metric(
+            lhs_pos_scores, lhs_neg_scores, _ = self.comparator(
                 lhs_pos, rhs_r_pos, lhs_neg, torch.empty(num_chunks, 0, self.dim))
-            rhs_pos_scores, _, rhs_neg_scores = self.metric(
+            rhs_pos_scores, _, rhs_neg_scores = self.comparator(
                 lhs_r_pos, rhs_pos, torch.empty(num_chunks, 0, self.dim), rhs_neg)
 
         # The masks tell us which negative scores (i.e., scores for non-existing
@@ -962,7 +963,7 @@ class MultiRelationEmbedder(nn.Module):
         loss = relation.weight * (lhs_loss + rhs_loss)
 
         # Legacy...
-        if self.num_dynamic_rels == 0 and relation.all_rhs_negs:
+        if self.num_dynamic_rels == 0 and relation.all_negs:
             lhs_margin = rhs_margin
             lhs_neg_scores = rhs_neg_scores
 
@@ -975,15 +976,15 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
     return MultiRelationEmbedder(config.dimension,
                                  config.relations,
                                  config.entities,
-                                 num_uniform_negs=config.numUniformNegs,
-                                 num_batch_negs=config.numBatchNegs,
+                                 num_uniform_negs=config.num_uniform_negs,
+                                 num_batch_negs=config.num_batch_negs,
                                  margin=config.margin,
-                                 metric=config.metric,
-                                 global_emb=config.globalEmb,
-                                 max_norm=config.maxNorm,
-                                 loss_fn=config.lossFn,
+                                 comparator=config.comparator,
+                                 global_emb=config.global_emb,
+                                 max_norm=config.max_norm,
+                                 loss_fn=config.loss_fn,
                                  bias=config.bias,
-                                 num_dynamic_rels=config.numDynamicRels)
+                                 num_dynamic_rels=config.num_dynamic_rels)
 
 
 @contextmanager

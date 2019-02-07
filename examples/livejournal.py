@@ -84,10 +84,10 @@ def main():
     # random split file for train and test
     random_split_file(fpath)
 
-    edgePaths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
+    edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
     convert_input_data(
         args.config,
-        edgePaths,
+        edge_paths,
         isDynamic=0,
         srcCol=0,
         destCol=1,
@@ -96,12 +96,12 @@ def main():
     config = parse_config(args.config, overrides)
 
     trainPath = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
-    train_config = attr.evolve(config, edgePaths=trainPath)
+    train_config = attr.evolve(config, edge_paths=trainPath)
 
     train(train_config)
 
     evalPath = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
-    eval_config = attr.evolve(config, edgePaths=evalPath)
+    eval_config = attr.evolve(config, edge_paths=evalPath)
 
     do_eval(eval_config)
 

@@ -9,16 +9,16 @@
 entities_base = 'data/livejournal'
 
 
-def getConf():
+def get_torchbiggraph_conf():
 
     config = dict(
-        entityPath=entities_base,
+        entity_path=entities_base,
 
-        edgePaths=[],
-        numEpochs=30,
+        edge_paths=[],
+        num_epochs=30,
 
         entities={
-            'user_id': {'numPartitions': 1},
+            'user_id': {'num_partitions': 1},
         },
 
         relations=[{
@@ -27,11 +27,10 @@ def getConf():
             'rhs': 'user_id',
             'operator': 'none'
         }],
-        model='livejournal',
-        outdir='model/livejournal',
+        checkpoint_path='model/livejournal',
 
         dimension=1024,
-        globalEmb=False,
+        global_emb=False,
         lr=0.001,
         hogwild_delay=2
     )

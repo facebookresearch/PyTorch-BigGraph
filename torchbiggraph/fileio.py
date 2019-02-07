@@ -350,7 +350,7 @@ class CheckpointManager(object):
         new_ext = self._version_ext(False)
         assert self.rank >= 0
         for entity, econf in config.entities.items():
-            for part in range(self.rank, econf.numPartitions, self.num_machines):
+            for part in range(self.rank, econf.num_partitions, self.num_machines):
                 if self.partition_client is not None:
                     vlog("Rank %d: get %s %d" % (self.rank, entity, part))
                     data = self.partition_client.get(entity, part)
@@ -368,7 +368,7 @@ class CheckpointManager(object):
     def remove_old_version(self, config):
         old_ext = '.%d' % (self.checkpoint_version - 1)
         for entity, econf in config.entities.items():
-            for part in range(self.rank, econf.numPartitions, self.num_machines):
+            for part in range(self.rank, econf.num_partitions, self.num_machines):
                 old_file_path = os.path.join(
                     self.path, "%s_%d.pt%s" % (entity, part + 1, old_ext)
                 )

@@ -9,7 +9,7 @@
 from itertools import product
 from unittest import TestCase, main
 
-from torchbiggraph.util import PartitionOrder, create_partition_pairs
+from torchbiggraph.util import BucketOrder, create_partition_pairs
 
 
 class TestCreatePartitionPairs(TestCase):
@@ -21,10 +21,10 @@ class TestCreatePartitionPairs(TestCase):
 
         """
         orders = [
-            PartitionOrder.CHAINED_SYMMETRIC_PAIRS,
-            PartitionOrder.INSIDE_OUT,
-            PartitionOrder.OUTSIDE_IN,
-            PartitionOrder.RANDOM,
+            BucketOrder.CHAINED_SYMMETRIC_PAIRS,
+            BucketOrder.INSIDE_OUT,
+            BucketOrder.OUTSIDE_IN,
+            BucketOrder.RANDOM,
         ]
         shapes = [(4, 4), (3, 5), (6, 1), (1, 6), (1, 1)]
 
@@ -34,7 +34,7 @@ class TestCreatePartitionPairs(TestCase):
                     actual_pairs_tensor = create_partition_pairs(
                         nparts_lhs=nparts_lhs,
                         nparts_rhs=nparts_rhs,
-                        partition_order=order,
+                        bucket_order=order,
                     ).int()
 
                     self.assertCountEqual(

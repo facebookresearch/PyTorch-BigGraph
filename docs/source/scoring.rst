@@ -27,16 +27,16 @@ Per-relation scoring functions, however, must be expressible in a specific form
 (the most common functions in the literature can be converted to such a representation).
 In the current implementation, they are only allowed to transform the embedding
 of one of the two sides, which is then compared to the un-transformed embedding
-of the other side using a generic symmetric metric function, which is the same
+of the other side using a generic symmetric comparator function, which is the same
 for all relations. Formally, for left- and right-hand side entities :math:`x`
 and :math:`y` respectively, and for a relation type :math:`r`, the score is:
 
 .. math::
-    f_r(\theta_x, \theta_y) = m(\theta_x, g_r(\theta_y))
+    f_r(\theta_x, \theta_y) = c(\theta_x, g_r(\theta_y))
 
 where :math:`\theta_x` and :math:`\theta_y` are the embeddings of :math:`x` and
 :math:`y` respectively, :math:`f_r` is the scoring function for :math:`r`,
-:math:`g_r` is the **operator** for :math:`r` and :math:`m` is the **metric**.
+:math:`g_r` is the **operator** for :math:`r` and :math:`c` is the **comparator**.
 
 .. note::
     The operator being applied to the right-hand side embedding is just an example
@@ -61,7 +61,7 @@ To add a new type of embedding, one needs to subclass the :class:`torchbiggraph.
 Global embeddings
 -----------------
 
-When the ``globalEmb`` configuration option is active, each entity's embedding
+When the ``global_emb`` configuration option is active, each entity's embedding
 will be translated by a vector that is specific to each entity type (and that is
 learned at the same time as the embeddings).
 
@@ -74,7 +74,7 @@ The operators that are currently provided are:
 * ``translation``, which adds to the embedding a vector of the same dimension;
 * ``diagonal``, multiplication of each dimension by a different coefficient
   (equivalent to multiplying by a diagonal matrix);
-* ``affine_rhs``, affine transformation, i.e., multiplication by a full square
+* ``affine``, affine transformation, i.e., multiplication by a full square
   matrix plus addition of a vector.
 
 All the operators' parameters are learned during training.
@@ -83,31 +83,25 @@ To define an additional operator, one must subclass the :class:`torchbiggraph.mo
 (or the :class:`torchbiggraph.model.AbstractDynamicOperator` one when using :ref:`dynamic relations <dynamic-relations>`)
 and add an entry to the :class:`torchbiggraph.config.Operator` enum.
 
-Metrics
+Comparators
 -------
 
-.. note::
-    "Metric" is a misnomer, as these binary operators act as comparators that
-    give *higher* scores for arguments that are "closer", and are allowed to
-    produce negative values (contrary to metrics, that must return non-negative
-    values, with smaller ones meaning the operands are more similar).
-
-The available metrics are:
+The available comparators are:
 
 * ``dot``, the dot-product, which computes the scalar or inner product of the two
   embedding vectors;
 * ``cos``, the cos distance, which is the cosine of the angle between the two vectors
   or, equivalently, the dot product divided by the product of the vectors' norms.
 
-Custom metrics need to extend the :class:`torchbiggraph.model.AbstractMetric` class
-and add an item to the :class:`torchbiggraph.config.Metric` enum.
+Custom comparators need to extend the :class:`torchbiggraph.model.AbstractComparator` class
+and add an item to the :class:`torchbiggraph.config.Comparator` enum.
 
 Bias
 ----
 
 If the ``bias`` configuration key is in use, then the first coordinate of the
-embeddings will act as a bias in the metric computation. This means that the
-metric will be computed on the last :math:`D - 1` entries of the vectors only,
+embeddings will act as a bias in the comparator computation. This means that the
+comparator will be computed on the last :math:`D - 1` entries of the vectors only,
 and then both the first entries of the two vectors will be added to the result.
 
 Coherent sets of configuration parameters
@@ -118,7 +112,7 @@ in the configuration file (to more closely match the implementation, and to allo
 for more flexible tuning), some combinations of them are more sensible than others.
 
 Apart from the default one, the following configuration has been found to work well:
-``initScale`` = 0.1, ``metric`` = ``dot``, ``bias`` = true, ``lossFn`` = ``logistic``, ``lr`` = 0.1.
+``init_scale`` = 0.1, ``comparator`` = ``dot``, ``bias`` = true, ``loss_fn`` = ``logistic``, ``lr`` = 0.1.
 
 Interpreting the scores
 -----------------------

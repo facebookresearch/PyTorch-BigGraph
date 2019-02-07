@@ -77,7 +77,7 @@ def train_many_batches(config, model, optimizers, lhs, rhs, rel):
         # do standard batching
         offset, N = 0, rel.size(0)
         while offset < N:
-            B = min(N - offset, config.batchSize)
+            B = min(N - offset, config.batch_size)
             all_stats.append(train_one_batch(
                 model, optimizers,
                 lhs[offset:offset + B],
@@ -94,7 +94,7 @@ def train_many_batches(config, model, optimizers, lhs, rhs, rel):
         while edge_count_by_relation.sum() > 0:
             # pick which relation to do proportional to number of edges of that type
             batch_rel = torch.multinomial(edge_count_by_relation.float(), 1).item()
-            B = min(edge_count_by_relation[batch_rel].item(), config.batchSize)
+            B = min(edge_count_by_relation[batch_rel].item(), config.batch_size)
             offset = offset_by_relation[batch_rel]
             lhs_rel = lhs_chunked[batch_rel][offset:offset + B]
             rhs_rel = rhs_chunked[batch_rel][offset:offset + B]
@@ -126,8 +126,8 @@ def perform_action_one_thread(
         stats = train_many_batches(config, model, optimizers, lhs, rhs, rel)
     elif action is Action.EVAL:
         with override_model(model,
-                            num_uniform_negs=config.evalNumUniformNegs,
-                            num_batch_negs=config.evalNumBatchNegs):
+                            num_uniform_negs=config.eval_num_uniform_negs,
+                            num_batch_negs=config.eval_num_batch_negs):
             stats = eval_many_batches(config, model, lhs, rhs, rel)
     else:
         raise NotImplementedError("Unknown action: %s" % action)
@@ -189,58 +189,58 @@ def train_and_report_stats(
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
-        for part in range(econf.numPartitions):
+        for part in range(econf.num_partitions):
             path = os.path.join(
-                config.entityPath, "entity_count_%s_%d.pt" % (entity, part + 1)
+                config.entity_path, "entity_count_%s_%d.pt" % (entity, part + 1)
             )
             entity_counts[entity].append(torch.load(path))
 
     config = update_config_for_dynamic_relations(config)
 
     partition_server_ranks = None
-    if config.numMachines > 1:
+    if config.num_machines > 1:
         log("Setup lock server...")
-        init_method = config.distributedInitMethod
+        init_method = config.distributed_init_method
         # N param client threads, N param servers, 1 lock server
-        world_size = config.numMachines * 3 + 1  # + config.numPartitionServers
+        world_size = config.num_machines * 3 + 1  # + config.num_partition_servers
 
-        if config.numPartitionServers > 0:
-            world_size += config.numPartitionServers
-        elif config.numPartitionServers == -1:  # use machines as partition servers
-            world_size += config.numMachines
+        if config.num_partition_servers > 0:
+            world_size += config.num_partition_servers
+        elif config.num_partition_servers == -1:  # use machines as partition servers
+            world_size += config.num_machines
 
-        barrier_group_ranks = list(range(config.numMachines))
+        barrier_group_ranks = list(range(config.num_machines))
         lock_client = setup_lock_server(
             is_server_node=(rank == 0),
-            server_rank=3 * config.numMachines,
+            server_rank=3 * config.num_machines,
             world_size=world_size,
-            num_clients=config.numMachines,
+            num_clients=config.num_machines,
             init_method=init_method,
             groups=[barrier_group_ranks])
 
         log("Setup param server...")
 
         parameter_client = setup_parameter_server_thread(
-            client_rank=config.numMachines * 2 + rank,
-            server_rank=config.numMachines + rank,
-            all_server_ranks=[config.numMachines + x
-                              for x in range(config.numMachines)],
-            num_clients=config.numMachines,
+            client_rank=config.num_machines * 2 + rank,
+            server_rank=config.num_machines + rank,
+            all_server_ranks=[config.num_machines + x
+                              for x in range(config.num_machines)],
+            num_clients=config.num_machines,
             world_size=world_size,
             init_method=init_method,
             groups=[barrier_group_ranks])
 
-        numPartitionServers = config.numPartitionServers
-        if config.numPartitionServers == -1:
-            setup_parameter_server(server_rank=config.numMachines * 3 + 1 + rank,
-                                   num_clients=config.numMachines,
+        num_partition_servers = config.num_partition_servers
+        if config.num_partition_servers == -1:
+            setup_parameter_server(server_rank=config.num_machines * 3 + 1 + rank,
+                                   num_clients=config.num_machines,
                                    world_size=world_size,
                                    init_method=init_method,
                                    groups=[barrier_group_ranks])
-            numPartitionServers = config.numMachines
+            num_partition_servers = config.num_machines
 
-        partition_server_ranks = range(config.numMachines * 3 + 1,
-                                       config.numMachines * 3 + 1 + numPartitionServers)
+        partition_server_ranks = range(config.num_machines * 3 + 1,
+                                       config.num_machines * 3 + 1 + num_partition_servers)
 
         groups = init_process_group(init_method=init_method,
                                     world_size=world_size,
@@ -263,15 +263,15 @@ def train_and_report_stats(
         return optimizer
 
     # background_io is only supported in single-machine mode
-    background_io = config.background_io and config.numMachines == 1
+    background_io = config.background_io and config.num_machines == 1
 
-    checkpoint_manager = CheckpointManager(config.outdir,
+    checkpoint_manager = CheckpointManager(config.checkpoint_path,
             background=background_io,
             rank=rank,
-            num_machines=config.numMachines,
+            num_machines=config.num_machines,
             partition_server_ranks=partition_server_ranks)
-    if config.loadPath is not None:
-        loadpath_manager = CheckpointManager(config.loadPath)
+    if config.init_path is not None:
+        loadpath_manager = CheckpointManager(config.init_path)
     else:
         loadpath_manager = None
 
@@ -282,7 +282,7 @@ def train_and_report_stats(
             data = loadpath_manager.read(entity, part)
         if data is None:
             data = init_embs(entity, entity_counts[entity][part],
-                             config.dimension, config.initScale)
+                             config.dimension, config.init_scale)
         embs, optim_state = data
         if not isinstance(embs, torch.nn.Parameter):  # Pytorch bug workaround
             embs = torch.nn.Parameter(embs)
@@ -296,7 +296,7 @@ def train_and_report_stats(
          (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
 
     log("Initializing global model...")
-    assert config.batchSize % config.numBatchNegs == 0, (
+    assert config.batch_size % config.num_batch_negs == 0, (
         "You really want this to avoid padding every batch")
 
     model = make_model(config)
@@ -307,8 +307,8 @@ def train_and_report_stats(
     _, edge_path_count, echunk, state_dict, optim_state = \
         checkpoint_manager.read_metadata()
     echunk += 1
-    assert echunk <= config.numEdgeChunks
-    if echunk == config.numEdgeChunks:
+    assert echunk <= config.num_edge_chunks
+    if echunk == config.num_edge_chunks:
         echunk = 0
         edge_path_count += 1
 
@@ -323,11 +323,11 @@ def train_and_report_stats(
     model.share_memory()
 
     vlog("Loading unpartitioned entities...")
-    max_parts = max(e.numPartitions for e in config.entities.values())
+    max_parts = max(e.num_partitions for e in config.entities.values())
     for entity, econfig in config.entities.items():
-        num_parts = econfig.numPartitions
+        num_parts = econfig.num_partitions
         assert num_parts == 1 or num_parts == max_parts, (
-            "Currently numPartitions must be either 1 or a single value across "
+            "Currently num_partitions must be either 1 or a single value across "
             "all entities.")
         if num_parts == 1:
             embs, optim_state = load_embeddings(entity)
@@ -339,7 +339,7 @@ def train_and_report_stats(
                 optimizer.share_memory()
             optimizers[entity + '_1'] = optimizer
 
-    if config.numMachines > 1:
+    if config.num_machines > 1:
         # start communicating shared parameters with the parameter server
         added_to_parameter_client: Set[int] = set()
         for k, v in model.state_dict().items():
@@ -390,7 +390,7 @@ def train_and_report_stats(
                 del embs
                 del optim_state
 
-            if config.numMachines > 1:
+            if config.num_machines > 1:
                 lock_client.release_pair(oldP)
 
 
@@ -418,7 +418,7 @@ def train_and_report_stats(
             else:
                 vlog("Loading (%s, %d)" % (entity, part + 1))
 
-                force_dirty = (config.numMachines > 1 and
+                force_dirty = (config.num_machines > 1 and
                                lock_client.check_and_set_dirty(entity, part))
                 embs, optim_state = load_embeddings(
                     entity, part, strict=strict, force_dirty=force_dirty)
@@ -440,24 +440,24 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
-    numEdgePaths = len(config.edgePaths)
-    while edge_path_count < config.numEpochs * numEdgePaths:
+    numEdgePaths = len(config.edge_paths)
+    while edge_path_count < config.num_epochs * numEdgePaths:
         epoch = edge_path_count // numEdgePaths
         edgePath_idx = edge_path_count % numEdgePaths
-        edgePath = config.edgePaths[edgePath_idx]
+        edgePath = config.edge_paths[edgePath_idx]
 
         edge_reader = EdgeReader(edgePath)
-        while echunk < config.numEdgeChunks:
+        while echunk < config.num_edge_chunks:
             log("Starting epoch %d / %d edgePath %d / %d pass %d / %d" %
-                (epoch + 1, config.numEpochs,
+                (epoch + 1, config.num_epochs,
                  edgePath_idx + 1, numEdgePaths,
-                 echunk + 1, config.numEdgeChunks))
+                 echunk + 1, config.num_edge_chunks))
             log("edgePath= %s" % edgePath)
 
             partition_pairs = create_partition_pairs(
                 nparts_lhs=nparts_lhs,
                 nparts_rhs=nparts_rhs,
-                partition_order=config.partitionOrder,
+                bucket_order=config.bucket_order,
             )
             pairs = partition_pairs.numpy().tolist()
             pairs = [Bucket(*tuple(item)) for item in pairs]
@@ -469,14 +469,14 @@ def train_and_report_stats(
                 vlog("(%d, %d)" % (lhs_idx + 1, rhs_idx + 1))
             vlog('')
 
-            if config.numMachines > 1:
+            if config.num_machines > 1:
                 td.barrier(group=barrier_group)
                 log("Lock client new epoch...")
                 if rank == 0:
                     lock_client.new_epoch(pairs,
                                           lock_lhs=len(lhs_partitioned_types) > 0,
                                           lock_rhs=len(rhs_partitioned_types) > 0,
-                                          init_tree=config.distributedTreeInitOrder
+                                          init_tree=config.distributed_tree_init_order
                                                     and edge_path_count == 0)
                 td.barrier(group=barrier_group)
 
@@ -490,7 +490,7 @@ def train_and_report_stats(
                 oldP = curP
                 io_time = 0.
                 io_bytes = 0
-                if config.numMachines > 1:
+                if config.num_machines > 1:
                     curP, remaining = lock_client.acquire_pair(rank, maybe_oldP=oldP)
                     curP = Bucket(*curP) if curP is not None else None
                     print('still in queue: %d' % remaining, file=sys.stderr)
@@ -516,7 +516,7 @@ def train_and_report_stats(
                 io_bytes += swap_partitioned_embeddings(oldP, curP)
 
                 if partition_count < total_pairs - 1 and background_io:
-                    assert config.numMachines == 1
+                    assert config.num_machines == 1
                     checkpoint_manager.wait_events()
 
                     log_status("Prefetching")
@@ -528,12 +528,12 @@ def train_and_report_stats(
 
                     checkpoint_manager.record_event()
 
-                current_index = edge_path_count * config.numEdgeChunks \
+                current_index = edge_path_count * config.num_edge_chunks \
                     * total_pairs + echunk * total_pairs + total_pairs - remaining
 
                 log_status("Loading edges")
                 lhs, rhs, rel = edge_reader.read(
-                    curP.lhs, curP.rhs, echunk, config.numEdgeChunks)
+                    curP.lhs, curP.rhs, echunk, config.num_edge_chunks)
                 N = rel.size(0)
                 # this might be off in the case of tensorlist
                 io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
@@ -544,7 +544,7 @@ def train_and_report_stats(
                 g = torch.Generator()
                 g.manual_seed(hash((edgePath_idx, echunk, curP.lhs, curP.rhs)))
 
-                num_eval_edges = int(N * config.evalFraction)
+                num_eval_edges = int(N * config.eval_fraction)
                 if num_eval_edges > 0:
                     edge_perm = torch.randperm(N, generator=g)
                     eval_edge_perm = edge_perm[-num_eval_edges:]
@@ -597,7 +597,7 @@ def train_and_report_stats(
             swap_partitioned_embeddings(curP, None)
 
             # Distributed Processing: all machines can leave the barrier now.
-            if config.numMachines > 1:
+            if config.num_machines > 1:
                 td.barrier(barrier_group)
 
             # Write metadata: for multiple machines, write from rank-0
@@ -606,7 +606,7 @@ def train_and_report_stats(
             log("My rank: %d" % rank)
             if rank == 0:
                 for entity, econfig in config.entities.items():
-                    if econfig.numPartitions == 1:
+                    if econfig.num_partitions == 1:
                         embs = model.get_embeddings(entity, Side.LHS)
 
                         checkpoint_manager.write(
@@ -627,7 +627,7 @@ def train_and_report_stats(
             log("Committing checkpoints...")
             checkpoint_manager.commit(config)
 
-            if config.numMachines > 1:
+            if config.num_machines > 1:
                 log("Waiting on barrier: rank %d" % rank)
                 td.barrier(barrier_group)
                 log("Done barrier")
@@ -647,7 +647,7 @@ def train_and_report_stats(
     # quiescence
     join_workers(processes, qin, qout)
 
-    if config.numMachines > 1:
+    if config.num_machines > 1:
         td.barrier(barrier_group)
 
     checkpoint_manager.close()

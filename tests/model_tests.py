@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 from torch_extensions.tensorlist.tensorlist import TensorList
 
-from torchbiggraph.config import Operator, Metric, LossFn, EntitySchema, \
+from torchbiggraph.config import Operator, Comparator, LossFunction, EntitySchema, \
     RelationSchema
 from torchbiggraph.model import (
     match_shape,
@@ -28,8 +28,8 @@ from torchbiggraph.model import (
     IdentityOperator, DiagonalOperator, TranslationOperator, AffineOperator,
     # Dynamic operators
     DiagonalDynamicOperator, TranslationDynamicOperator,
-    # Metric
-    DotMetric, CosMetric, BiasedMetric,
+    # Comparator
+    DotComparator, CosComparator, BiasedComparator,
     # Losses
     LogisticLoss, RankingLoss, SoftmaxLoss,
     # Model
@@ -385,32 +385,32 @@ class TestTranslationDynamicOperator(TestCase):
         ]))
 
 
-class TestDotMetric(TestCase):
+class TestDotComparator(TestCase):
 
     def test_forward_one_batch(self):
-        metric = DotMetric()
-        lhs_pos = metric.prepare(torch.tensor([[
+        comparator = DotComparator()
+        lhs_pos = comparator.prepare(torch.tensor([[
             [0.8931, 0.2241, 0.4241],
             [0.6557, 0.2492, 0.4157],
         ]], requires_grad=True))
-        rhs_pos = metric.prepare(torch.tensor([[
+        rhs_pos = comparator.prepare(torch.tensor([[
             [0.9220, 0.2892, 0.7408],
             [0.1476, 0.6079, 0.1835],
         ]], requires_grad=True))
-        lhs_neg = metric.prepare(torch.tensor([[
+        lhs_neg = comparator.prepare(torch.tensor([[
             [0.3836, 0.7648, 0.0965],
             [0.8929, 0.8947, 0.4877],
             [0.0000, 0.0000, 0.0000],
             [0.7967, 0.6736, 0.2966],
         ]], requires_grad=True))
-        rhs_neg = metric.prepare(torch.tensor([[
+        rhs_neg = comparator.prepare(torch.tensor([[
             [0.6116, 0.6010, 0.9500],
             [0.0000, 0.0000, 0.0000],
             [0.2360, 0.5923, 0.7536],
             [0.1290, 0.3088, 0.2731],
         ]], requires_grad=True))
         pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            metric(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
+            comparator(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
         assertTensorEqual(self, pos_scores, torch.tensor([
             [1.2024, 0.3246],
         ]))
@@ -424,29 +424,29 @@ class TestDotMetric(TestCase):
         ]))
 
     def test_forward_two_batches(self):
-        metric = DotMetric()
-        lhs_pos = metric.prepare(torch.tensor([
+        comparator = DotComparator()
+        lhs_pos = comparator.prepare(torch.tensor([
             [[0.8931, 0.2241, 0.4241]],
             [[0.6557, 0.2492, 0.4157]],
         ], requires_grad=True))
-        rhs_pos = metric.prepare(torch.tensor([
+        rhs_pos = comparator.prepare(torch.tensor([
             [[0.9220, 0.2892, 0.7408]],
             [[0.1476, 0.6079, 0.1835]],
         ], requires_grad=True))
-        lhs_neg = metric.prepare(torch.tensor([
+        lhs_neg = comparator.prepare(torch.tensor([
             [[0.3836, 0.7648, 0.0965],
              [0.8929, 0.8947, 0.4877]],
             [[0.0000, 0.0000, 0.0000],
              [0.7967, 0.6736, 0.2966]],
         ], requires_grad=True))
-        rhs_neg = metric.prepare(torch.tensor([
+        rhs_neg = comparator.prepare(torch.tensor([
             [[0.6116, 0.6010, 0.9500],
              [0.0000, 0.0000, 0.0000]],
             [[0.2360, 0.5923, 0.7536],
              [0.1290, 0.3088, 0.2731]],
         ], requires_grad=True))
         pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            metric(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
+            comparator(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
         assertTensorEqual(self, pos_scores, torch.tensor([
             [1.2024],
             [0.3246],
@@ -461,32 +461,32 @@ class TestDotMetric(TestCase):
         ]))
 
 
-class TestCosMetric(TestCase):
+class TestCosComparator(TestCase):
 
     def test_forward_one_batch(self):
-        metric = CosMetric()
-        lhs_pos = metric.prepare(torch.tensor([[
+        comparator = CosComparator()
+        lhs_pos = comparator.prepare(torch.tensor([[
             [0.8931, 0.2241, 0.4241],
             [0.6557, 0.2492, 0.4157],
         ]], requires_grad=True))
-        rhs_pos = metric.prepare(torch.tensor([[
+        rhs_pos = comparator.prepare(torch.tensor([[
             [0.9220, 0.2892, 0.7408],
             [0.1476, 0.6079, 0.1835],
         ]], requires_grad=True))
-        lhs_neg = metric.prepare(torch.tensor([[
+        lhs_neg = comparator.prepare(torch.tensor([[
             [0.3836, 0.7648, 0.0965],
             [0.8929, 0.8947, 0.4877],
             [0.4754, 0.3163, 0.3422],
             [0.7967, 0.6736, 0.2966],
         ]], requires_grad=True))
-        rhs_neg = metric.prepare(torch.tensor([[
+        rhs_neg = comparator.prepare(torch.tensor([[
             [0.6116, 0.6010, 0.9500],
             [0.2541, 0.7715, 0.7477],
             [0.2360, 0.5923, 0.7536],
             [0.1290, 0.3088, 0.2731],
         ]], requires_grad=True))
         pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            metric(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
+            comparator(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
         assertTensorEqual(self, pos_scores, torch.tensor([
             [0.9741, 0.6106],
         ]))
@@ -500,29 +500,29 @@ class TestCosMetric(TestCase):
         ]))
 
     def test_forward_two_batches(self):
-        metric = CosMetric()
-        lhs_pos = metric.prepare(torch.tensor([
+        comparator = CosComparator()
+        lhs_pos = comparator.prepare(torch.tensor([
             [[0.8931, 0.2241, 0.4241]],
             [[0.6557, 0.2492, 0.4157]],
         ], requires_grad=True))
-        rhs_pos = metric.prepare(torch.tensor([
+        rhs_pos = comparator.prepare(torch.tensor([
             [[0.9220, 0.2892, 0.7408]],
             [[0.1476, 0.6079, 0.1835]],
         ], requires_grad=True))
-        lhs_neg = metric.prepare(torch.tensor([
+        lhs_neg = comparator.prepare(torch.tensor([
             [[0.3836, 0.7648, 0.0965],
              [0.8929, 0.8947, 0.4877]],
             [[0.4754, 0.3163, 0.3422],
              [0.7967, 0.6736, 0.2966]],
         ], requires_grad=True))
-        rhs_neg = metric.prepare(torch.tensor([
+        rhs_neg = comparator.prepare(torch.tensor([
             [[0.6116, 0.6010, 0.9500],
              [0.2541, 0.7715, 0.7477]],
             [[0.2360, 0.5923, 0.7536],
              [0.1290, 0.3088, 0.2731]],
         ], requires_grad=True))
         pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            metric(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
+            comparator(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
         assertTensorEqual(self, pos_scores, torch.tensor([
             [0.9741],
             [0.6106],
@@ -537,32 +537,32 @@ class TestCosMetric(TestCase):
         ]))
 
 
-class TestBiasedMetric(TestCase):
+class TestBiasedComparator(TestCase):
 
     def test_forward_one_batch(self):
-        metric = BiasedMetric(CosMetric())
-        lhs_pos = metric.prepare(torch.tensor([[
+        comparator = BiasedComparator(CosComparator())
+        lhs_pos = comparator.prepare(torch.tensor([[
             [0.8931, 0.2241, 0.4241],
             [0.6557, 0.2492, 0.4157],
         ]], requires_grad=True))
-        rhs_pos = metric.prepare(torch.tensor([[
+        rhs_pos = comparator.prepare(torch.tensor([[
             [0.9220, 0.2892, 0.7408],
             [0.1476, 0.6079, 0.1835],
         ]], requires_grad=True))
-        lhs_neg = metric.prepare(torch.tensor([[
+        lhs_neg = comparator.prepare(torch.tensor([[
             [0.3836, 0.7648, 0.0965],
             [0.8929, 0.8947, 0.4877],
             [0.4754, 0.3163, 0.3422],
             [0.7967, 0.6736, 0.2966],
         ]], requires_grad=True))
-        rhs_neg = metric.prepare(torch.tensor([[
+        rhs_neg = comparator.prepare(torch.tensor([[
             [0.6116, 0.6010, 0.9500],
             [0.2541, 0.7715, 0.7477],
             [0.2360, 0.5923, 0.7536],
             [0.1290, 0.3088, 0.2731],
         ]], requires_grad=True))
         pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            metric(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
+            comparator(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
         assertTensorEqual(self, pos_scores, torch.tensor([
             [2.8086, 1.5434],
         ]))
@@ -576,29 +576,29 @@ class TestBiasedMetric(TestCase):
         ]))
 
     def test_forward_two_batches(self):
-        metric = BiasedMetric(CosMetric())
-        lhs_pos = metric.prepare(torch.tensor([
+        comparator = BiasedComparator(CosComparator())
+        lhs_pos = comparator.prepare(torch.tensor([
             [[0.8931, 0.2241, 0.4241]],
             [[0.6557, 0.2492, 0.4157]],
         ], requires_grad=True))
-        rhs_pos = metric.prepare(torch.tensor([
+        rhs_pos = comparator.prepare(torch.tensor([
             [[0.9220, 0.2892, 0.7408]],
             [[0.1476, 0.6079, 0.1835]],
         ], requires_grad=True))
-        lhs_neg = metric.prepare(torch.tensor([
+        lhs_neg = comparator.prepare(torch.tensor([
             [[0.3836, 0.7648, 0.0965],
              [0.8929, 0.8947, 0.4877]],
             [[0.4754, 0.3163, 0.3422],
              [0.7967, 0.6736, 0.2966]],
         ], requires_grad=True))
-        rhs_neg = metric.prepare(torch.tensor([
+        rhs_neg = comparator.prepare(torch.tensor([
             [[0.6116, 0.6010, 0.9500],
              [0.2541, 0.7715, 0.7477]],
             [[0.2360, 0.5923, 0.7536],
              [0.1290, 0.3088, 0.2731]],
         ], requires_grad=True))
         pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            metric(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
+            comparator(lhs_pos, rhs_pos, lhs_neg, rhs_neg)
         assertTensorEqual(self, pos_scores, torch.tensor([
             [2.8086],
             [1.5434],
@@ -803,8 +803,8 @@ class TestModel(TestCase):
         relations: Relations,
         negatives: Negatives,
         operator: Operator,
-        metric: Metric,
-        loss_fn: LossFn,
+        comparator: Comparator,
+        loss_fn: LossFunction,
         *,
         bias: bool = False,
     ) -> MultiRelationEmbedder:
@@ -836,7 +836,7 @@ class TestModel(TestCase):
             [-0.2768,  0.1322, -0.7094, -0.2896,  0.5646],
         ]))
         entity_dict = {"foo_entity": EntitySchema(
-            numPartitions=1,
+            num_partitions=1,
             featurized=entities is Entities.FEATURIZED,
         )}
         relation_list = [RelationSchema(
@@ -845,7 +845,7 @@ class TestModel(TestCase):
             rhs="foo_entity",
             weight=1.0,
             operator=operator,
-            all_rhs_negs=negatives is Negatives.ALL,
+            all_negs=negatives is Negatives.ALL,
         )]
         model = MultiRelationEmbedder(
             dim=5,
@@ -854,7 +854,7 @@ class TestModel(TestCase):
             num_batch_negs=2,
             num_uniform_negs=2 if negatives is Negatives.SAME_BATCH_PLUS_UNIFORM else 0,
             margin=0.1,
-            metric=metric,
+            comparator=comparator,
             global_emb=False,
             max_norm=None,
             loss_fn=loss_fn,
@@ -876,8 +876,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -926,8 +926,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH_PLUS_UNIFORM,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -976,8 +976,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.ALL,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1026,8 +1026,8 @@ class TestModel(TestCase):
             Relations.DYNAMIC,
             Negatives.SAME_BATCH,
             Operator.TRANSLATION,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1076,8 +1076,8 @@ class TestModel(TestCase):
             Relations.DYNAMIC,
             Negatives.SAME_BATCH_PLUS_UNIFORM,
             Operator.TRANSLATION,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1126,8 +1126,8 @@ class TestModel(TestCase):
             Relations.DYNAMIC,
             Negatives.ALL,
             Operator.TRANSLATION,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1176,8 +1176,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1226,8 +1226,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.DIAGONAL,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1276,8 +1276,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.TRANSLATION,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1320,14 +1320,14 @@ class TestModel(TestCase):
         ]))
         loss.backward()
 
-    def test_static_relations_affine_rhs_operator(self):
+    def test_static_relations_affine_operator(self):
         model = self.make_model(
             Entities.SIMPLE,
             Relations.STATIC,
             Negatives.SAME_BATCH,
-            Operator.AFFINE_RHS,
-            Metric.DOT,
-            LossFn.RANKING,
+            Operator.AFFINE,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1376,8 +1376,8 @@ class TestModel(TestCase):
             Relations.DYNAMIC,
             Negatives.SAME_BATCH,
             Operator.DIAGONAL,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1426,8 +1426,8 @@ class TestModel(TestCase):
             Relations.DYNAMIC,
             Negatives.SAME_BATCH,
             Operator.TRANSLATION,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1476,8 +1476,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=True,
         )
         loss, margins, scores = model(
@@ -1526,8 +1526,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1576,8 +1576,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.COS,
-            LossFn.RANKING,
+            Comparator.COS,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1626,8 +1626,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.RANKING,
+            Comparator.DOT,
+            LossFunction.RANKING,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1676,8 +1676,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.LOGISTIC,
+            Comparator.DOT,
+            LossFunction.LOGISTIC,
             bias=False,
         )
         loss, margins, scores = model(
@@ -1726,8 +1726,8 @@ class TestModel(TestCase):
             Relations.STATIC,
             Negatives.SAME_BATCH,
             Operator.NONE,
-            Metric.DOT,
-            LossFn.SOFTMAX,
+            Comparator.DOT,
+            LossFunction.SOFTMAX,
             bias=False,
         )
         loss, margins, scores = model(

@@ -60,7 +60,7 @@ def generate_dataset(
         embeddings[entity_name] = torch.split(
             torch.randn(num_entities, config.dimension),
             Multinomial(
-                num_entities, torch.ones(entity.numPartitions)
+                num_entities, torch.ones(entity.num_partitions)
             ).sample().long().tolist(),
         )
         for partition, embedding in enumerate(embeddings[entity_name]):
@@ -110,8 +110,8 @@ def generate_dataset(
 class TestFunctional(TestCase):
 
     def setUp(self):
-        self.outdir = TemporaryDirectory()
-        self.addCleanup(self.outdir.cleanup)
+        self.checkpoint_path = TemporaryDirectory()
+        self.addCleanup(self.checkpoint_path.cleanup)
 
     def test_default(self):
         entity_name = "e"
@@ -120,10 +120,10 @@ class TestFunctional(TestCase):
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
-            entities={entity_name: EntitySchema(numPartitions=1)},
-            entityPath=None,  # filled in later
-            edgePaths=[],  # filled in later
-            outdir=self.outdir.name,
+            entities={entity_name: EntitySchema(num_partitions=1)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4, 0.2]
@@ -131,14 +131,14 @@ class TestFunctional(TestCase):
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
-            entityPath=dataset.entity_path.name,
-            edgePaths=[dataset.relation_paths[0].name],
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
         )
         eval_config = attr.evolve(
             base_config,
-            entityPath=dataset.entity_path.name,
-            edgePaths=[dataset.relation_paths[1].name],
-            relations=[attr.evolve(relation_config, all_rhs_negs=True)],
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[1].name],
+            relations=[attr.evolve(relation_config, all_negs=True)],
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)

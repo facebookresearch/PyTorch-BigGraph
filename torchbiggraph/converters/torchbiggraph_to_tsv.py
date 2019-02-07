@@ -60,7 +60,7 @@ def make_tsv(checkpoint, dictfile, outfile):
     entities = config.entities.keys()
     embeddings = {}
     for entity in entities:
-        parts = range(1, config.entities[entity].numPartitions + 1)
+        parts = range(1, config.entities[entity].num_partitions + 1)
         size = edict[entity].size()
         embeddings[entity] = torch.FloatTensor(size, config.dimension)
         idx = 0
@@ -73,7 +73,7 @@ def make_tsv(checkpoint, dictfile, outfile):
             if isinstance(embs, torch.nn.Parameter):
                 embs = embs.detach()
 
-            if config.globalEmb:
+            if config.global_emb:
                 print("Applying the global embedding...")
                 # FIXME: it's pretty hacky to hardcode this ...
                 global_emb = state_dict['global_embs.emb_%s' % entity]
