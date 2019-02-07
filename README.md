@@ -39,8 +39,6 @@ PBG is *not* for model exploration with exotic models on small graphs, e.g. grap
 5. `pip install -r requirements.txt`
 6. `python setup.py install`
 
-TODO @lerks what about conda/pip?
-
 ### Example Datasets
 
 PBG contains scripts to train embeddings for some example datasets from the [PBG paper](http://arxiv.org/FIXME) end-to-end. That includes downloading the datasets, converting them to the partitioned PBG format, training the embedding, and evaluating the quality of the embeddings.
@@ -64,23 +62,22 @@ NOTE: If your edgelist is too large or not amenable to a text input format, you 
 
 2. Convert your data into PBG's input format.
 ```
-$ cd pytorch-biggraph
-$ bin/torchbiggraph_data_processor my_config.py ... # FIXME
+$ torchbiggraph_data_processor my_config.py ... # FIXME
 ```
 
 3. Train a model
 ```
-$ bin/torchbiggraph_train my_config.py [-p param=override_value]
+$ torchbiggraph_train my_config.py [-p param=override_value]
 ```
 
 4. *Optional*: Evaluate the model on a held-out test set. Note that during training, PBG will intermittently evaluate your model on a held-out fraction of the data, so this is not necessary unless you have an explicit test set you are interested in evaluating on.
 ```
-$ bin/torchbiggraph_eval my_config.py
+$ torchbiggraph_eval my_config.py
 ```
 
 5. *Optional*: Convert the learned embeddings to csv format:
 ```
-$ bin/embeddings_to_csv.py my_config.py --out my_embeddings_tsv
+$ torchbiggraph_embeddings_to_csv my_config.py --out my_embeddings_tsv
 ```
 
 ## License
