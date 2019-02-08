@@ -19,7 +19,7 @@ from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model
 from .util import log, get_partitioned_types, chunk_by_index, create_workers, \
     join_workers, update_config_for_dynamic_relations, \
-    compute_randomized_auc, Side
+    compute_randomized_auc, Side, infer_input_index_base
 from .stats import Stats, stats
 
 
@@ -112,6 +112,8 @@ def do_eval_and_report_stats(
        embeddings.
     """
 
+    index_base = infer_input_index_base(config)
+
     config = update_config_for_dynamic_relations(config)
 
     checkpoint_manager = CheckpointManager(config.checkpoint_path)
@@ -147,7 +149,7 @@ def do_eval_and_report_stats(
         edgePath = config.edge_paths[epoch]
         log("Starting epoch %d / %d; edgePath= %s" %
             (epoch + 1, len(config.edge_paths), config.edge_paths[epoch]))
-        edge_reader = EdgeReader(edgePath)
+        edge_reader = EdgeReader(edgePath, index_base=index_base)
 
         all_epoch_stats = []
         for lhsP in range(nparts_lhs):

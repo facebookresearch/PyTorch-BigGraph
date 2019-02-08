@@ -51,14 +51,17 @@ class EdgeReader(object):
     pipelined.
     """
 
-    def __init__(self, path):
+    def __init__(self, path, index_base: int):
         if not os.path.isdir(path):
             raise RuntimeError("Invalid edge dir: %s" % path)
         self.path = path
+        self.index_base = index_base
 
     def read(self, lhsP=0, rhsP=0, i=0, N=1):
-        # FIXME: correcting for python vs Lua indexing by adding 1
-        file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhsP + 1, rhsP + 1))
+        file_path = os.path.join(
+            self.path,
+            "edges_%d_%d.h5" % (lhsP + self.index_base, rhsP + self.index_base),
+        )
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as f:
             lhs = f['lhs']
@@ -75,10 +78,10 @@ class EdgeReader(object):
             lhsd = self.read_dynamic(f, 'lhsd', begin, end)
             rhsd = self.read_dynamic(f, 'rhsd', begin, end)
 
-            # FIXME: convert Lua indexing to Python indexing
-            lhs -= 1
-            rhs -= 1
-            rel -= 1
+            if self.index_base != 0:
+                lhs -= self.index_base
+                rhs -= self.index_base
+                rel -= self.index_base
 
             return (EntityList(lhs, lhsd),
                     EntityList(rhs, rhsd),
@@ -91,8 +94,8 @@ class EdgeReader(object):
             offsets = torch.from_numpy(f[offsets_field][begin:end + 1]).long()
             data = torch.from_numpy(f[data_field][offsets[0]:offsets[-1]]).long()
 
-            # FIXME: convert Lua indexing to Python indexing
-            data -= 1
+            if self.index_base != 0:
+                data -= self.index_base
 
             # careful! as of Pytorch 0.4, offsets[0] is a 0d tensor view, so
             # offsets -= offsets[0] will give the wrong result
@@ -172,7 +175,7 @@ class CheckpointManager(object):
 
     """
 
-    def __init__(self, path, rank=-1, num_machines=1, background=False, partition_server_ranks=None):
+    def __init__(self, path, rank=-1, num_machines=1, background=False, partition_server_ranks=None, index_base=None):
         """
         Args:
           - path : path to the folder containing checkpoints.
@@ -220,6 +223,16 @@ class CheckpointManager(object):
         else:
             self.partition_client = None
 
+        version_ext = ".%d" % self.checkpoint_version if self.checkpoint_version > 0 else ''
+        if index_base is not None:
+            self.index_base = index_base
+        elif os.path.exists(os.path.join(self.path, "METADATA_0.pt%s" % version_ext)):
+            self.index_base = 0
+        elif os.path.exists(os.path.join(self.path, "METADATA_1.pt%s" % version_ext)):
+            self.index_base = 1
+        else:
+            self.index_base = 0
+
     def record_event(self):
         assert self.background
         self.events_outstanding += 1
@@ -260,7 +273,9 @@ class CheckpointManager(object):
 
     def _file_path(self, entity, part):
         ext = self._version_ext((entity, part) in self.dirty)
-        file_path = os.path.join(self.path, "%s_%d.pt%s" % (entity, part + 1, ext))
+        file_path = os.path.join(
+            self.path, "%s_%d.pt%s" % (entity, part + self.index_base, ext)
+        )
 
         return file_path
 
@@ -356,7 +371,7 @@ class CheckpointManager(object):
                     data = self.partition_client.get(entity, part)
                     vlog("Rank %d saving to disk" % self.rank)
                     new_file_path = os.path.join(
-                        self.path, "%s_%d.pt%s" % (entity, part + 1, new_ext)
+                        self.path, "%s_%d.pt%s" % (entity, part + self.index_base, new_ext)
                     )
                     _torch_save(data, new_file_path)
 
@@ -370,7 +385,7 @@ class CheckpointManager(object):
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 old_file_path = os.path.join(
-                    self.path, "%s_%d.pt%s" % (entity, part + 1, old_ext)
+                    self.path, "%s_%d.pt%s" % (entity, part + self.index_base, old_ext)
                 )
                 vlog("%d os.remove %s" % (self.rank, old_file_path))
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):

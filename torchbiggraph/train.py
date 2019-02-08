@@ -30,7 +30,7 @@ from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_workers, join_workers, fast_approx_rand, DummyOptimizer, \
     create_partition_pairs, update_config_for_dynamic_relations, Side, \
-    init_process_group
+    init_process_group, infer_input_index_base
 from .stats import Stats, stats
 
 
@@ -185,14 +185,15 @@ def train_and_report_stats(
         import pprint
         pprint.PrettyPrinter().pprint(config.to_dict())
 
+    index_base = infer_input_index_base(config)
+
     log("Loading entity counts...")
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.num_partitions):
-            path = os.path.join(
-                config.entity_path, "entity_count_%s_%d.pt" % (entity, part + 1)
-            )
+            name = "entity_count_%s_%d.pt" % (entity, part + index_base)
+            path = os.path.join(config.entity_path, name)
             entity_counts[entity].append(torch.load(path))
 
     config = update_config_for_dynamic_relations(config)
@@ -269,7 +270,8 @@ def train_and_report_stats(
             background=background_io,
             rank=rank,
             num_machines=config.num_machines,
-            partition_server_ranks=partition_server_ranks)
+            partition_server_ranks=partition_server_ranks,
+            index_base=index_base)
     if config.init_path is not None:
         loadpath_manager = CheckpointManager(config.init_path)
     else:
@@ -377,7 +379,7 @@ def train_and_report_stats(
             for entity, part in to_checkpoint:
                 side = old_parts[(entity, part)]
                 vlog("Checkpointing (%s %d %s)" %
-                     (entity, part + 1, side.pick("lhs", "rhs")))
+                     (entity, part, side.pick("lhs", "rhs")))
                 embs = model.get_embeddings(entity, side)
                 optim_key = "%s_%d" % (entity, part)
                 optim_state = optimizers[optim_key].state_dict()
@@ -413,10 +415,10 @@ def train_and_report_stats(
             part = side.pick_tuple(newP)
             part_key = (entity, part)
             if part_key in tmp_emb:
-                vlog("Loading (%s, %d) from preserved" % (entity, part + 1))
+                vlog("Loading (%s, %d) from preserved" % (entity, part))
                 embs, optim_state = tmp_emb[part_key], None
             else:
-                vlog("Loading (%s, %d)" % (entity, part + 1))
+                vlog("Loading (%s, %d)" % (entity, part))
 
                 force_dirty = (config.num_machines > 1 and
                                lock_client.check_and_set_dirty(entity, part))
@@ -446,7 +448,7 @@ def train_and_report_stats(
         edgePath_idx = edge_path_count % numEdgePaths
         edgePath = config.edge_paths[edgePath_idx]
 
-        edge_reader = EdgeReader(edgePath)
+        edge_reader = EdgeReader(edgePath, index_base=index_base)
         while echunk < config.num_edge_chunks:
             log("Starting epoch %d / %d edgePath %d / %d pass %d / %d" %
                 (epoch + 1, config.num_epochs,
@@ -466,7 +468,7 @@ def train_and_report_stats(
             # Print partition pairs
             vlog('\nPartition pairs:')
             for lhs_idx, rhs_idx in partition_pairs:
-                vlog("(%d, %d)" % (lhs_idx + 1, rhs_idx + 1))
+                vlog("(%d, %d)" % (lhs_idx, rhs_idx))
             vlog('')
 
             if config.num_machines > 1:

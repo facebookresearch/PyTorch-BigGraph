@@ -110,7 +110,7 @@ def generate_entity_size_file(entities, entity_path, entity_dict):
         npart = entity_config.num_partitions
         part_size = entity_dict[entity].part_size()
 
-        for i in range(1, npart + 1):
+        for i in range(npart):
             torch.save(
                 part_size,
                 os.path.join(
@@ -192,10 +192,6 @@ def convert_and_partition_data(
             l_part, l_offset = edict[lhs_ent].get_partition(e_lhs)
             r_part, r_offset = edict[rhs_ent].get_partition(e_rhs)
 
-            l_offset = l_offset + 1
-            r_offset = r_offset + 1
-            e_rel = e_rel + 1
-
             buckets[l_part, r_part][0].append(l_offset)
             buckets[l_part, r_part][1].append(r_offset)
             buckets[l_part, r_part][2].append(e_rel)
@@ -213,7 +209,7 @@ def convert_and_partition_data(
             p_rel = buckets[i, j][2]
 
             print('Partition (%d, %d) contains %d edges.' % (i, j, len(p_lhs)))
-            out_f = os.path.join(out_dir, "edges_%d_%d.h5" % (i + 1, j + 1))
+            out_f = os.path.join(out_dir, "edges_%d_%d.h5" % (i, j))
             print("Saving edges to %s" % out_f)
             with h5py.File(out_f, 'w') as hf:
                 hf.create_dataset("lhs", data=np.asarray(p_lhs))

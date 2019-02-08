@@ -20,7 +20,7 @@ class Bucket(NamedTuple):
     rhs: int
 
     def __str__(self):
-        return "( %d , %d )" % (self.lhs + 1, self.rhs + 1)
+        return "( %d , %d )" % (self.lhs, self.rhs)
 
 
 class LockServer(Server):

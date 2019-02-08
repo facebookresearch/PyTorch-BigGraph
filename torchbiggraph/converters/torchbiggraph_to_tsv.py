@@ -60,13 +60,13 @@ def make_tsv(checkpoint, dictfile, outfile):
     entities = config.entities.keys()
     embeddings = {}
     for entity in entities:
-        parts = range(1, config.entities[entity].num_partitions + 1)
+        parts = range(config.entities[entity].num_partitions)
         size = edict[entity].size()
         embeddings[entity] = torch.FloatTensor(size, config.dimension)
         idx = 0
         for part in parts:
             print('Load embeddings for entity %s, part %d.' % (entity, part))
-            embs, _ = checkpoint_manager.read(entity, part=part - 1)
+            embs, _ = checkpoint_manager.read(entity, part=part)
             # remove dummy embeddings due to partition
             sz = min(len(embs), size - idx)
             embs = embs[:sz]

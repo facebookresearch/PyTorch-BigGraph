@@ -65,7 +65,7 @@ def generate_dataset(
         )
         for partition, embedding in enumerate(embeddings[entity_name]):
             with open(os.path.join(
-                entity_path.name, "entity_count_%s_%d.pt" % (entity_name, partition + 1)
+                entity_path.name, "entity_count_%s_%d.pt" % (entity_name, partition)
             ), "wb") as f:
                 torch.save(len(embedding), f)
 
@@ -96,12 +96,11 @@ def generate_dataset(
             for fraction, path in zip(fractions, relation_paths):
                 end_idx = start_idx + int(fraction * len(edges))
                 with h5py.File(os.path.join(
-                    path.name, "edges_%d_%d.h5" % (lhs_partition + 1, rhs_partition + 1)
+                    path.name, "edges_%d_%d.h5" % (lhs_partition, rhs_partition)
                 )) as hf:
-                    # Adding one because of Lua indexing.
-                    hf["lhs"] = edges[start_idx:end_idx, 0] + 1
-                    hf["rhs"] = edges[start_idx:end_idx, 1] + 1
-                    hf["rel"] = edges[start_idx:end_idx, 2] + 1
+                    hf["lhs"] = edges[start_idx:end_idx, 0]
+                    hf["rhs"] = edges[start_idx:end_idx, 1]
+                    hf["rel"] = edges[start_idx:end_idx, 2]
                 start_idx = end_idx
 
     return Dataset(entity_path, relation_paths)
