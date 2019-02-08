@@ -64,10 +64,9 @@ def generate_dataset(
             ).sample().long().tolist(),
         )
         for partition, embedding in enumerate(embeddings[entity_name]):
-            with open(os.path.join(
+            torch.save(len(embedding), os.path.join(
                 entity_path.name, "entity_count_%s_%d.pt" % (entity_name, partition)
-            ), "wb") as f:
-                torch.save(len(embedding), f)
+            ))
 
     num_lhs_partitions = \
         broadcast_nums(len(embeddings[relation.lhs]) for relation in config.relations)
@@ -106,11 +105,73 @@ def generate_dataset(
     return Dataset(entity_path, relation_paths)
 
 
+def init_embeddings(
+    target: str,
+    config: ConfigSchema,
+    *,
+    version: int = 0,
+):
+    with open(os.path.join(target, "CHECKPOINT_VERSION"), "wb") as f:
+        f.write(b"%d" % version)
+    version_ext = ".%d" % version if version > 0 else ""
+    for entity_name, entity in config.entities.items():
+        for partition in range(entity.num_partitions):
+            entity_count = torch.load(os.path.join(
+                config.entity_path,
+                "entity_count_%s_%d.pt" % (entity_name, partition),
+            ))
+            torch.save(
+                (
+                    torch.randn(entity_count, config.dimension),
+                    None,  # embedding optimizer state dict
+                ),
+                os.path.join(
+                    target,
+                    "%s_%d.pt%s" % (entity_name, partition, version_ext),
+                ),
+            )
+    torch.save(
+        (
+            config.to_dict(),
+            (version - 1) // config.num_edge_chunks,
+            (version - 1) % config.num_edge_chunks,
+            None,  # model state dict (without embeddings)
+            None,  # common optimizer state dict
+        ),
+        os.path.join(target, "METADATA_0.pt%s" % version_ext),
+    )
+
+
 class TestFunctional(TestCase):
 
     def setUp(self):
         self.checkpoint_path = TemporaryDirectory()
         self.addCleanup(self.checkpoint_path.cleanup)
+
+    def assertCheckpointWritten(self, config: ConfigSchema, *, version: int):
+        with open(os.path.join(config.checkpoint_path, "CHECKPOINT_VERSION"), "rb") as f:
+            self.assertEqual(version, int(f.read().strip()))
+
+        version_ext = ".%d" % version if version > 0 else ""
+        stored_config, epoch, edge_chunk_idx, _, _ = torch.load(
+            os.path.join(config.checkpoint_path, "METADATA_0.pt%s" % version_ext)
+        )
+        self.assertEqual(config.to_dict(), stored_config)
+        self.assertEqual(epoch, (version - 1) // config.num_edge_chunks)
+        self.assertEqual(edge_chunk_idx, (version - 1) % config.num_edge_chunks)
+
+        for entity_name, entity in config.entities.items():
+            for partition in range(entity.num_partitions):
+                entity_count = torch.load(os.path.join(
+                    config.entity_path,
+                    "entity_count_%s_%d.pt" % (entity_name, partition),
+                ))
+                embedding, _ = torch.load(os.path.join(
+                    config.checkpoint_path,
+                    "%s_%d.pt%s" % (entity_name, partition, version_ext),
+                ))
+                self.assertIsInstance(embedding, torch.FloatTensor)
+                self.assertEqual(embedding.size(), (entity_count, config.dimension))
 
     def test_default(self):
         entity_name = "e"
@@ -142,6 +203,67 @@ class TestFunctional(TestCase):
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
         do_eval(eval_config)
+        self.assertCheckpointWritten(train_config, version=1)
+
+    def test_resume_from_checkpoint(self):
+        entity_name = "e"
+        relation_config = RelationSchema(
+            name="r", lhs=entity_name, rhs=entity_name)
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[relation_config],
+            entities={entity_name: EntitySchema(num_partitions=1)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+            num_epochs=2,
+            num_edge_chunks=2,
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.4, 0.4]
+        )
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[d.name for d in dataset.relation_paths],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        init_embeddings(train_config.checkpoint_path, train_config, version=7)
+        train(train_config, rank=0)
+        self.assertCheckpointWritten(train_config, version=8)
+        # Check we did resume the run, not start the whole thing anew.
+        self.assertFalse(os.path.exists(
+            os.path.join(train_config.checkpoint_path, "METADATA_0.pt.6")))
+
+    def test_with_initial_value(self):
+        entity_name = "e"
+        relation_config = RelationSchema(
+            name="r", lhs=entity_name, rhs=entity_name)
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[relation_config],
+            entities={entity_name: EntitySchema(num_partitions=1)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.4]
+        )
+        self.addCleanup(dataset.cleanup)
+        init_dir = TemporaryDirectory()
+        self.addCleanup(init_dir.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+            init_path=init_dir.name,
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        init_embeddings(train_config.init_path, train_config)
+        train(train_config, rank=0)
+        self.assertCheckpointWritten(train_config, version=1)
 
 
 if __name__ == '__main__':
