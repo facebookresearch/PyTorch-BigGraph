@@ -9,7 +9,7 @@
 entities_base = 'data/livejournal'
 
 
-def get_torchbiggraph_conf():
+def get_torchbiggraph_config():
 
     config = dict(
         entity_path=entities_base,

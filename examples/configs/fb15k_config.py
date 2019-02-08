@@ -9,7 +9,7 @@
 entity_base = "data/FB15k"
 
 
-def get_torchbiggraph_conf():
+def get_torchbiggraph_config():
 
     config = dict(
         entity_path=entity_base,

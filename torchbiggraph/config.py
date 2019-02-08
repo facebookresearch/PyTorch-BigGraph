@@ -333,7 +333,7 @@ def parse_config_base(config, overrides=None):
     spec = importlib.util.spec_from_file_location("config_module", config)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    user_config = module.get_torchbiggraph_conf()
+    user_config = module.get_torchbiggraph_config()
     assert user_config is not None, "your config file didn't return anything"
     if overrides is not None:
         for override in overrides:
