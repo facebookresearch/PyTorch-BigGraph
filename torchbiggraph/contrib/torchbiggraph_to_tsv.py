@@ -10,7 +10,7 @@ import argparse
 import torch
 
 from torchbiggraph.config import ConfigSchema
-from torchbiggraph.converters.dictionary import Dictionary
+from torchbiggraph.contrib.dictionary import Dictionary
 from torchbiggraph.fileio import CheckpointManager
 from torchbiggraph.model import make_model
 from torchbiggraph.util import update_config_for_dynamic_relations

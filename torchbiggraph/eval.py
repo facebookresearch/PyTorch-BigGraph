@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+from abc import ABC, abstractmethod
 import argparse
 import time
 from itertools import chain
@@ -14,13 +15,15 @@ from typing import Generator, Optional, Tuple, Union
 import attr
 import torch
 
+from torch_extensions.tensorlist.tensorlist import TensorList
+
 from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .fileio import CheckpointManager, EdgeReader
-from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder
+from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder, Margins, Scores
 from .util import log, get_partitioned_types, chunk_by_index, create_workers, \
     join_workers, update_config_for_dynamic_relations, compute_randomized_auc, \
-    Side, infer_input_index_base, Rank
+    Side, infer_input_index_base, Rank, Partition
 from .stats import Stats, stats
 
 
@@ -34,13 +37,66 @@ class EvalStats(Stats):
     auc: float = attr.ib()
 
 
+class AbstractEvaluator(ABC):
+    @abstractmethod
+    def eval(
+        self,
+        scores: Scores,
+        margins: Margins,
+        batch_lhs: Union[torch.FloatTensor, TensorList],
+        batch_rhs: Union[torch.FloatTensor, TensorList],
+        batch_rel: Union[int, torch.LongTensor],
+    ) -> Stats:
+        pass
+
+
+class RankingEvaluator(AbstractEvaluator):
+
+    def eval(
+        self,
+        scores: Scores,
+        margins: Margins,
+        batch_lhs: Union[torch.FloatTensor, TensorList],
+        batch_rhs: Union[torch.FloatTensor, TensorList],
+        batch_rel: Union[int, torch.LongTensor],
+    ) -> EvalStats:
+        B = batch_lhs.size(0)
+
+        # lhs_margin[i,j] is the score of (neg_lhs[i,j], rel[i], rhs[i]) minus the
+        # score of (lhs[i], rel[i], rhs[i]). Thus it is >= 0 when the i-th positive
+        # edge achieved a lower score than the j-th negative that we sampled for it.
+        # remember, the self-interaction has margin=0, but we do want to
+        # count any other negatives with margin=0 as violators, so
+        # lets make it a >=0 condition and then just assume one extra
+        # violator
+        lrank = margins[0].ge(0).float().sum(1) + 1
+        rrank = margins[1].ge(0).float().sum(1) + 1
+
+        auc = .5 * compute_randomized_auc(scores[0], scores[2], B)\
+              + .5 * compute_randomized_auc(scores[1], scores[3], B)
+
+        return EvalStats(
+            pos_rank=(lrank.float().sum().item() + rrank.float().sum().item()) / 2,
+            mrr=(lrank.float().reciprocal().sum().item()
+                 + rrank.float().reciprocal().sum().item()) / 2,
+            r1=(lrank.le(1).float() + rrank.le(1).float()).sum().item() / 2,
+            r10=(lrank.le(10).float() + rrank.le(10).float()).sum().item() / 2,
+            r50=(lrank.le(50).float() + rrank.le(50).float()).sum().item() / 2,
+            auc=auc * B,  # at the end the auc will be averaged over count
+            count=B)
+
+
+DEFAULT_EVALUATOR = RankingEvaluator()
+
+
 def eval_one_batch(
         model: MultiRelationEmbedder,
         batch_lhs: EntityList,
         batch_rhs: EntityList,
         # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
         batch_rel: Union[int, torch.LongTensor],
-) -> EvalStats:
+        evaluator: AbstractEvaluator = DEFAULT_EVALUATOR,
+) -> Stats:
     B = batch_lhs.size(0)
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
     batch_rhs = batch_rhs.collapse(model.is_featurized(batch_rel, Side.RHS))
@@ -48,32 +104,9 @@ def eval_one_batch(
     # loss_fn = "ranking"
     # margin = 0
     with override_model(model, loss_fn=RankingLoss(0)):
-        loss, (lhs_margin, rhs_margin), scores = model(
-            batch_lhs,
-            batch_rhs,
-            batch_rel)
+        loss, margins, scores = model(batch_lhs, batch_rhs, batch_rel)
 
-    # lhs_margin[i,j] is the score of (neg_lhs[i,j], rel[i], rhs[i]) minus the
-    # score of (lhs[i], rel[i], rhs[i]). Thus it is >= 0 when the i-th positive
-    # edge achieved a lower score than the j-th negative that we sampled for it.
-    lrank = lhs_margin.ge(0).float().sum(1) + 1
-    rrank = rhs_margin.ge(0).float().sum(1) + 1
-
-    auc = .5 * compute_randomized_auc(scores[0], scores[2], B)\
-          + .5 * compute_randomized_auc(scores[1], scores[3], B)
-
-    # it's kind of weird that we average violators from LHS and RHS
-    # but I'm just going to copy the old version for now
-
-    return EvalStats(
-        pos_rank=(lrank.float().sum().item() + rrank.float().sum().item()) / 2,
-        mrr=(lrank.float().reciprocal().sum().item()
-             + rrank.float().reciprocal().sum().item()) / 2,
-        r1=(lrank.le(1).float() + rrank.le(1).float()).sum().item() / 2,
-        r10=(lrank.le(10).float() + rrank.le(10).float()).sum().item() / 2,
-        r50=(lrank.le(50).float() + rrank.le(50).float()).sum().item() / 2,
-        auc=auc * B,  # at the end the auc will be averaged over count
-        count=B)
+    return evaluator.eval(scores, margins, batch_lhs, batch_rhs, batch_rel)
 
 
 def eval_many_batches(
@@ -82,7 +115,8 @@ def eval_many_batches(
     lhs: EntityList,
     rhs: EntityList,
     rel: torch.LongTensor,
-) -> EvalStats:
+    evaluator: AbstractEvaluator = DEFAULT_EVALUATOR,
+) -> Stats:
     all_stats = []
     if model.num_dynamic_rels > 0:
         offset, N = 0, rel.size(0)
@@ -92,7 +126,8 @@ def eval_many_batches(
                 model,
                 lhs[offset:offset + B],
                 rhs[offset:offset + B],
-                rel[offset:offset + B]))
+                rel[offset:offset + B],
+                evaluator))
             offset += B
     else:
         _, lhs_chunked, rhs_chunked = chunk_by_index(rel, lhs, rhs)
@@ -104,8 +139,7 @@ def eval_many_batches(
             for offset in range(0, lhs_rel.size(0), B):
                 batch_lhs = lhs_rel[offset:offset + B]
                 batch_rhs = rhs_rel[offset:offset + B]
-                all_stats.append(eval_one_batch(
-                    model, batch_lhs, batch_rhs, rel_type))
+                all_stats.append(eval_one_batch(model, batch_lhs, batch_rhs, rel_type, evaluator))
 
     return EvalStats.sum(all_stats)
 
@@ -117,16 +151,18 @@ def eval_one_thread(
     lhs: EntityList,
     rhs: EntityList,
     rel: torch.LongTensor,
-) -> EvalStats:
+    evaluator: AbstractEvaluator
+) -> Stats:
     """ This is the eval loop executed by each HOGWILD thread.
     """
-    stats = eval_many_batches(config, model, lhs, rhs, rel)
+    stats = eval_many_batches(config, model, lhs, rhs, rel, evaluator)
     print("Rank %d done" % rank)
     return stats
 
 
 def do_eval_and_report_stats(
     config: ConfigSchema,
+    evaluator: AbstractEvaluator = DEFAULT_EVALUATOR,
 ) -> Generator[Tuple[int, Optional[Tuple[int, int]], EvalStats], None, None]:
     """Computes eval metrics (r1/r10/r50) for a checkpoint with trained
        embeddings.
@@ -138,7 +174,7 @@ def do_eval_and_report_stats(
 
     checkpoint_manager = CheckpointManager(config.checkpoint_path)
 
-    def load_embeddings(entity, part=0):
+    def load_embeddings(entity, part: Partition = 0):
         data = checkpoint_manager.read(entity, part, strict=True)
         embs, _optim_state = data
         embs.share_memory_()
@@ -164,6 +200,7 @@ def do_eval_and_report_stats(
             embs = load_embeddings(entity)
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)
+
 
     for epoch in range(len(config.edge_paths)):  # FIXME: maybe just one epoch?
         edgePath = config.edge_paths[epoch]
@@ -195,8 +232,7 @@ def do_eval_and_report_stats(
                 for rank in range(config.workers):
                     start = int(rank * N / config.workers)
                     end = int((rank + 1) * N / config.workers)
-                    qIn[rank].put(
-                        (model, lhs[start:end], rhs[start:end], rel[start:end]))
+                    qIn[rank].put((model, lhs[start:end], rhs[start:end], rel[start:end], evaluator))
 
                 # log("( %d , %d ): Waiting for workers" % (lhsP, rhsP))
                 all_stats = []
@@ -235,9 +271,10 @@ def do_eval_and_report_stats(
 
 def do_eval(
     config: ConfigSchema,
+    evaluator: AbstractEvaluator = DEFAULT_EVALUATOR
 ) -> None:
     # Create and run the generator until exhaustion.
-    for _ in do_eval_and_report_stats(config):
+    for _ in do_eval_and_report_stats(config, evaluator):
         pass
 
 

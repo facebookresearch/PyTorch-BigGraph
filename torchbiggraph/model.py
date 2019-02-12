@@ -716,6 +716,12 @@ class Negatives(Enum):
 
 Mask = List[Tuple[Union[int, slice, Sequence[int], torch.LongTensor], ...]]
 
+# lhs_margin, rhs_margin
+Margins = Tuple[torch.FloatTensor, torch.FloatTensor]
+
+# lhs_pos, rhs_pos, lhs_neg, rhs_neg
+Scores = Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]
+
 
 class MultiRelationEmbedder(nn.Module):
     """
@@ -990,7 +996,7 @@ class MultiRelationEmbedder(nn.Module):
         lhs: Union[torch.LongTensor, TensorList],
         rhs: Union[torch.LongTensor, TensorList],
         rel: Union[int, torch.LongTensor],
-    ):
+    ) -> Tuple[torch.FloatTensor, Margins, Scores]:
         num_pos = match_shape(lhs, -1)
         match_shape(rhs, num_pos)
 

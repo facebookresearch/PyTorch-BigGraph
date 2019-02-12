@@ -14,7 +14,7 @@ def get_torchbiggraph_config():
     config = dict(
         entity_path=entity_base,
 
-        num_epochs=200,
+        num_epochs=50,
 
         entities={
             'all': {'num_partitions': 1},
@@ -24,21 +24,22 @@ def get_torchbiggraph_config():
             'name': 'all_edges',
             'lhs': 'all',
             'rhs': 'all',
-            'operator': 'translation'
+            'operator': 'complex_diagonal',
+            'all_negs': True,
         }],
 
         edge_paths=[],
 
         checkpoint_path='model/fb15k',
 
-        dimension=100,
+        dimension=400,
         global_emb=False,
-        max_norm=1,
-        margin=0.2,
+        bias=False,
         comparator='dot',
+        lossFn='softmax',
         lr=0.1,
-        num_uniform_negs=0,
-        num_batch_negs=100,
+
+        eval_fraction=0,  # to reproduce results, we need to use all training data
     )
 
     return config

@@ -17,7 +17,7 @@ import torch
 
 from torchbiggraph.config import \
     ConfigSchema, EntitySchema, RelationSchema, parse_config_base
-from torchbiggraph.converters.dictionary import Dictionary
+from torchbiggraph.contrib.dictionary import Dictionary
 
 
 def build_entity_dict(
