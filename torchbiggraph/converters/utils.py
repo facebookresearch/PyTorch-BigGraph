@@ -9,7 +9,7 @@
 import gzip
 import os
 import tarfile
-import urllib
+from urllib import request
 
 from tqdm import tqdm
 
@@ -67,7 +67,7 @@ def download_url(url, root, filename=None):
     else:
         try:
             print('Downloading ' + url + ' to ' + fpath)
-            urllib.request.urlretrieve(
+            request.urlretrieve(
                 url, fpath,
                 reporthook=gen_bar_updater(tqdm(unit='B', unit_scale=True))
             )
