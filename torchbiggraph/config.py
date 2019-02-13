@@ -28,6 +28,10 @@ class Operator(Enum):
     LINEAR = 'linear'
     # Multiply by a full square matrix, then translate.
     AFFINE = 'affine'
+    # Treat the D-dimensional embedding as D/2 complex numbers (the half of the
+    # vector is their real parts, the second half their imaginary parts) and
+    # multiply them pointwise by another vector of D/2 complex numbers.
+    COMPLEX_DIAGONAL = 'complex_diagonal'
 
 
 class Comparator(Enum):

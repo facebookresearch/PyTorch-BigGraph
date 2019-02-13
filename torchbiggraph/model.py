@@ -231,12 +231,33 @@ class AffineOperator(AbstractOperator):
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
+class ComplexDiagonalOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        if dim % 2 != 0:
+            raise ValueError("Need even dimension as 1st half is real "
+                             "and 2nd half is imaginary coordinates")
+        self.real = nn.Parameter(torch.ones(self.dim // 2))
+        self.imag = nn.Parameter(torch.zeros(self.dim // 2))
+
+    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+        match_shape(embeddings, ..., self.dim)
+        real = embeddings[..., :self.dim // 2]
+        imag = embeddings[..., self.dim // 2:]
+        prod = torch.empty(*embeddings.size())
+        prod[..., :self.dim // 2] = real * self.real - imag * self.imag
+        prod[..., self.dim // 2:] = real * self.imag + imag * self.real
+        return prod
+
+
 OPERATORS: Dict[Operator, Type[AbstractOperator]] = {
     Operator.NONE: IdentityOperator,
     Operator.DIAGONAL: DiagonalOperator,
     Operator.TRANSLATION: TranslationOperator,
     Operator.LINEAR: LinearOperator,
     Operator.AFFINE: AffineOperator,
+    Operator.COMPLEX_DIAGONAL: ComplexDiagonalOperator,
 }
 
 
@@ -362,12 +383,40 @@ class AffineDynamicOperator(AbstractDynamicOperator):
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
+class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        if dim % 2 != 0:
+            raise ValueError("Need even dimension as 1st half is real "
+                             "and 2nd half is imaginary coordinates")
+        self.real = nn.Parameter(torch.ones(self.num_operations, self.dim // 2))
+        self.imag = nn.Parameter(torch.zeros(self.num_operations, self.dim // 2))
+
+    def forward(
+        self,
+        embeddings: torch.FloatTensor,
+        operator_idxs: torch.LongTensor,
+    ) -> torch.FloatTensor:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        real_a = embeddings[..., :self.dim // 2]
+        imag_a = embeddings[..., self.dim // 2:]
+        real_b = self.real[operator_idxs]
+        imag_b = self.imag[operator_idxs]
+        prod = torch.empty(*embeddings.size())
+        prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        return prod
+
+
 DYNAMIC_OPERATORS: Dict[Operator, Type[AbstractDynamicOperator]] = {
     Operator.NONE: IdentityDynamicOperator,
     Operator.DIAGONAL: DiagonalDynamicOperator,
     Operator.TRANSLATION: TranslationDynamicOperator,
     Operator.LINEAR: LinearDynamicOperator,
     Operator.AFFINE: AffineDynamicOperator,
+    Operator.COMPLEX_DIAGONAL: ComplexDiagonalDynamicOperator,
 }
 
 

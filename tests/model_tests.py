@@ -26,10 +26,10 @@ from torchbiggraph.model import (
     SimpleEmbedding, FeaturizedEmbedding,
     # Operators
     IdentityOperator, DiagonalOperator, TranslationOperator, LinearOperator,
-    AffineOperator,
+    AffineOperator, ComplexDiagonalOperator,
     # Dynamic operators
     IdentityDynamicOperator, DiagonalDynamicOperator, TranslationDynamicOperator,
-    LinearDynamicOperator, AffineDynamicOperator,
+    LinearDynamicOperator, AffineDynamicOperator, ComplexDiagonalDynamicOperator,
     # Comparator
     DotComparator, CosComparator, BiasedComparator,
     # Losses
@@ -367,6 +367,27 @@ class TestAffineOperator(TestCase):
         ]))
 
 
+class TestComplexDiagonalOperator(TestCase):
+
+    def test_forward(self):
+        embeddings = torch.tensor([
+            [[0.3766, 0.9734, 0.5190, 0.5453],
+             [0.1801, 0.1585, 0.4585, 0.5928]],
+            [[0.6188, 0.1917, 0.1006, 0.3378],
+             [0.3876, 0.7134, 0.7921, 0.9434]],
+        ])
+        operator = ComplexDiagonalOperator(4)
+        with torch.no_grad():
+            operator.real[...] = torch.tensor([0.2949, 0.0029])
+            operator.imag[...] = torch.tensor([0.4070, 0.1027])
+        assertTensorEqual(self, operator(embeddings), torch.tensor([
+            [[-0.1002, -0.0532,  0.3063,  0.1015],
+             [-0.1335, -0.0604,  0.2085,  0.0180]],
+            [[ 0.1415, -0.0341,  0.2815,  0.0207],
+             [-0.2081, -0.0948,  0.3913,  0.0760]],
+        ]))
+
+
 class TestIdentityDynamicOperator(TestCase):
 
     def test_forward(self):
@@ -463,6 +484,39 @@ class TestAffineDynamicOperator(TestCase):
              [41.9512, 45.3209, 49.0122]],
             [[23.4115, 26.7177, 30.3599],
              [ 2.6852,  9.6903, 16.4483]],
+        ]))
+
+
+class TestComplexDiagonalDynamicOperator(TestCase):
+
+    def test_forward(self):
+        embeddings = torch.tensor([
+            [[0.3766, 0.9734, 0.5190, 0.5453],
+             [0.1801, 0.1585, 0.4585, 0.5928]],
+            [[0.6188, 0.1917, 0.1006, 0.3378],
+             [0.3876, 0.7134, 0.7921, 0.9434]],
+        ])
+        operator = ComplexDiagonalDynamicOperator(4, 5)
+        with torch.no_grad():
+            operator.real[...] = torch.tensor([
+                [0.2949, 0.0029],
+                [0.5445, 0.5274],
+                [0.3355, 0.9640],
+                [0.6218, 0.2306],
+                [0.3800, 0.9428],
+            ])
+            operator.imag[...] = torch.tensor([
+                [0.4070, 0.1027],
+                [0.1573, 0.0771],
+                [0.4910, 0.1931],
+                [0.3972, 0.4966],
+                [0.9878, 0.2182],
+            ])
+        assertTensorEqual(self, operator(embeddings, torch.tensor([[0, 4], [2, 0]])), torch.tensor([
+            [[-0.1002, -0.0532,  0.3063,  0.1015],
+             [-0.3845,  0.0201,  0.3521,  0.5935]],
+            [[ 0.1582,  0.1196,  0.3376,  0.3627],
+             [-0.2081, -0.0948,  0.3913,  0.0760]],
         ]))
 
 
