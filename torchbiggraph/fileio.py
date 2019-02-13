@@ -9,20 +9,31 @@
 import os
 import os.path
 import sys
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import h5py
 import torch
+import torch.multiprocessing as mp
+import torch.nn as nn
 from torch_extensions.tensorlist.tensorlist import TensorList
 from torch_extensions.rpc.rpc import (
     _serialize as torch_rpc_serialize,
     _deserialize as torch_rpc_deserialize,
 )
 
+from .config import ConfigSchema
 from .entitylist import EntityList
-from .util import log, vlog, create_workers, join_workers
+from .util import log, vlog, create_workers, join_workers, EntityName, Partition, \
+    Rank, OptimizerStateDict, ModuleStateDict
 
 
-def torch_load_shared(filename):
+ConfigDict = Any
+EntityDataType = Tuple[nn.Parameter, OptimizerStateDict]
+MetadataType = Tuple[ConfigDict, int, int, ModuleStateDict, OptimizerStateDict]
+CheckpointDataType = Union[EntityDataType, MetadataType]
+
+
+def torch_load_shared(filename: str) -> Any:
     """Perform torch.load, with copy-free load of FloatTensors into shared memory."""
 
     # `torch.load` calls the `map_location` function on `storage` immediately
@@ -41,7 +52,7 @@ def torch_load_shared(filename):
                       map_location=lambda storage, _: storage._new_shared(storage.size()))
 
 
-class EdgeReader(object):
+class EdgeReader:
     """Reads partitioned edgelists from disk, in the format
     created by edge_downloader.py.
 
@@ -51,13 +62,19 @@ class EdgeReader(object):
     pipelined.
     """
 
-    def __init__(self, path, index_base: int):
+    def __init__(self, path: str, index_base: int) -> None:
         if not os.path.isdir(path):
             raise RuntimeError("Invalid edge dir: %s" % path)
-        self.path = path
+        self.path: str = path
         self.index_base = index_base
 
-    def read(self, lhsP=0, rhsP=0, i=0, N=1):
+    def read(
+        self,
+        lhsP: Partition,
+        rhsP: Partition,
+        i: int = 0,
+        N: int = 1,
+    ) -> Tuple[EntityList, EntityList, torch.LongTensor]:
         file_path = os.path.join(
             self.path,
             "edges_%d_%d.h5" % (lhsP + self.index_base, rhsP + self.index_base),
@@ -87,7 +104,13 @@ class EdgeReader(object):
                     EntityList(rhs, rhsd),
                     rel)
 
-    def read_dynamic(self, f, key, begin, end):
+    def read_dynamic(
+        self,
+        f: h5py.File,
+        key: str,
+        begin: int,
+        end: int,
+    ) -> TensorList:
         offsets_field = '%s_offsets' % key
         data_field = '%s_data' % key
         if offsets_field in f and data_field in f:
@@ -108,60 +131,84 @@ class EdgeReader(object):
                 torch.zeros(end - begin + 1).long(), torch.Tensor([])
             )
 
-def _torch_save(data, file_path):
+
+def _torch_save(
+    data: Any,
+    file_path: str,
+) -> None:
     vlog("Saving to %s" % file_path)
     with open(file_path, 'wb') as f:
         torch.save(data, f)
         f.flush()
         os.fsync(f.fileno())
 
-def process_io_command(cmd, path, data):
+
+def process_io_command(
+    cmd: str,
+    path: Optional[str],
+    data: Optional[CheckpointDataType],
+) -> Tuple[str, Optional[str], Optional[CheckpointDataType]]:
     if cmd == 'save':
+        if data is None or path is None:
+            raise ValueError("Need data and path for save command")
         _torch_save(data, path)
         vlog("Worker thread done save of %s" % path)
-        return (cmd, path, None)
+        return cmd, path, None
     elif cmd == 'load':
+        if path is None:
+            raise ValueError("Need path for load command")
         vlog("Worker thread starting load of %s" % path)
         res = torch_load_shared(path)
         vlog("Worker thread done load of %s" % path)
-        return (cmd, path, res)
+        return cmd, path, res
     elif cmd == 'event':
         vlog("Processing event...")
-        return (cmd, None, None)
+        return cmd, None, None
+    else:
+        raise NotImplementedError("Unknown command: %s" % cmd)
 
 
 VERSION_FILE = 'CHECKPOINT_VERSION'
 
 
-class PartitionClient(object):
+class PartitionClient:
     """A wrapper around ParameterServerClient that knows how to read and write
     partitions (i.e. pairs (embs, optim_state)) to the parameter servers.
     """
 
-    def __init__(self, server_ranks):
+    def __init__(self, server_ranks: Iterable[int]) -> None:
         from .parameterserver import ParameterServerClient
         self._clients = [ParameterServerClient(rank) for rank in server_ranks]
 
-    def store(self, entity, part, data):
+    def store(
+        self,
+        entity: EntityName,
+        part: Partition,
+        data: EntityDataType,
+    ) -> None:
         embs, optim_state = data
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
         client.store(key + "__embs", embs.data)
         client.store(key + "__optim", torch_rpc_serialize(optim_state))
 
-    def get(self, entity, part):
+    def get(
+        self,
+        entity: EntityName,
+        part: Partition,
+    ) -> EntityDataType:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
         embs = client.get(key + "__embs", shared=True)
         optim_state = torch_rpc_deserialize(client.get(key + "__optim"))
-        return (embs, optim_state)
+        return embs, optim_state
 
-    def join(self):
+    def join(self) -> None:
         for client in self._clients:
             client.join()
 
 
-class CheckpointManager(object):
+class CheckpointManager:
     """Reads and writes checkpoint data to/from disk.
 
     Checkpoints are saved via torch.save with no introspection into the
@@ -175,7 +222,15 @@ class CheckpointManager(object):
 
     """
 
-    def __init__(self, path, rank=-1, num_machines=1, background=False, partition_server_ranks=None, index_base=None):
+    def __init__(
+        self,
+        path: str,
+        rank: Rank = -1,
+        num_machines: int = 1,
+        background: bool = False,
+        partition_server_ranks: Optional[List[int]] = None,
+        index_base: Optional[int] = None,
+    ) -> None:
         """
         Args:
           - path : path to the folder containing checkpoints.
@@ -183,10 +238,10 @@ class CheckpointManager(object):
                         process
         """
 
-        self.path = path
-        self.dirty = set()
-        self.rank = rank
-        self.num_machines = num_machines
+        self.path: str = path
+        self.dirty: Set[Tuple[EntityName, Partition]] = set()
+        self.rank: Rank = rank
+        self.num_machines: int = num_machines
         if self.rank == 0:
             os.makedirs(path, exist_ok=True)
             if not os.path.exists(os.path.join(path, VERSION_FILE)):
@@ -203,7 +258,7 @@ class CheckpointManager(object):
         else:
             self.checkpoint_version = 0
 
-        self.background = background
+        self.background: bool = background
         if self.background:
             io_worker, qin, qout = create_workers(
                 N=1,
@@ -211,17 +266,16 @@ class CheckpointManager(object):
                     cmd, data, path),
                 args=None
             )
-            self.io_worker = io_worker[0]
-            self.qin = qin[0]
-            self.qout = qout[0]
-            self.outstanding = set()
-            self.prefetched = {}
-            self.events_outstanding = 0
+            self.io_worker: mp.Process = io_worker[0]
+            self.qin: mp.Queue = qin[0]
+            self.qout: mp.Queue = qout[0]
+            self.outstanding: Set[str] = set()
+            self.prefetched: Dict[str, CheckpointDataType] = {}
+            self.events_outstanding: int = 0
 
+        self.partition_client: Optional[PartitionClient] = None
         if partition_server_ranks is not None and len(partition_server_ranks) > 0:
             self.partition_client = PartitionClient(partition_server_ranks)
-        else:
-            self.partition_client = None
 
         version_ext = ".%d" % self.checkpoint_version if self.checkpoint_version > 0 else ''
         if index_base is not None:
@@ -233,7 +287,7 @@ class CheckpointManager(object):
         else:
             self.index_base = 0
 
-    def record_event(self):
+    def record_event(self) -> None:
         assert self.background
         self.events_outstanding += 1
         self.qin.put(('event', None, None))
@@ -241,7 +295,7 @@ class CheckpointManager(object):
     def wait_events(self):
         self._sync(None, events=True)
 
-    def _sync(self, sync_path, events=False):
+    def _sync(self, sync_path: Optional[str], events: bool = False) -> None:
         assert self.background
         vlog("CheckpointManager=>_sync( %s %d )" % (sync_path, events))
         vlog("outstanding= %s" % self.outstanding)
@@ -265,13 +319,13 @@ class CheckpointManager(object):
                     (path, len(self.outstanding)))
                 self.prefetched[path] = data
 
-    def _version_ext(self, dirty=False):
+    def _version_ext(self, dirty: bool = False) -> str:
         version = self.checkpoint_version
         if dirty:
             version += 1
         return ('.%d' % version) if version > 0 else ''
 
-    def _file_path(self, entity, part):
+    def _file_path(self, entity: EntityName, part: Partition):
         ext = self._version_ext((entity, part) in self.dirty)
         file_path = os.path.join(
             self.path, "%s_%d.pt%s" % (entity, part + self.index_base, ext)
@@ -279,7 +333,12 @@ class CheckpointManager(object):
 
         return file_path
 
-    def write(self, entity, data, part=0):
+    def write(
+        self,
+        entity: EntityName,
+        data: CheckpointDataType,
+        part: Partition,
+    ) -> None:
         self.dirty.add((entity, part))
 
         file_path = self._file_path(entity, part)
@@ -287,8 +346,9 @@ class CheckpointManager(object):
         if self.background:
             self._sync(file_path)
 
+        # The `== 2` distinguishes data from metadata.
         if self.partition_client is not None and len(data) == 2:
-            self.partition_client.store(entity, part, data)
+            self.partition_client.store(entity, part, data)  # noqa: T484
         elif self.background:
             if file_path in self.prefetched:
                 self.prefetched.pop(file_path)
@@ -298,7 +358,13 @@ class CheckpointManager(object):
             _torch_save(data, file_path)
             vlog('fileio.py: done writing path = %s' % file_path)
 
-    def read(self, entity, part=0, strict=False, force_dirty=False):
+    def read(
+        self,
+        entity: EntityName,
+        part: Partition,
+        strict: bool = False,
+        force_dirty: bool = False,
+    ) -> Optional[CheckpointDataType]:
         # if counter > 1, we are inside a pass. Otherwise, we are doing
         # evals or just finished an epoch so ".new" files do not exist.
         if force_dirty:
@@ -325,7 +391,12 @@ class CheckpointManager(object):
         else:
             return None
 
-    def prefetch(self, entity, part=0, strict=False):
+    def prefetch(
+        self,
+        entity: EntityName,
+        part: Partition,
+        strict: bool = False,
+    ) -> None:
         if not self.background:
             return
 
@@ -339,24 +410,43 @@ class CheckpointManager(object):
         assert not strict, "Did not find a checkpoint at %s" % file_path
         return None
 
-    def write_metadata(self, config, edge_path_count, pazz, model_state, optim_state):
-        self.write('METADATA',
-                   (config.to_dict(), edge_path_count, pazz, model_state, optim_state))
+    def write_metadata(
+        self,
+        config: ConfigSchema,
+        edge_path_count: int,
+        pazz: int,
+        model_state: ModuleStateDict,
+        optim_state: OptimizerStateDict,
+    ):
+        # FIXME(lcw) Don't (ab)use the embedding codepath for metadata.
+        self.write(
+            EntityName('METADATA'),
+            (config.to_dict(), edge_path_count, pazz, model_state, optim_state),
+            Partition(0),
+        )
 
-    def read_metadata(self, strict=False):
-        data = self.read('METADATA', strict=strict)
+    def read_metadata(
+        self,
+        strict: bool = False,
+    ) -> Optional[MetadataType]:
+        # FIXME(lcw) Don't (ab)use the embedding codepath for metadata.
+        data = self.read(
+            EntityName('METADATA'),
+            Partition(0),
+            strict=strict,
+        )
         if data is not None:
-            return data
+            return data  # noqa: T484 (we know we're getting metadata back)
         else:
             return None, 0, -1, None, None
 
-    def _write_version_file(self, version):
+    def _write_version_file(self, version: int) -> None:
         with open(os.path.join(self.path, VERSION_FILE), 'w') as f:
             f.write(str(version))
             f.flush()
             os.fsync(f.fileno())
 
-    def commit(self, config):
+    def commit(self, config: ConfigSchema) -> None:
         if self.background:
             self.record_event()
             self.wait_events()
@@ -368,7 +458,7 @@ class CheckpointManager(object):
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 if self.partition_client is not None:
                     vlog("Rank %d: get %s %d" % (self.rank, entity, part))
-                    data = self.partition_client.get(entity, part)
+                    data = self.partition_client.get(EntityName(entity), Partition(part))
                     vlog("Rank %d saving to disk" % self.rank)
                     new_file_path = os.path.join(
                         self.path, "%s_%d.pt%s" % (entity, part + self.index_base, new_ext)
@@ -380,7 +470,7 @@ class CheckpointManager(object):
             self._write_version_file(self.checkpoint_version)
             vlog("Rank 0: done")
 
-    def remove_old_version(self, config):
+    def remove_old_version(self, config: ConfigSchema) -> None:
         old_ext = '.%d' % (self.checkpoint_version - 1)
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
@@ -391,11 +481,11 @@ class CheckpointManager(object):
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)
 
-    def close(self):
+    def close(self) -> None:
         if self.background:
             join_workers([self.io_worker], [self.qin], [self.qout])
 
-    def join(self):
+    def join(self) -> None:
         # FIXME: this whole join thing doesn't work with torch.distributed
         # can just get rid of it
         if self.partition_client is not None:

@@ -12,53 +12,58 @@ from typing import Dict, List, Optional, Set, Tuple
 import torch.multiprocessing as mp
 from torch_extensions.rpc.rpc import Client, Server
 
-from .util import log, init_process_group, Side, Bucket
+from .util import log, init_process_group, Side, Bucket, Partition, EntityName, Rank
 
 
 class LockServer(Server):
 
     def new_epoch(
         self,
-        pairs: List[Bucket],
-        lock_lhs=True,
-        lock_rhs=True,
-        init_tree=False
-    ):
+        buckets: List[Bucket],
+        lock_lhs: bool = True,
+        lock_rhs: bool = True,
+        init_tree: bool = False,
+    ) -> None:
         """
         Start a new epoch of training.
 
         Args:
-            pairs: A list of 2-tuples of all partition pairs that should be
+            buckets: A list of 2-tuples of all partition pairs that should be
                    processed during this epoch.
         """
-        self.active: Dict[Bucket, int] = {}
+        self.active: Dict[Bucket, Rank] = {}
         self.done: Set[Bucket] = set()
-        self.dirty: Set[Tuple[int, int]] = set()
-        self.pairs: List[Bucket] = pairs
-        self.do_lock: Tuple[bool, bool] = (lock_lhs, lock_rhs)
-        self.init_tree: Optional[Set[int]] = {0} if init_tree else None
+        self.dirty: Set[Tuple[EntityName, Partition]] = set()
+        self.buckets: List[Bucket] = buckets
+        self.locked_sides: List[Side] = []
+        if lock_lhs:
+            self.locked_sides.append(Side.LHS)
+        if lock_rhs:
+            self.locked_sides.append(Side.RHS)
+
+        self.init_tree: Optional[Set[Partition]] = {Partition(0)} if init_tree else None
 
     def _can_acquire(
         self,
-        rank: int,
-        part: int,
-        locked_parts: Dict[int, int],
+        rank: Rank,
+        part: Partition,
+        locked_parts: Dict[Partition, Rank],
         side: Side,
     ) -> bool:
-        if not side.pick_tuple(self.do_lock):
+        if side not in self.locked_sides:
             return True
         return part not in locked_parts or locked_parts[part] == rank
 
     def acquire_pair(
         self,
-        rank: int,
-        maybe_oldP: Optional[Bucket]=None,
+        rank: Rank,
+        maybe_old_bucket: Optional[Bucket] = None,
     ) -> Tuple[Optional[Bucket], int]:
         """
         Finds a (lhs, rhs) partition pair that has not already been acquired
         this epoch, and where neither the lhs nor rhs partitions are currently
         locked. Locks this lhs and rhs until `release_pair` is called. Will try
-        to find a pair that has the same lhs (if not, rhs) as oldP.
+        to find a pair that has the same lhs (if not, rhs) as old_bucket.
 
         If no pair is available, returns None.
 
@@ -69,22 +74,28 @@ class LockServer(Server):
             remaining: The number of pairs remaining. When this is 0 then the
                        epoch is done.
         """
-        remaining = len(self.pairs) - len(self.done)
-        if maybe_oldP is not None:
-            oldP = maybe_oldP  # The linter isn't too smart around closures...
-            ordered_pairs = sorted(self.pairs, key=lambda x:
-                                   -((x.lhs == oldP.lhs) * 2 +
-                                     (x.rhs == oldP.rhs)))
+        remaining = len(self.buckets) - len(self.done)
+        if maybe_old_bucket is not None:
+            # The linter isn't smart enough to figure out that the closure is
+            # capturing a non-None value, thus alias it to a new variable, which
+            # will get a non-Optional type.
+            old_bucket = maybe_old_bucket  # The linter isn't too smart around closures...
+            ordered_buckets = sorted(self.buckets, key=lambda x:
+                                   -((x.lhs == old_bucket.lhs) * 2 +
+                                     (x.rhs == old_bucket.rhs)))
         else:
-            ordered_pairs = self.pairs
+            ordered_buckets = self.buckets
 
-        locked_parts = {p[i]: rank for p, rank in self.active.items()
-                        for i in range(2) if self.do_lock[i]}
+        locked_partitions = {
+            bucket.get_partition(side): rank
+            for bucket, rank in self.active.items()
+            for side in self.locked_sides
+        }
 
-        for pair in ordered_pairs:
+        for pair in ordered_buckets:
             if (pair not in self.done
-                and self._can_acquire(rank, pair.lhs, locked_parts, Side.LHS)
-                and self._can_acquire(rank, pair.rhs, locked_parts, Side.RHS)
+                and self._can_acquire(rank, pair.lhs, locked_partitions, Side.LHS)
+                and self._can_acquire(rank, pair.rhs, locked_partitions, Side.RHS)
                 and (self.init_tree is None
                      or pair.lhs in self.init_tree
                      or pair.rhs in self.init_tree)):
@@ -101,17 +112,17 @@ class LockServer(Server):
 
         return None, remaining
 
-    def release_pair(self, pair: Bucket):
+    def release_bucket(self, bucket: Bucket) -> None:
         """
         Releases the lock on lhs and rhs, and marks this pair as done.
         """
-        if pair.lhs is not None:
-            self.active.pop(pair)
+        if bucket.lhs is not None:
+            self.active.pop(bucket)
             print("lockserver release %s: active= %s" %
-                  (pair, self.active), file=sys.stderr)
+                  (bucket, self.active), file=sys.stderr)
             sys.stderr.flush()
 
-    def check_and_set_dirty(self, entity: int, part: int) -> bool:
+    def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         """
         Keeps track over an epoch of which (entity, part) pairs have been
         processed. Since we store partition data in temporary files during an

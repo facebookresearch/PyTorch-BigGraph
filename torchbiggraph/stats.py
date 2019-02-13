@@ -64,7 +64,7 @@ class Stats:
             },
         )
 
-    def __str__(self: 'Stats') -> str:
+    def __str__(self) -> str:
         fields = attr.fields(type(self))
         # Count is first but should be printed last.
         assert fields[0].name == "count"

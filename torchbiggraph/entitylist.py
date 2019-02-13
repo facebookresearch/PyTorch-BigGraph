@@ -6,11 +6,16 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Type, TypeVar, Union, overload
+
 import torch
 from torch_extensions.tensorlist.tensorlist import TensorList
 
 
-class EntityList(object):
+EntityListType = TypeVar('EntityListType', bound='EntityList')
+
+
+class EntityList:
     """Served as a wrapper of id-based entity and featurized entity.
 
     self.tensor is an id-based entity list
@@ -19,8 +24,11 @@ class EntityList(object):
     This class maintains the indexing and slicing of these two parallel
     representations.
     """
-    @staticmethod
-    def newWithTensor(tensor):
+    @classmethod
+    def new_with_tensor(
+        cls: Type[EntityListType],
+        tensor: torch.FloatTensor,
+    ) -> EntityListType:
         # sanity check
         assert tensor.squeeze().ndimension() == 1
 
@@ -29,36 +37,44 @@ class EntityList(object):
             torch.zeros(tensor.nelement() + 1).long(),
             torch.Tensor([])
         )
-        return EntityList(tensor, tensor_list)
+        return cls(tensor, tensor_list)
 
-    def __init__(self, tensor, tensor_list):
-        self.tensor = tensor
-        self.tensor_list = tensor_list
+    def __init__(
+        self,
+        tensor: torch.FloatTensor,
+        tensor_list: TensorList,
+    ) -> None:
+        self.tensor: torch.FloatTensor = tensor
+        self.tensor_list: TensorList = tensor_list
 
-    def collapse(self, is_featurized):
+    # FIXME Improve typing using Literal and @overload
+    def collapse(self, is_featurized: bool) -> Union[torch.FloatTensor, TensorList]:
         if is_featurized:
             return self.tensor_list
         else:
             return self.tensor
 
-    def __getitem__(self, index):
+    def __getitem__(
+        self: EntityListType,
+        index: Union[int, slice, torch.LongTensor],
+    ) -> EntityListType:
         if isinstance(index, torch.LongTensor) or isinstance(index, int):
             tensor_sub = self.tensor[index]
             tensor_list_sub = self.tensor_list[index]
-            return EntityList(tensor_sub, tensor_list_sub)
+            return type(self)(tensor_sub, tensor_list_sub)
 
         elif isinstance(index, slice):
             assert index.step == 1 or index.step is None
             tensor_sub = self.tensor[index.start:index.stop]
             tensor_list_sub = self.tensor_list[index.start:index.stop]
-            return EntityList(tensor_sub, tensor_list_sub)
+            return type(self)(tensor_sub, tensor_list_sub)
         else:
             raise KeyError("Unknown index type: %s" % type(index))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.tensor.nelement()
 
-    def __iadd__(self, other):
+    def __iadd__(self: EntityListType, other: int) -> EntityListType:
         if isinstance(other, int):
             self.tensor += other
             self.tensor_list += other
@@ -66,7 +82,7 @@ class EntityList(object):
         else:
             raise NotImplementedError()
 
-    def __isub__(self, other):
+    def __isub__(self: EntityListType, other: int) -> EntityListType:
         if isinstance(other, int):
             self.tensor -= other
             self.tensor_list -= other
@@ -74,13 +90,21 @@ class EntityList(object):
         else:
             raise NotImplementedError()
 
-    def new(self):
-        return EntityList(self.tensor.new(), self.tensor_list.new())
+    def new(self: EntityListType) -> EntityListType:
+        return type(self)(self.tensor.new(), self.tensor_list.new())
 
-    def nelement(self):
+    def nelement(self) -> int:
         return len(self)
 
-    def size(self, dim=None):
+    @overload
+    def size(self, dim: None) -> torch.Size:
+        ...
+
+    @overload  # noqa: F811  # FIXME(T20027161)
+    def size(self, dim: int) -> int:
+        ...
+
+    def size(self, dim=None):  # noqa: F811  # FIXME(T20027161)
         assert dim == 0 or dim is None, 'EntityList can only have 1 dimension'
         if dim is None:
             return torch.Size([len(self)])

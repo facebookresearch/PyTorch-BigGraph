@@ -47,7 +47,7 @@ _tensor_types = [
 _tensor_type_idx = {t().type(): i for i, t in enumerate(_tensor_types)}
 
 
-class ParameterServer(object):
+class ParameterServer:
     """
     A simple parameter server. Clients can store tensors, accumulate, and
     get tensors by string key. Operations on the parameter server are globally
@@ -148,7 +148,7 @@ class ParameterServer(object):
         torch.distributed.send(data, dst=rank)
 
 
-class ParameterServerClient(object):
+class ParameterServerClient:
     """Client for ParameterServer.
     Supports store, accumulate, swap, swap-accumulate, and get operations."""
 
@@ -229,7 +229,7 @@ class ParameterServerClient(object):
         torch.distributed.recv(ack, src=self.server_rank)
 
 
-class GradientParameterServerClient(object):
+class GradientParameterServerClient:
     """We keep track of the last pull of each tensor from the server, and then when
     a push is requested, we accumulate the difference between the pulled tensor
     and the current version
@@ -350,7 +350,7 @@ def _client_thread_loop(process_group_params,
         raise
 
 
-class GradientParameterServerClientThread(object):
+class GradientParameterServerClientThread:
     """Wrapper object that creates a thread, that pulls parameters and pushes
     gradients, in a loop.
     """

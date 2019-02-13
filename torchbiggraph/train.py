@@ -12,25 +12,28 @@ import sys
 import time
 from enum import Enum
 from itertools import chain
-from typing import Dict, Generator, List, Optional, Set, Tuple
+from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 
 import attr
 import torch
 import torch.distributed as td
-import torch.optim as optim
+import torch.multiprocessing as mp
+from torch.optim import Optimizer, Adagrad
 
 from .config import parse_config, ConfigSchema
+from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
-from .fileio import CheckpointManager, EdgeReader
+from .fileio import CheckpointManager, EdgeReader, EntityDataType
 from .lockserver import setup_lock_server
-from .model import make_model, override_model
+from .model import make_model, override_model, MultiRelationEmbedder
 from .parameterserver import setup_parameter_server_thread, \
     setup_parameter_server
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_workers, join_workers, fast_approx_rand, DummyOptimizer, \
     create_ordered_buckets, update_config_for_dynamic_relations, Side, \
-    init_process_group, infer_input_index_base, Bucket
+    init_process_group, infer_input_index_base, Bucket, Partition, EntityName, \
+    Rank, ModuleStateDict, OptimizerStateDict
 from .stats import Stats, stats
 
 
@@ -46,7 +49,14 @@ class TrainStats(Stats):
     violators_rhs: int = attr.ib()
 
 
-def train_one_batch(model, optimizers, batch_lhs, batch_rhs, batch_rel):
+def train_one_batch(
+    model: MultiRelationEmbedder,
+    optimizers: List[Optimizer],
+    batch_lhs: EntityList,
+    batch_rhs: EntityList,
+    # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
+    batch_rel: Union[int, torch.LongTensor],
+) -> TrainStats:
     B = batch_lhs.size(0)
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
     batch_rhs = batch_rhs.collapse(model.is_featurized(batch_rel, Side.RHS))
@@ -71,7 +81,14 @@ def train_one_batch(model, optimizers, batch_lhs, batch_rhs, batch_rel):
     return stats
 
 
-def train_many_batches(config, model, optimizers, lhs, rhs, rel):
+def train_many_batches(
+    config: ConfigSchema,
+    model: MultiRelationEmbedder,
+    optimizers: List[Optimizer],
+    lhs: EntityList,
+    rhs: EntityList,
+    rel: torch.LongTensor,
+) -> TrainStats:
     all_stats = []
     if model.num_dynamic_rels > 0:
         # do standard batching
@@ -109,7 +126,16 @@ def train_many_batches(config, model, optimizers, lhs, rhs, rel):
 
 
 def perform_action_one_thread(
-        rank, config, action, model, lhs, rhs, rel, my_edges, optimizers=None):
+    rank: Rank,
+    config: ConfigSchema,
+    action: Action,
+    model: MultiRelationEmbedder,
+    lhs: EntityList,
+    rhs: EntityList,
+    rel: torch.LongTensor,
+    my_edges: torch.LongTensor,
+    optimizers: Optional[List[Optimizer]] = None,
+) -> Union[TrainStats, EvalStats]:
     """ This is the main loop executed by each HOGWILD worker thread.
     """
 
@@ -121,6 +147,8 @@ def perform_action_one_thread(
     #     log("Rank %d : chunking edges..." % rank)
 
     if action is Action.TRAIN:
+        if optimizers is None:
+            raise ValueError("Need optimizers for training")
         if rank > 0:
             time.sleep(config.hogwild_delay)
         stats = train_many_batches(config, model, optimizers, lhs, rhs, rel)
@@ -136,8 +164,17 @@ def perform_action_one_thread(
 
 
 def distribute_action_among_workers(
-        num_workers, qin, qout,
-        action, model, lhs, rhs, rel, edge_perm, optimizers=None):
+    num_workers: int,
+    qin: List[mp.Queue],
+    qout: List[mp.Queue],
+    action: Action,
+    model: MultiRelationEmbedder,
+    lhs: EntityList,
+    rhs: EntityList,
+    rel: torch.LongTensor,
+    edge_perm: torch.LongTensor,
+    optimizers: Optional[List[Optimizer]] = None
+) -> Union[TrainStats, EvalStats]:
     if num_workers != len(qin) or num_workers != len(qout):
         raise ValueError("Lengths don't match: %d, %d, %d"
                          % (num_workers, len(qin), len(qout)))
@@ -165,7 +202,12 @@ def distribute_action_among_workers(
         raise NotImplementedError("Unknown action: %s" % action)
 
 
-def init_embs(entity, N, D, scale):
+def init_embs(
+    entity: EntityName,
+    N: int,
+    D: int,
+    scale: float,
+) -> Tuple[torch.FloatTensor, None]:
     """Initialize embeddings of size N x D.
     """
     # FIXME: Use multi-threaded instead of fast_approx_rand
@@ -173,9 +215,12 @@ def init_embs(entity, N, D, scale):
     return fast_approx_rand(N, D).mul_(scale), None
 
 
+RANK_ZERO = Rank(0)
+
+
 def train_and_report_stats(
     config: ConfigSchema,
-    rank: int = 0,
+    rank: Rank = RANK_ZERO,
 ) -> Generator[Tuple[int, Optional[EvalStats], TrainStats, Optional[EvalStats]], None, None]:
     """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
     from disk, runs HOGWILD training on them, and writes partitions back to disk.
@@ -258,7 +303,7 @@ def train_and_report_stats(
         params = list(params)
         if len(params) == 0:
             return DummyOptimizer()
-        constructor = RowAdagrad if is_emb else optim.Adagrad
+        constructor = RowAdagrad if is_emb else Adagrad
         optimizer = constructor(params, lr=config.lr)
         optimizer.share_memory()
         return optimizer
@@ -277,9 +322,14 @@ def train_and_report_stats(
     else:
         loadpath_manager = None
 
-    def load_embeddings(entity, part=0, strict=False, force_dirty=False):
-        data = checkpoint_manager.read(
-            entity, part, strict=strict, force_dirty=force_dirty)
+    def load_embeddings(
+        entity: EntityName,
+        part: Partition,
+        strict: bool = False,
+        force_dirty: bool = False,
+    ) -> EntityDataType:
+        data = checkpoint_manager.read(entity, part, strict=strict,
+                                       force_dirty=force_dirty)
         if data is None and loadpath_manager is not None:
             data = loadpath_manager.read(entity, part)
         if data is None:
@@ -305,7 +355,10 @@ def train_and_report_stats(
 
     vlog("Initializing optimizers")
     # FIXME: use SGD with different learning rate?
-    optimizers = {'__meta__': make_optimizer(model.parameters(), False)}
+    optimizers: Dict[Optional[Tuple[EntityName, Partition]], Optimizer] = {
+        # The "None" optimizer is for the non-entity-specific parameters.
+        None: make_optimizer(model.parameters(), False)
+    }
     _, edge_path_count, echunk, state_dict, optim_state = \
         checkpoint_manager.read_metadata()
     echunk += 1
@@ -319,8 +372,8 @@ def train_and_report_stats(
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
     if optim_state is not None:
-        optimizers['__meta__'].load_state_dict(optim_state)
-        optimizers['__meta__'].share_memory()
+        optimizers[None].load_state_dict(optim_state)
+        optimizers[None].share_memory()
 
     model.share_memory()
 
@@ -332,19 +385,19 @@ def train_and_report_stats(
             "Currently num_partitions must be either 1 or a single value across "
             "all entities.")
         if num_parts == 1:
-            embs, optim_state = load_embeddings(entity)
+            embs, optim_state = load_embeddings(entity, Partition(0))
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)
             optimizer = make_optimizer([embs], True)
             if optim_state is not None:
                 optimizer.load_state_dict(optim_state)
                 optimizer.share_memory()
-            optimizers[entity + '_1'] = optimizer
+            optimizers[(entity, Partition(0))] = optimizer
 
     if config.num_machines > 1:
         # start communicating shared parameters with the parameter server
         added_to_parameter_client: Set[int] = set()
-        for k, v in model.state_dict().items():
+        for k, v in ModuleStateDict(model.state_dict()).items():
             if v._cdata not in added_to_parameter_client:
                 added_to_parameter_client.add(v._cdata)
                 log("Adding %s (%d params) to parameter server" % (k, v.nelement()))
@@ -381,11 +434,10 @@ def train_and_report_stats(
                 vlog("Checkpointing (%s %d %s)" %
                      (entity, part, side.pick("lhs", "rhs")))
                 embs = model.get_embeddings(entity, side)
-                optim_key = "%s_%d" % (entity, part)
-                optim_state = optimizers[optim_key].state_dict()
+                optim_key = (entity, part)
+                optim_state = OptimizerStateDict(optimizers[optim_key].state_dict())
                 io_bytes += embs.nelement() * 4  # ignore optim state
-                checkpoint_manager.write(entity, (embs, optim_state),
-                                         part)
+                checkpoint_manager.write(entity, (embs, optim_state), part)
                 if optim_key in optimizers:
                     del optimizers[optim_key]
                 # these variables are holding large objects; let them be freed
@@ -393,7 +445,7 @@ def train_and_report_stats(
                 del optim_state
 
             if config.num_machines > 1:
-                lock_client.release_pair(oldP)
+                lock_client.release_bucket(oldP)
 
 
         # 2. copy old embeddings that will be used in the next pair
@@ -429,9 +481,9 @@ def train_and_report_stats(
             model.set_embeddings(entity, embs, side)
             tmp_emb[part_key] = embs
 
-            optim_key = "%s_%d" % (entity, part)
+            optim_key = (entity, part)
             if optim_key not in optimizers:
-                vlog("Resetting optimizer %s" % optim_key)
+                vlog("Resetting optimizer %s" % (optim_key,))
                 optimizer = make_optimizer([embs], True)
                 if optim_state is not None:
                     vlog("Setting optim state")
@@ -491,7 +543,7 @@ def train_and_report_stats(
                 io_time = 0.
                 io_bytes = 0
                 if config.num_machines > 1:
-                    curP, remaining = lock_client.acquire_pair(rank, maybe_oldP=oldP)
+                    curP, remaining = lock_client.acquire_pair(rank, maybe_old_bucket=oldP)
                     curP = Bucket(*curP) if curP is not None else None
                     print('still in queue: %d' % remaining, file=sys.stderr)
                     if curP is None:
@@ -608,21 +660,29 @@ def train_and_report_stats(
                 for entity, econfig in config.entities.items():
                     if econfig.num_partitions == 1:
                         embs = model.get_embeddings(entity, Side.LHS)
+                        optimizer = optimizers[(entity, Partition(0))]
 
                         checkpoint_manager.write(
-                            entity, (embs, optimizers[entity + '_1'].state_dict()))
+                            entity,
+                            (embs, OptimizerStateDict(optimizer.state_dict())),
+                            Partition(0)
+                        )
 
-                sanitized_state_dict = {}
-                for k, v in model.state_dict().items():
+                sanitized_state_dict: ModuleStateDict = {}
+                for k, v in ModuleStateDict(model.state_dict()).items():
                     if k.startswith('lhs_embs') or k.startswith('rhs_embs'):
                         # skipping state that's an entity embedding
                         continue
                     sanitized_state_dict[k] = v
 
                 log("Writing metadata...")
-                checkpoint_manager.write_metadata(config, edge_path_count, echunk,
-                                                  sanitized_state_dict,
-                                                  optimizers['__meta__'].state_dict())
+                checkpoint_manager.write_metadata(
+                    config,
+                    edge_path_count,
+                    echunk,
+                    sanitized_state_dict,
+                    OptimizerStateDict(optimizers[None].state_dict()),
+                )
 
             log("Committing checkpoints...")
             checkpoint_manager.commit(config)
@@ -661,7 +721,7 @@ def train_and_report_stats(
 
 def train(
     config: ConfigSchema,
-    rank: int = 0,
+    rank: Rank = RANK_ZERO,
 ) -> None:
     # Create and run the generator until exhaustion.
     for _ in train_and_report_stats(config, rank):
@@ -688,7 +748,7 @@ def main():
         overrides = None
 
     config = parse_config(opt.config, overrides)
-    train(config, rank=opt.rank)
+    train(config, rank=Rank(opt.rank))
 
 
 if __name__ == '__main__':

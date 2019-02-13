@@ -9,17 +9,18 @@
 import argparse
 import time
 from itertools import chain
-from typing import Generator, Optional, Tuple
+from typing import Generator, Optional, Tuple, Union
 
 import attr
 import torch
 
 from .config import parse_config, ConfigSchema
+from .entitylist import EntityList
 from .fileio import CheckpointManager, EdgeReader
-from .model import RankingLoss, make_model, override_model
+from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder
 from .util import log, get_partitioned_types, chunk_by_index, create_workers, \
-    join_workers, update_config_for_dynamic_relations, \
-    compute_randomized_auc, Side, infer_input_index_base
+    join_workers, update_config_for_dynamic_relations, compute_randomized_auc, \
+    Side, infer_input_index_base, Rank
 from .stats import Stats, stats
 
 
@@ -33,7 +34,13 @@ class EvalStats(Stats):
     auc: float = attr.ib()
 
 
-def eval_one_batch(model, batch_lhs, batch_rhs, batch_rel):
+def eval_one_batch(
+        model: MultiRelationEmbedder,
+        batch_lhs: EntityList,
+        batch_rhs: EntityList,
+        # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
+        batch_rel: Union[int, torch.LongTensor],
+) -> EvalStats:
     B = batch_lhs.size(0)
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
     batch_rhs = batch_rhs.collapse(model.is_featurized(batch_rel, Side.RHS))
@@ -69,7 +76,13 @@ def eval_one_batch(model, batch_lhs, batch_rhs, batch_rel):
         count=B)
 
 
-def eval_many_batches(config, model, lhs, rhs, rel):
+def eval_many_batches(
+    config: ConfigSchema,
+    model: MultiRelationEmbedder,
+    lhs: EntityList,
+    rhs: EntityList,
+    rel: torch.LongTensor,
+) -> EvalStats:
     all_stats = []
     if model.num_dynamic_rels > 0:
         offset, N = 0, rel.size(0)
@@ -97,7 +110,14 @@ def eval_many_batches(config, model, lhs, rhs, rel):
     return EvalStats.sum(all_stats)
 
 
-def eval_one_thread(rank, config, model, lhs, rhs, rel):
+def eval_one_thread(
+    rank: Rank,
+    config: ConfigSchema,
+    model: MultiRelationEmbedder,
+    lhs: EntityList,
+    rhs: EntityList,
+    rel: torch.LongTensor,
+) -> EvalStats:
     """ This is the eval loop executed by each HOGWILD thread.
     """
     stats = eval_many_batches(config, model, lhs, rhs, rel)

@@ -13,13 +13,16 @@ import random
 import traceback
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import List, NamedTuple, NewType, Set, Tuple, TypeVar
+from typing import Any, Callable, Dict, Iterable, List, NamedTuple, NewType, \
+    Set, Tuple, TypeVar, Optional
 
 import attr
 import torch
 import torch.multiprocessing as mp
+from torch.optim import Optimizer
 
 from .config import BucketOrder, ConfigSchema
+from .entitylist import EntityList
 
 
 T = TypeVar("T")
@@ -37,11 +40,12 @@ class Side(Enum):
         else:
             raise NotImplementedError("Unknown side: %s" % self)
 
-    def pick_tuple(self, pair: Tuple[T, T]) -> T:
-        return self.pick(pair[0], pair[1])
 
-
+EntityName = NewType("EntityName", str)
+Rank = NewType("Rank", int)
 Partition = NewType("Partition", int)
+ModuleStateDict = NewType("ModuleStateDict", Dict[str, torch.Tensor])
+OptimizerStateDict = NewType("OptimizerStateDict", Dict[str, Any])
 
 
 class Bucket(NamedTuple):
@@ -55,7 +59,7 @@ class Bucket(NamedTuple):
         return "( %d , %d )" % (self.lhs, self.rhs)
 
 
-def log(msg):
+def log(msg: str) -> None:
     """Log msg to stdout with a timestamp. Flush stdout.
     """
     print("%s  %s" % (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), msg), flush=True)
@@ -64,12 +68,12 @@ def log(msg):
 _verbosity_level = 0
 
 
-def vlog(msg, level=1):
+def vlog(msg: str, level: int = 1) -> None:
     if _verbosity_level >= level:
         log(msg)
 
 
-def chunk_by_index(index, *others):
+def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[EntityList]]:
     """
     Parameters:
         index: An integral-valued 1D tensor of length N containing indexes of each row.
@@ -108,7 +112,7 @@ def chunk_by_index(index, *others):
 
     sorted_tensors = [sorted_index] + [T[order] for T in others]
 
-    chunked = [[] for _ in sorted_tensors]
+    chunked: List[List[EntityList]] = [[] for _ in sorted_tensors]
     begin_row = 0
     for cur_row, jump in zip(cutpoints, jumps):
         for _ in range(jump):
@@ -119,14 +123,14 @@ def chunk_by_index(index, *others):
     return chunked
 
 
-def product(L):
+def product(l: Iterable[int]) -> int:
     p = 1
-    for i in L:
+    for i in l:
         p *= i
     return p
 
 
-def fast_approx_rand(*size):
+def fast_approx_rand(*size: int) -> torch.FloatTensor:
     numel = product(size)
     if numel < 1000003:
         return torch.rand(size)
@@ -170,7 +174,7 @@ def infer_input_index_base(config: ConfigSchema) -> int:
     return 1 if one_based.pop() else 0
 
 
-class DummyOptimizer(object):
+class DummyOptimizer(Optimizer):
     def step(self):
         pass
 
@@ -183,7 +187,13 @@ class DummyOptimizer(object):
 
 # HOGWILD
 
-def _loop(rank, qIn, qOut, F, args):
+def _loop(
+    rank: Rank,
+    qIn: mp.Queue,
+    qOut: mp.Queue,
+    F: Callable,
+    args: Any,
+) -> None:
     """Top-level handler for HOGWILD threads. Just calls the main training
     routine.
     """
@@ -204,7 +214,11 @@ def _loop(rank, qIn, qOut, F, args):
             raise
 
 
-def create_workers(N, F, args):
+def create_workers(
+    N: int,
+    F: Callable,
+    args: Any,
+) -> Tuple[List[mp.Process], List[mp.Queue], List[mp.Queue]]:
     # setup workers
     torch.set_num_threads(1)
     qIn, qOut = [], []
@@ -222,7 +236,11 @@ def create_workers(N, F, args):
     return processes, qIn, qOut
 
 
-def join_workers(processes, qIn, qOut):
+def join_workers(
+    processes: List[mp.Process],
+    qIn: List[mp.Queue],
+    qOut: List[mp.Queue],
+) -> None:
     # log("Joining workers...")
     for p, q in zip(processes, qIn):
         q.put(None)
@@ -232,7 +250,9 @@ def join_workers(processes, qIn, qOut):
 
 # config routines
 
-def get_partitioned_types(config):
+def get_partitioned_types(
+    config: ConfigSchema,
+) -> Tuple[int, int, Set[EntityName], Set[EntityName]]:
     # Currently, we only allow a single value of num_partitions other than 1.
     # Eventually, we will allow arbitrary nested num_partitions.
     max_parts = max(e.num_partitions for e in config.entities.values())
@@ -246,16 +266,16 @@ def get_partitioned_types(config):
     lhs_partitioned_types, rhs_partitioned_types = set(), set()
     for relation in config.relations:
         if config.entities[relation.lhs].num_partitions != 1:
-            lhs_partitioned_types.add(relation.lhs)
+            lhs_partitioned_types.add(EntityName(relation.lhs))
             nparts_lhs = max_parts
         if config.entities[relation.rhs].num_partitions != 1:
-            rhs_partitioned_types.add(relation.rhs)
+            rhs_partitioned_types.add(EntityName(relation.rhs))
             nparts_rhs = max_parts
 
     return nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types
 
 
-def update_config_for_dynamic_relations(config):
+def update_config_for_dynamic_relations(config: ConfigSchema) -> ConfigSchema:
     dynamic_rel_path = os.path.join(config.entity_path, "dynamic_rel_count.pt")
     if os.path.exists(dynamic_rel_path):
         num_dynamic_rels = torch.load(dynamic_rel_path)
@@ -436,7 +456,11 @@ def create_buckets_ordered_by_layer(
 # compute a randomized AUC using a fixed number of sample points
 # NOTE: AUC is the probability that a randomly chosen positive example
 # has a higher score than a randomly chosen negative example
-def compute_randomized_auc(pos_, neg_, num_samples):
+def compute_randomized_auc(
+    pos_: torch.FloatTensor,
+    neg_: torch.FloatTensor,
+    num_samples: int,
+) -> float:
     pos_, neg_ = pos_.view(-1), neg_.view(-1)
     diff = pos_[torch.randint(len(pos_), (num_samples,))] \
            > neg_[torch.randint(len(neg_), (num_samples,))]
@@ -444,12 +468,13 @@ def compute_randomized_auc(pos_, neg_, num_samples):
 
 
 # makes it easy to pass around process group args as a dict and pass as kwargs
-def init_process_group(backend='gloo',
-                       init_method=None,
-                       world_size=None,
-                       rank=None,
-                       groups=None,
-                       **kwargs):
+def init_process_group(
+    init_method: Optional[str],
+    world_size: int,
+    rank: Rank,
+    groups: List[List[int]],
+    backend: str = "gloo",
+) -> List['torch.distributed.ProcessGroup']:
     # With the THD backend there were no timeouts so high variance in
     # execution time between trainers was not a problem. With the new c10d
     # implementation we do have to take timeouts into account. To simulate
