@@ -27,7 +27,8 @@ from torchbiggraph.model import (
     # Operators
     IdentityOperator, DiagonalOperator, TranslationOperator, AffineOperator,
     # Dynamic operators
-    DiagonalDynamicOperator, TranslationDynamicOperator,
+    IdentityDynamicOperator, DiagonalDynamicOperator, TranslationDynamicOperator,
+    AffineDynamicOperator,
     # Comparator
     DotComparator, CosComparator, BiasedComparator,
     # Losses
@@ -345,6 +346,24 @@ class TestAffineOperator(TestCase):
         ]))
 
 
+class TestIdentityDynamicOperator(TestCase):
+
+    def test_forward(self):
+        embeddings = torch.tensor([
+            [[0.3766, 0.9734, 0.5190],
+             [0.1801, 0.1585, 0.4585]],
+            [[0.6188, 0.1917, 0.1006],
+             [0.3876, 0.7134, 0.7921]],
+        ])
+        operator = IdentityDynamicOperator(3, 5)
+        assertTensorEqual(self, operator(embeddings, torch.tensor([[0, 4], [2, 0]])), torch.tensor([
+            [[0.3766, 0.9734, 0.5190],
+             [0.1801, 0.1585, 0.4585]],
+            [[0.6188, 0.1917, 0.1006],
+             [0.3876, 0.7134, 0.7921]],
+        ]))
+
+
 class TestDiagonalDynamicOperator(TestCase):
 
     def test_forward(self):
@@ -382,6 +401,27 @@ class TestTranslationDynamicOperator(TestCase):
              [12.1801, 13.1585, 14.4585]],
             [[ 6.6188,  7.1917,  8.1006],
              [ 0.3876,  1.7134,  2.7921]],
+        ]))
+
+
+class TestAffineDynamicOperator(TestCase):
+
+    def test_forward(self):
+        embeddings = torch.tensor([
+            [[0.3766, 0.9734, 0.5190],
+             [0.1801, 0.1585, 0.4585]],
+            [[0.6188, 0.1917, 0.1006],
+             [0.3876, 0.7134, 0.7921]],
+        ])
+        operator = AffineDynamicOperator(3, 5)
+        with torch.no_grad():
+            operator.rotations += torch.arange(45, dtype=torch.float).view(5, 3, 3)
+            operator.translations += torch.arange(15, dtype=torch.float).view(5, 3)
+        assertTensorEqual(self, operator(embeddings, torch.tensor([[0, 4], [2, 0]])), torch.tensor([
+            [[ 6.4108,  9.8766, 12.2912],
+             [44.1022, 45.8777, 47.9748]],
+            [[24.1973, 25.6813, 27.5013],
+             [ 7.2804, 10.4993, 13.4711]],
         ]))
 
 

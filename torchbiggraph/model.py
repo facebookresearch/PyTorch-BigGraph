@@ -9,7 +9,7 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
@@ -206,6 +206,14 @@ class AffineOperator(AbstractOperator):
         return torch.matmul(embeddings, self.rotation) + self.translation
 
 
+OPERATORS: Dict[Operator, Type[AbstractOperator]] = {
+    Operator.NONE: IdentityOperator,
+    Operator.DIAGONAL: DiagonalOperator,
+    Operator.TRANSLATION: TranslationOperator,
+    Operator.AFFINE: AffineOperator,
+}
+
+
 class AbstractDynamicOperator(nn.Module, ABC):
 
     """Perform different operations on many vectors.
@@ -233,6 +241,18 @@ class AbstractDynamicOperator(nn.Module, ABC):
         operator_idxs: torch.LongTensor,
     ) -> torch.FloatTensor:
         pass
+
+
+class IdentityDynamicOperator(AbstractDynamicOperator):
+
+    def forward(
+        self,
+        embeddings: torch.FloatTensor,
+        operator_idxs: torch.LongTensor,
+    ) -> torch.FloatTensor:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return embeddings
 
 
 class DiagonalDynamicOperator(AbstractDynamicOperator):
@@ -265,6 +285,57 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         return embeddings + self.translations[operator_idxs]
+
+
+class AffineDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.rotations = nn.Parameter(
+            torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+        self.translations = nn.Parameter(torch.zeros(self.num_operations, self.dim))
+
+    def forward(
+        self,
+        embeddings: torch.FloatTensor,
+        operator_idxs: torch.LongTensor,
+    ) -> torch.FloatTensor:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return (torch.matmul(embeddings.unsqueeze(-2),
+                             self.rotations[operator_idxs]).squeeze(-2)
+                + self.translations[operator_idxs])
+
+
+DYNAMIC_OPERATORS: Dict[Operator, Type[AbstractDynamicOperator]] = {
+    Operator.NONE: IdentityDynamicOperator,
+    Operator.DIAGONAL: DiagonalDynamicOperator,
+    Operator.TRANSLATION: TranslationDynamicOperator,
+    Operator.AFFINE: AffineDynamicOperator,
+}
+
+
+def instantiate_operator(
+    operator: Operator,
+    side: Side,
+    num_dynamic_rels: int,
+    dim: int,
+) -> AbstractOperator:
+    if num_dynamic_rels > 0:
+        try:
+            dynamic_operator_class = DYNAMIC_OPERATORS[operator]
+        except KeyError:
+            raise NotImplementedError(
+                "Unknown operator for dynamic rels: %s" % operator)
+        return dynamic_operator_class(dim, num_dynamic_rels)
+    elif side is Side.LHS:
+        return IdentityOperator(dim)
+    else:
+        try:
+            operator_class = OPERATORS[operator]
+        except KeyError:
+            raise NotImplementedError("Unknown operator: %s" % operator)
+        return operator_class(dim)
 
 
 class AbstractComparator(nn.Module, ABC):
@@ -585,38 +656,16 @@ class MultiRelationEmbedder(nn.Module):
         self.relations: List[RelationSchema] = relations
         self.entities: Dict[str, EntitySchema] = entities
         self.num_dynamic_rels: int = num_dynamic_rels
-        self.lhs_operators: nn.ModuleList = nn.ModuleList()
-        self.rhs_operators: nn.ModuleList = nn.ModuleList()
         if num_dynamic_rels > 0:
             assert len(relations) == 1
             assert len(entities) == 1
-            operator = relations[0].operator
-            if operator is Operator.DIAGONAL:
-                self.lhs_operators.append(
-                    DiagonalDynamicOperator(self.dim, self.num_dynamic_rels))
-                self.rhs_operators.append(
-                    DiagonalDynamicOperator(self.dim, self.num_dynamic_rels))
-            elif operator is Operator.TRANSLATION:
-                self.lhs_operators.append(
-                    TranslationDynamicOperator(self.dim, self.num_dynamic_rels))
-                self.rhs_operators.append(
-                    TranslationDynamicOperator(self.dim, self.num_dynamic_rels))
-            else:
-                raise NotImplementedError(
-                    "Unknown operator for dynamic rels: %s" % operator)
-        else:
-            for r in relations:
-                self.lhs_operators.append(IdentityOperator(self.dim))
-                if r.operator is Operator.NONE:
-                    self.rhs_operators.append(IdentityOperator(self.dim))
-                elif r.operator is Operator.DIAGONAL:
-                    self.rhs_operators.append(DiagonalOperator(self.dim))
-                elif r.operator is Operator.TRANSLATION:
-                    self.rhs_operators.append(TranslationOperator(self.dim))
-                elif r.operator is Operator.AFFINE:
-                    self.rhs_operators.append(AffineOperator(self.dim))
-                else:
-                    raise NotImplementedError("Unknown operator: %s" % r.operator)
+        self.lhs_operators: nn.ModuleList = nn.ModuleList()
+        self.rhs_operators: nn.ModuleList = nn.ModuleList()
+        for r in relations:
+            self.lhs_operators.append(
+                instantiate_operator(r.operator, Side.LHS, num_dynamic_rels, dim))
+            self.rhs_operators.append(
+                instantiate_operator(r.operator, Side.RHS, num_dynamic_rels, dim))
 
         self.num_batch_negs: int = num_batch_negs
         self.num_uniform_negs: int = num_uniform_negs
