@@ -7,7 +7,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-from importlib import util
+import importlib.util
 from enum import Enum
 from itertools import chain
 from typing import ClassVar, Dict, List, Optional
@@ -330,8 +330,8 @@ class ConfigSchema(Schema):
 
 
 def parse_config_base(config, overrides=None):
-    spec = util.spec_from_file_location("config_module", config)
-    module = util.module_from_spec(spec)
+    spec = importlib.util.spec_from_file_location("config_module", config)
+    module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     user_config = module.get_torchbiggraph_config()
     assert user_config is not None, "your config file didn't return anything"
