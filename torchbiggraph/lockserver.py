@@ -7,20 +7,12 @@
 # LICENSE file in the root directory of this source tree.
 
 import sys
-from typing import Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import torch.multiprocessing as mp
 from torch_extensions.rpc.rpc import Client, Server
 
-from .util import log, init_process_group, Side
-
-
-class Bucket(NamedTuple):
-    lhs: int
-    rhs: int
-
-    def __str__(self):
-        return "( %d , %d )" % (self.lhs, self.rhs)
+from .util import log, init_process_group, Side, Bucket
 
 
 class LockServer(Server):

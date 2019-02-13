@@ -9,10 +9,10 @@
 from itertools import product
 from unittest import TestCase, main
 
-from torchbiggraph.util import BucketOrder, create_partition_pairs
+from torchbiggraph.util import BucketOrder, create_ordered_buckets
 
 
-class TestCreatePartitionPairs(TestCase):
+class TestCreateOrderedBuckets(TestCase):
 
     def test_valid(self):
         """Ensure every method produces a valid order (contain all pairs once).
@@ -21,24 +21,24 @@ class TestCreatePartitionPairs(TestCase):
 
         """
         orders = [
-            BucketOrder.CHAINED_SYMMETRIC_PAIRS,
+            BucketOrder.RANDOM,
+            BucketOrder.AFFINITY,
             BucketOrder.INSIDE_OUT,
             BucketOrder.OUTSIDE_IN,
-            BucketOrder.RANDOM,
         ]
         shapes = [(4, 4), (3, 5), (6, 1), (1, 6), (1, 1)]
 
         for order in orders:
             for nparts_lhs, nparts_rhs in shapes:
                 with self.subTest(order=order, shape=(nparts_lhs, nparts_rhs)):
-                    actual_pairs_tensor = create_partition_pairs(
+                    actual_buckets = create_ordered_buckets(
                         nparts_lhs=nparts_lhs,
                         nparts_rhs=nparts_rhs,
-                        bucket_order=order,
-                    ).int()
+                        order=order,
+                    )
 
                     self.assertCountEqual(
-                        (tuple(pair) for pair in actual_pairs_tensor.tolist()),
+                        actual_buckets,
                         product(range(nparts_lhs), range(nparts_rhs))
                     )
 

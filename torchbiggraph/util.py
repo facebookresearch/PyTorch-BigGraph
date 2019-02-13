@@ -13,11 +13,9 @@ import random
 import traceback
 from datetime import datetime, timedelta
 from enum import Enum
-from itertools import zip_longest
-from typing import List, Set, Tuple, TypeVar
+from typing import List, NamedTuple, NewType, Set, Tuple, TypeVar
 
 import attr
-import numpy as np
 import torch
 import torch.multiprocessing as mp
 
@@ -41,6 +39,20 @@ class Side(Enum):
 
     def pick_tuple(self, pair: Tuple[T, T]) -> T:
         return self.pick(pair[0], pair[1])
+
+
+Partition = NewType("Partition", int)
+
+
+class Bucket(NamedTuple):
+    lhs: Partition
+    rhs: Partition
+
+    def get_partition(self, side: Side) -> Partition:
+        return side.pick(self.lhs, self.rhs)
+
+    def __str__(self):
+        return "( %d , %d )" % (self.lhs, self.rhs)
 
 
 def log(msg):
@@ -256,234 +268,169 @@ def update_config_for_dynamic_relations(config):
     return config
 
 
-# train
-def create_partition_pairs(nparts_lhs, nparts_rhs, bucket_order: BucketOrder):
-    """Create all pairs of tuples (<LHS partition ID>, <RHS partition ID>), and
-    sort the tuples according to bucket_order.
+def create_ordered_buckets(
+    nparts_lhs: int,
+    nparts_rhs: int,
+    order: BucketOrder,
+) -> List[Bucket]:
+    if order is BucketOrder.RANDOM:
+        return create_buckets_ordered_randomly(nparts_lhs, nparts_rhs)
+    elif order is BucketOrder.AFFINITY:
+        return create_buckets_ordered_by_affinity(nparts_lhs, nparts_rhs)
+    elif order is BucketOrder.INSIDE_OUT or order is BucketOrder.OUTSIDE_IN:
+        return create_buckets_ordered_by_layer(nparts_lhs, nparts_rhs, order)
+    else:
+        raise NotImplementedError("Unknown bucket order: %s" % order)
+
+
+def create_buckets_ordered_randomly(
+    nparts_lhs: int,
+    nparts_rhs: int,
+) -> List[Bucket]:
+    """Return all buckets, randomly permuted.
+
+    Produce buckets for [0, #LHS) x [0, #RHS) and shuffle them.
+
     """
+    buckets = [
+        Bucket(Partition(lhs), Partition(rhs))
+        for lhs in range(nparts_lhs)
+        for rhs in range(nparts_rhs)
+    ]
+    random.shuffle(buckets)
+    return buckets
 
-    if bucket_order is BucketOrder.CHAINED_SYMMETRIC_PAIRS:
-        """
-        Create an ordering of the partition pairs that ensures that the
-        mirror-image of any partition pair is adjacent to it if it exists. For
-        instance, if the LHS and RHS each contain 3 partitions, (1, 2) will be
-        adjacent to (2, 1), (0, 1) will be adjacent to (1, 0), and (0, 2) will
-        be adjacent to (2, 0). Furthermore, chain the pairs of partition pairs
-        together so that, if possible, consecutive pairs [(a, b), (b, a)] of
-        partition pairs will share an element in common (i.e. either 'a' or
-        'b').
-        """
 
-        tuples_of_paired_pairs = create_symmetric_pairs_of_partition_pairs(
-            nparts_lhs=nparts_lhs,
-            nparts_rhs=nparts_rhs,
-        )
-        tuples_of_unpaired_pairs = create_unpaired_partition_pairs(
-            nparts_lhs=nparts_lhs,
-            nparts_rhs=nparts_rhs,
-        )
+def create_buckets_ordered_by_affinity(
+    nparts_lhs: int,
+    nparts_rhs: int,
+) -> List[Bucket]:
+    """Try having consecutive buckets share as many partitions as possible.
 
-        chained_tuples_of_paired_pairs = \
-            chain_tuples_of_paired_pairs(tuples_of_paired_pairs)
+    Start from a random bucket. Until there are buckets left, try to choose the
+    next one so that it has as many partitions in common as possible with the
+    previous one. When multiple options are available, pick one randomly.
 
-        tuples_of_all_pairs = \
-            chained_tuples_of_paired_pairs + tuples_of_unpaired_pairs
-        flattened_pairs = \
-            [pair for _list in tuples_of_all_pairs for pair in _list]
+    """
+    if nparts_lhs <= 0 or nparts_rhs <= 0:
+        return []
 
-        return torch.FloatTensor(flattened_pairs).int()
+    # This is our "source of truth" on what buckets we haven't outputted yet. It
+    # can be queried in constant time.
+    remaining: Set[Bucket] = set()
+    # These are our random orders: we shuffle them once and then pop from the
+    # end. Each bucket appears in several of them. They are updated lazily,
+    # which means they may contain buckets that have already been outputted.
+    all_buckets: List[Bucket] = []
+    buckets_per_partition: List[List[Bucket]] = \
+        [[] for _ in range(max(nparts_lhs, nparts_rhs))]
 
-    elif bucket_order is BucketOrder.INSIDE_OUT \
-            or bucket_order is BucketOrder.OUTSIDE_IN:
+    for lhs in range(nparts_lhs):
+        for rhs in range(nparts_rhs):
+            b = Bucket(Partition(lhs), Partition(rhs))
+            remaining.add(b)
+            all_buckets.append(b)
+            buckets_per_partition[lhs].append(b)
+            buckets_per_partition[rhs].append(b)
 
-        # For bucket_order == 'inside_out', sort the partition pairs so that
-        # the first row and first column of tuples are iterated over last,
-        # preceded by the second row and second column, etc., such that the very
-        # first partition pair is the last row and last column.
-        # (Example: if the LHS and RHS each contain 4 partitions, the ordering
-        # will be as follows: [
-        #   (3, 3),
-        #   (2, 2), (2, 3), (3, 2),
-        #   (1, 1), (1, 2), (1, 3), (2, 1), (3, 1),
-        #   (0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (2, 0), (3, 0),
-        # ]. Note that the partition pairs will be shuffled within each row
-        # listed above.)
-        #
-        # For bucket_order == 'outside_in', sort the partition pairs so that
-        # the first row and first column of tuples are iterated over first, then
-        # the second row and second column, etc.
-        # (Example: if the LHS and RHS each contain 4 partitions, the ordering
-        # will be as follows: [
-        #   (0, 0), (0, 1), (0, 2), (0, 3), (1, 0), (2, 0), (3, 0),
-        #   (1, 1), (1, 2), (1, 3), (2, 1), (3, 1),
-        #   (2, 2), (2, 3), (3, 2),
-        #   (3, 3),
-        # ]. Note that the partition pairs will be shuffled within each row
-        # listed above.)
-        #
-        # More explicitly, if we imagine the pairs to be arranged in a rectangle
-        # with `nparts_lhs` rows and `nparts_rhs` columns, we can sort the pairs
-        # in this fashion by dividing up our rectangle into a certain number of
-        # L-shaped "layers", the first one of which contains all pairs with
-        # either an LHS or RHS indexed by 0, the second one of which contains
-        # all remaining pairs with either an LHS or RHS indexed by 1, etc.
+    random.shuffle(all_buckets)
+    for buckets in buckets_per_partition:
+        random.shuffle(buckets)
 
-        num_layers = min([nparts_lhs, nparts_rhs])
-        all_pairs: List[List[int]] = []
-        if bucket_order is BucketOrder.INSIDE_OUT:
-            layers = range(num_layers - 1, -1, -1)
-        elif bucket_order is BucketOrder.OUTSIDE_IN:
-            layers = range(num_layers)
-        else:
-            raise ValueError('Unrecognized bucket_order value!')
-        for layer_idx in layers:
-            pairs_for_this_layer = create_partition_pairs_for_one_layer(
-                nparts_lhs=nparts_lhs,
-                nparts_rhs=nparts_rhs,
-                layer_idx=layer_idx,
+    b = all_buckets.pop()
+    remaining.remove(b)
+    order = [b]
+
+    while remaining:
+        transposed_b = Bucket(b.rhs, b.lhs)
+        if transposed_b in remaining:
+            remaining.remove(transposed_b)
+            order.append(transposed_b)
+
+        same_as_lhs = buckets_per_partition[b.lhs]
+        same_as_rhs = buckets_per_partition[b.rhs]
+        while len(same_as_lhs) > 0 or len(same_as_rhs) > 0:
+            chosen, = random.choices(
+                [same_as_lhs, same_as_rhs],
+                weights=[len(same_as_lhs), len(same_as_rhs)],
             )
-            all_pairs += np.random.permutation(pairs_for_this_layer).tolist()
-        return torch.FloatTensor(all_pairs).int()
-
-    elif bucket_order is BucketOrder.RANDOM:
-
-        partition_pairs = torch.stack([
-            torch.arange(0, nparts_lhs).expand(nparts_rhs, nparts_lhs).t(),
-            torch.arange(0, nparts_rhs).expand(nparts_lhs, nparts_rhs)
-        ], dim=2).view(-1, 2)
-
-        # randomize pairs of partitions to iterate over
-        return partition_pairs[torch.randperm(partition_pairs.size(0))].int()
-
-    else:
-        raise NotImplementedError("Unknown bucket order: %s" % bucket_order)
-
-
-def create_partition_pairs_for_one_layer(nparts_lhs, nparts_rhs, layer_idx):
-    """Create one layer of pairs of tuples to be used by the 'inside_out' and
-    'outside_in' modes of create_partition_pairs().
-    """
-
-    corner_pair = (layer_idx, layer_idx)
-    pairs_forming_row = [
-        (layer_idx, column_idx) for column_idx
-        in range(layer_idx + 1, nparts_rhs)
-    ]
-    pairs_forming_column = [
-        (row_idx, layer_idx) for row_idx
-        in range(layer_idx + 1, nparts_lhs)
-    ]
-    raw_row_and_column_pairs = [
-        val
-        for pair in zip_longest(pairs_forming_row, pairs_forming_column)
-        for val in pair
-    ]
-    return [corner_pair] + \
-        [pair for pair in raw_row_and_column_pairs if pair is not None]
-
-
-def create_symmetric_pairs_of_partition_pairs(nparts_lhs, nparts_rhs):
-    """
-    For the input numbers of LHS and RHS partitions, return a list of length-2
-    tuples of all symmetric pairs of partition pairs. (For example, if
-    nparts_lhs == 3 and nparts_rhs == 4, we return [
-        ((0, 1), (1, 0)),
-        ((0, 2), (2, 0)),
-        ((1, 2), (2, 1)),
-    ].)
-    """
-
-    min_length = min([nparts_lhs, nparts_rhs])
-    all_tuples = []
-    for high_idx in range(min_length):
-        for low_idx in range(high_idx):
-            all_tuples.append(((low_idx, high_idx), (high_idx, low_idx)))
-    return all_tuples
-
-
-def create_unpaired_partition_pairs(nparts_lhs, nparts_rhs):
-    """
-    For the input numbers of LHS and RHS partitions, return a list of length-1
-    tuples of all partition pairs (a, b) that have no inverse (b, a). (For
-    example, if nparts_lhs == 3 and nparts_rhs == 4, we return [
-        ((0, 0)),
-        ((0, 3)),
-        ((1, 1)),
-        ((1, 3)),
-        ((2, 2)),
-        ((2, 3)),
-    ].)
-    """
-
-    all_tuples = []
-    for lhs_idx in range(nparts_lhs):
-        for rhs_idx in range(nparts_rhs):
-            if (
-                lhs_idx == rhs_idx or
-                lhs_idx >= nparts_rhs or rhs_idx >= nparts_lhs
-            ):
-                all_tuples.append(((lhs_idx, rhs_idx),))
-    return all_tuples
-
-
-def chain_tuples_of_paired_pairs(tuples_of_paired_pairs):
-    """
-    Chain the input pairs of partition pairs together so that, if possible,
-    consecutive pairs [(a, b), (b, a)] of partition pairs will share an element
-    in common (i.e. either 'a' or 'b').
-    """
-
-    if len(tuples_of_paired_pairs) == 0:
-
-        return tuples_of_paired_pairs
-
-    else:
-
-        # Step 1: Shuffle the list of 2-ples of partition pairs and pop off the
-        # last element to be the first element in the list of chained 2-ples
-        random.shuffle(tuples_of_paired_pairs)
-        chained_tuples = [tuples_of_paired_pairs.pop()]
-
-        # Step 2: While there are still partition pairs in the original shuffled
-        # list of 2-ples, go through the list and see if there exists a
-        # remaining 2-ple ((c,d), (d,c)) such that, if the current last 2-ple in
-        # the new *chained* list is ((a,b), (b,a)), either c or d is equal to
-        # either a or b. (If not, default to popping the last partition pair
-        # from the original shuffled list and appending it to the new chained
-        # list.)
-        # NOTE: this is an O(n^2) operation, where n is the number of elements
-        # in the original shuffled list of partition pairs. Does this need to be
-        # sped up (for instance, if we think we'll eventually have a very large
-        # number of partition pairs)?
-        while len(tuples_of_paired_pairs) > 0:
-
-            first_pair_of_last_chained_tuple = chained_tuples[-1][0]
-            # We only need to look at the first pair (a,b) of the last chained
-            # tuple ((a,b), (b,a)), since the tuple itself consists of two
-            # symmetric tuples
-
-            for idx, candidate_tuple in enumerate(tuples_of_paired_pairs):
-
-                first_pair_of_candidate_tuple = candidate_tuple[0]
-                # The same reasoning applies here as in the comment above
-
-                if len([
-                    True for element in first_pair_of_candidate_tuple
-                    if element in first_pair_of_last_chained_tuple
-                ]) > 0:
-                    chained_tuples.append(tuples_of_paired_pairs.pop(idx))
+            next_b = chosen.pop()
+            if next_b in remaining:
+                break
+        else:
+            while True:
+                next_b = all_buckets.pop()
+                if next_b in remaining:
                     break
+        remaining.remove(next_b)
+        order.append(next_b)
+        b = next_b
 
-            else:
+    return order
 
-                # There are no candidate tuples in the original shuffled list
-                # with an element that matches the end of the current list of
-                # chained tuples, so just default to adding the last element of
-                # the original shuffled list to the current list of chained
-                # tuples
-                chained_tuples.append(tuples_of_paired_pairs.pop())
 
-        return chained_tuples
+def create_layer_of_buckets(
+    nparts_lhs: int,
+    nparts_rhs: int,
+    layer_idx: int,
+) -> List[Bucket]:
+    """Return the layer of #LHS x #RHS matrix of the given index
+
+    The i-th layer contains the buckets (lhs, rhs) such that min(lhs, rhs) == i.
+
+    """
+    layer = [Bucket(Partition(layer_idx), Partition(layer_idx))]
+    for lhs in range(layer_idx + 1, nparts_lhs):
+        layer.append(Bucket(Partition(lhs), Partition(layer_idx)))
+    for rhs in range(layer_idx + 1, nparts_rhs):
+        layer.append(Bucket(Partition(layer_idx), Partition(rhs)))
+    random.shuffle(layer)
+    return layer
+
+
+def create_buckets_ordered_by_layer(
+    nparts_lhs: int,
+    nparts_rhs: int,
+    order: BucketOrder,
+) -> List[Bucket]:
+    """Output buckets in concentric L-shaped layers (e.g., first row + column)
+
+    If order is OUTSIDE_IN, start outputting all buckets that have 0 as one of
+    their partitions. Once done, output all the ones (among those remaining)
+    that have 1 as one of their partitions. After that, those that have 2, and
+    so on, until none are left. Each of these stages is called a layer, and
+    within each layer buckets are shuffled at random.
+
+    For example: [
+        (2, 0), (0, 3), (0, 1), (1, 0), (0, 2), (0, 0),  # Layer for 0
+        (1, 2), (1, 1), (2, 1), (1, 3),  # Layer for 1
+        (2, 2), (2, 3),  # Layer for 2
+    ]
+
+    If order is INSIDE_OUT, the layers are the same but their order is reversed.
+
+    When displaying the layers on a #LHS x #RHS matrix, they have an upside-down
+    "L" shape, with the layer for 0 being comprised of the first row and column,
+    and the subsequent ones being "nested" inside of it. Graphically:
+
+       |  0   1   2   3
+    ---+----------------
+     0 | L0  L0  L0  L0
+     1 | L0  L1  L1  L1
+     2 | L0  L1  L2  L2
+
+    """
+    if order is not BucketOrder.INSIDE_OUT \
+            and order is not BucketOrder.OUTSIDE_IN:
+        raise ValueError("Unknown order: %s" % order)
+
+    layers = [
+        create_layer_of_buckets(nparts_lhs, nparts_rhs, i)
+        for i in range(min(nparts_lhs, nparts_rhs))
+    ]
+    if order is BucketOrder.INSIDE_OUT:
+        layers.reverse()
+    return [b for l in layers for b in l]
 
 
 # compute a randomized AUC using a fixed number of sample points

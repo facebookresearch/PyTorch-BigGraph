@@ -58,9 +58,7 @@ class BucketOrder(Enum):
     # Each bucket will have as many partitions as possible in common with the
     # preceding bucket (ideally both, otherwise only one, else none). If
     # multiple candidate buckets exist, one is picked randomly.
-    # FIXME: for now, buckets on the diagonal and buckets that don't have a
-    # transpose are iterated on last.
-    CHAINED_SYMMETRIC_PAIRS = 'chained_symmetric_pairs'
+    AFFINITY = 'affinity'
     # Enforce that (L1, R1) comes before (L2, R2) iff min(L1, R1) > min(L2, R2)
     # (subject to that condition, shuffle randomly).
     INSIDE_OUT = 'inside_out'

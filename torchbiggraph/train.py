@@ -22,15 +22,15 @@ import torch.optim as optim
 from .config import parse_config, ConfigSchema
 from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader
-from .lockserver import setup_lock_server, Bucket
+from .lockserver import setup_lock_server
 from .model import make_model, override_model
 from .parameterserver import setup_parameter_server_thread, \
     setup_parameter_server
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_workers, join_workers, fast_approx_rand, DummyOptimizer, \
-    create_partition_pairs, update_config_for_dynamic_relations, Side, \
-    init_process_group, infer_input_index_base
+    create_ordered_buckets, update_config_for_dynamic_relations, Side, \
+    init_process_group, infer_input_index_base, Bucket
 from .stats import Stats, stats
 
 
@@ -364,9 +364,9 @@ def train_and_report_stats(
 
         types = ([(e, Side.LHS) for e in lhs_partitioned_types] +
                  [(e, Side.RHS) for e in rhs_partitioned_types])
-        old_parts = {(e, side.pick_tuple(oldP)): side
+        old_parts = {(e, oldP.get_partition(side)): side
                      for e, side in types if oldP is not None}
-        new_parts = {(e, side.pick_tuple(newP)): side
+        new_parts = {(e, newP.get_partition(side)): side
                      for e, side in types if newP is not None}
 
         to_checkpoint = set(old_parts) - set(new_parts)
@@ -412,7 +412,7 @@ def train_and_report_stats(
         #
         log("Loading entities")
         for entity, side in types:
-            part = side.pick_tuple(newP)
+            part = newP.get_partition(side)
             part_key = (entity, part)
             if part_key in tmp_emb:
                 vlog("Loading (%s, %d) from preserved" % (entity, part))
@@ -456,26 +456,24 @@ def train_and_report_stats(
                  echunk + 1, config.num_edge_chunks))
             log("edgePath= %s" % edgePath)
 
-            partition_pairs = create_partition_pairs(
+            buckets = create_ordered_buckets(
                 nparts_lhs=nparts_lhs,
                 nparts_rhs=nparts_rhs,
-                bucket_order=config.bucket_order,
+                order=config.bucket_order,
             )
-            pairs = partition_pairs.numpy().tolist()
-            pairs = [Bucket(*tuple(item)) for item in pairs]
-            total_pairs = len(pairs)
+            total_buckets = len(buckets)
 
-            # Print partition pairs
+            # Print buckets
             vlog('\nPartition pairs:')
-            for lhs_idx, rhs_idx in partition_pairs:
-                vlog("(%d, %d)" % (lhs_idx, rhs_idx))
+            for bucket in buckets:
+                vlog("%s" % (bucket,))
             vlog('')
 
             if config.num_machines > 1:
                 td.barrier(group=barrier_group)
                 log("Lock client new epoch...")
                 if rank == 0:
-                    lock_client.new_epoch(pairs,
+                    lock_client.new_epoch(buckets,
                                           lock_lhs=len(lhs_partitioned_types) > 0,
                                           lock_rhs=len(rhs_partitioned_types) > 0,
                                           init_tree=config.distributed_tree_init_order
@@ -486,7 +484,7 @@ def train_and_report_stats(
             # many partitions have been processed so far. This is used in
             # pre-fetching only.
             partition_count = 0
-            remaining = len(pairs)
+            remaining = len(buckets)
             curP = None
             while remaining > 0:
                 oldP = curP
@@ -506,7 +504,7 @@ def train_and_report_stats(
                         time.sleep(1)  # don't hammer td
                         continue
                 else:
-                    curP = pairs.pop(0)
+                    curP = buckets.pop(0)
                     remaining -= 1
 
                 def log_status(msg, always=False):
@@ -517,21 +515,21 @@ def train_and_report_stats(
 
                 io_bytes += swap_partitioned_embeddings(oldP, curP)
 
-                if partition_count < total_pairs - 1 and background_io:
+                if partition_count < total_buckets - 1 and background_io:
                     assert config.num_machines == 1
                     checkpoint_manager.wait_events()
 
                     log_status("Prefetching")
-                    next_partition = partition_pairs[partition_count + 1]
+                    next_partition = buckets[partition_count + 1]
                     for entity in lhs_partitioned_types:
-                        checkpoint_manager.prefetch(entity, next_partition[0])
+                        checkpoint_manager.prefetch(entity, next_partition.lhs)
                     for entity in rhs_partitioned_types:
-                        checkpoint_manager.prefetch(entity, next_partition[1])
+                        checkpoint_manager.prefetch(entity, next_partition.rhs)
 
                     checkpoint_manager.record_event()
 
                 current_index = edge_path_count * config.num_edge_chunks \
-                    * total_pairs + echunk * total_pairs + total_pairs - remaining
+                    * total_buckets + echunk * total_buckets + total_buckets - remaining
 
                 log_status("Loading edges")
                 lhs, rhs, rel = edge_reader.read(
@@ -576,7 +574,7 @@ def train_and_report_stats(
 
                 log_status("bucket %d / %d : Processed %d edges in %.2f s "
                     "( %.2g M/sec ); io: %.2f s ( %.2f MB/sec )" %
-                    (total_pairs - remaining, total_pairs,
+                    (total_buckets - remaining, total_buckets,
                      lhs.size(0), compute_time, lhs.size(0) / compute_time / 1e6,
                      io_time, io_bytes / io_time / 1e6),
                     always=True)
