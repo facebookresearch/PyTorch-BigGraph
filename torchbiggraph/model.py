@@ -194,22 +194,48 @@ class TranslationOperator(AbstractOperator):
         return embeddings + self.translation
 
 
+class LinearOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
+
+    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+        match_shape(embeddings, ..., self.dim)
+        # We add a dimension so that matmul performs a matrix-vector product.
+        return torch.matmul(self.linear_transformation,
+                            embeddings.unsqueeze(-1)).squeeze(-1)
+
+
 class AffineOperator(AbstractOperator):
 
     def __init__(self, dim: int):
         super().__init__(dim)
-        self.rotation = nn.Parameter(torch.eye(self.dim))
+        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
         self.translation = nn.Parameter(torch.zeros(self.dim))
 
     def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
         match_shape(embeddings, ..., self.dim)
-        return torch.matmul(embeddings, self.rotation) + self.translation
+        # We add a dimension so that matmul performs a matrix-vector product.
+        return (torch.matmul(self.linear_transformation,
+                             embeddings.unsqueeze(-1)).squeeze(-1)
+                + self.translation)
+
+    # FIXME This adapts from the pre-D14024710 format; remove eventually.
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        param_key = "%slinear_transformation" % prefix
+        old_param_key = "%srotation" % prefix
+        if old_param_key in state_dict:
+            state_dict[param_key] = \
+                state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
 OPERATORS: Dict[Operator, Type[AbstractOperator]] = {
     Operator.NONE: IdentityOperator,
     Operator.DIAGONAL: DiagonalOperator,
     Operator.TRANSLATION: TranslationOperator,
+    Operator.LINEAR: LinearOperator,
     Operator.AFFINE: AffineOperator,
 }
 
@@ -287,11 +313,30 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
         return embeddings + self.translations[operator_idxs]
 
 
+class LinearDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.linear_transformations = nn.Parameter(
+            torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+
+    def forward(
+        self,
+        embeddings: torch.FloatTensor,
+        operator_idxs: torch.LongTensor,
+    ) -> torch.FloatTensor:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        # We add a dimension so that matmul performs a matrix-vector product.
+        return torch.matmul(self.linear_transformations[operator_idxs],
+                            embeddings.unsqueeze(-1)).squeeze(-1)
+
+
 class AffineDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
-        self.rotations = nn.Parameter(
+        self.linear_transformations = nn.Parameter(
             torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
         self.translations = nn.Parameter(torch.zeros(self.num_operations, self.dim))
 
@@ -302,15 +347,26 @@ class AffineDynamicOperator(AbstractDynamicOperator):
     ) -> torch.FloatTensor:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
-        return (torch.matmul(embeddings.unsqueeze(-2),
-                             self.rotations[operator_idxs]).squeeze(-2)
+        # We add a dimension so that matmul performs a matrix-vector product.
+        return (torch.matmul(self.linear_transformations[operator_idxs],
+                             embeddings.unsqueeze(-1)).squeeze(-1)
                 + self.translations[operator_idxs])
+
+    # FIXME This adapts from the pre-D14024710 format; remove eventually.
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        param_key = "%slinear_transformations" % prefix
+        old_param_key = "%srotations" % prefix
+        if old_param_key in state_dict:
+            state_dict[param_key] = \
+                state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
 DYNAMIC_OPERATORS: Dict[Operator, Type[AbstractDynamicOperator]] = {
     Operator.NONE: IdentityDynamicOperator,
     Operator.DIAGONAL: DiagonalDynamicOperator,
     Operator.TRANSLATION: TranslationDynamicOperator,
+    Operator.LINEAR: LinearDynamicOperator,
     Operator.AFFINE: AffineDynamicOperator,
 }
 

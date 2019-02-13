@@ -24,6 +24,8 @@ class Operator(Enum):
     TRANSLATION = 'translation'
     # Multiply by a diagonal matrix.
     DIAGONAL = 'diagonal'
+    # Multiply by a full square matrix.
+    LINEAR = 'linear'
     # Multiply by a full square matrix, then translate.
     AFFINE = 'affine'
 

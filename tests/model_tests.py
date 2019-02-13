@@ -25,10 +25,11 @@ from torchbiggraph.model import (
     # Embeddings
     SimpleEmbedding, FeaturizedEmbedding,
     # Operators
-    IdentityOperator, DiagonalOperator, TranslationOperator, AffineOperator,
+    IdentityOperator, DiagonalOperator, TranslationOperator, LinearOperator,
+    AffineOperator,
     # Dynamic operators
     IdentityDynamicOperator, DiagonalDynamicOperator, TranslationDynamicOperator,
-    AffineDynamicOperator,
+    LinearDynamicOperator, AffineDynamicOperator,
     # Comparator
     DotComparator, CosComparator, BiasedComparator,
     # Losses
@@ -325,6 +326,26 @@ class TestTranslationOperator(TestCase):
         ]))
 
 
+class TestLinearOperator(TestCase):
+
+    def test_forward(self):
+        embeddings = torch.tensor([
+            [[0.3766, 0.9734, 0.5190],
+             [0.1801, 0.1585, 0.4585]],
+            [[0.6188, 0.1917, 0.1006],
+             [0.3876, 0.7134, 0.7921]],
+        ])
+        operator = LinearOperator(3)
+        with torch.no_grad():
+            operator.linear_transformation += torch.arange(9, dtype=torch.float).view(3, 3)
+        assertTensorEqual(self, operator(embeddings), torch.tensor([
+            [[ 2.3880,  8.5918, 13.7444],
+             [ 1.2556,  3.6253,  6.3166]],
+            [[ 1.0117,  3.3179,  5.9601],
+             [ 2.6852,  8.6903, 14.4483]],
+        ]))
+
+
 class TestAffineOperator(TestCase):
 
     def test_forward(self):
@@ -336,13 +357,13 @@ class TestAffineOperator(TestCase):
         ])
         operator = AffineOperator(3)
         with torch.no_grad():
-            operator.rotation += torch.arange(9, dtype=torch.float).view(3, 3)
+            operator.linear_transformation += torch.arange(9, dtype=torch.float).view(3, 3)
             operator.translation += torch.arange(3, dtype=torch.float)
         assertTensorEqual(self, operator(embeddings), torch.tensor([
-            [[ 6.4108,  9.8766, 12.2912],
-             [ 3.4066,  5.1821,  7.2792]],
-            [[ 1.7975,  3.2815,  5.1015],
-             [ 7.2804, 10.4993, 13.4711]],
+            [[ 2.3880,  9.5918, 15.7444],
+             [ 1.2556,  4.6253,  8.3166]],
+            [[ 1.0117,  4.3179,  7.9601],
+             [ 2.6852,  9.6903, 16.4483]],
         ]))
 
 
@@ -404,6 +425,26 @@ class TestTranslationDynamicOperator(TestCase):
         ]))
 
 
+class TestLinearDynamicOperator(TestCase):
+
+    def test_forward(self):
+        embeddings = torch.tensor([
+            [[0.3766, 0.9734, 0.5190],
+             [0.1801, 0.1585, 0.4585]],
+            [[0.6188, 0.1917, 0.1006],
+             [0.3876, 0.7134, 0.7921]],
+        ])
+        operator = LinearDynamicOperator(3, 5)
+        with torch.no_grad():
+            operator.linear_transformations += torch.arange(45, dtype=torch.float).view(5, 3, 3)
+        assertTensorEqual(self, operator(embeddings, torch.tensor([[0, 4], [2, 0]])), torch.tensor([
+            [[ 2.3880,  8.5918, 13.7444],
+             [29.9512, 32.3209, 35.0122]],
+            [[17.4115, 19.7177, 22.3599],
+             [ 2.6852,  8.6903, 14.4483]],
+        ]))
+
+
 class TestAffineDynamicOperator(TestCase):
 
     def test_forward(self):
@@ -415,13 +456,13 @@ class TestAffineDynamicOperator(TestCase):
         ])
         operator = AffineDynamicOperator(3, 5)
         with torch.no_grad():
-            operator.rotations += torch.arange(45, dtype=torch.float).view(5, 3, 3)
+            operator.linear_transformations += torch.arange(45, dtype=torch.float).view(5, 3, 3)
             operator.translations += torch.arange(15, dtype=torch.float).view(5, 3)
         assertTensorEqual(self, operator(embeddings, torch.tensor([[0, 4], [2, 0]])), torch.tensor([
-            [[ 6.4108,  9.8766, 12.2912],
-             [44.1022, 45.8777, 47.9748]],
-            [[24.1973, 25.6813, 27.5013],
-             [ 7.2804, 10.4993, 13.4711]],
+            [[ 2.3880,  9.5918, 15.7444],
+             [41.9512, 45.3209, 49.0122]],
+            [[23.4115, 26.7177, 30.3599],
+             [ 2.6852,  9.6903, 16.4483]],
         ]))
 
 
@@ -1375,37 +1416,37 @@ class TestModel(TestCase):
             torch.tensor([2, 1, 4]),
             0,
         )
-        assertTensorEqual(self, loss, torch.tensor(10.6878))
+        assertTensorEqual(self, loss, torch.tensor(3.4760))
         lhs_margin, rhs_margin = margins
         assertTensorEqual(self, lhs_margin, torch.tensor([
-            [-1.0000e+09,  1.1589e+00],
-            [-4.4701e-02, -1.0000e+09],
+            [-1.0000e+09, -1.6065e+00],
+            [-3.7527e+00, -1.0000e+09],
             [-1.0000e+09, -1.0000e+09],
         ]))
         assertTensorEqual(self, rhs_margin, torch.tensor([
-            [-1.0000e+09, -8.4147e+00],
-            [ 9.5289e+00, -1.0000e+09],
+            [-1.0000e+09, -8.8353e+00],
+            [ 3.4760e+00, -1.0000e+09],
             [-1.0000e+09, -1.0000e+09],
         ]))
         lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores = scores
         assertTensorEqual(self, lhs_pos_scores, torch.tensor([
-            [-0.4026],
-            [-8.7726],
-            [-0.2867],
+            [ 0.5560],
+            [-4.5266],
+            [-0.3384],
         ]))
         assertTensorEqual(self, rhs_pos_scores, torch.tensor([
-            [-0.4026],
-            [-8.7726],
-            [-0.2867],
+            [ 0.5560],
+            [-4.5266],
+            [-0.3384],
         ]))
         assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [-1.0000e+09,  6.5629e-01],
-            [-8.9173e+00, -1.0000e+09],
+            [-1.0000e+09, -1.1506e+00],
+            [-8.3793e+00, -1.0000e+09],
             [-1.0000e+09, -1.0000e+09],
         ]))
         assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [-1.0000e+09, -8.9173e+00],
-            [ 6.5629e-01, -1.0000e+09],
+            [-1.0000e+09, -8.3793e+00],
+            [-1.1506e+00, -1.0000e+09],
             [-1.0000e+09, -1.0000e+09],
         ]))
         loss.backward()
