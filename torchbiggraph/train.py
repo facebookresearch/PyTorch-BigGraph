@@ -212,7 +212,7 @@ def init_embs(
     """
     # FIXME: Use multi-threaded instead of fast_approx_rand
     vlog("Initializing %s" % entity)
-    return fast_approx_rand(N, D).mul_(scale), None
+    return fast_approx_rand(N * D).view(N, D).mul_(scale), None
 
 
 RANK_ZERO = Rank(0)

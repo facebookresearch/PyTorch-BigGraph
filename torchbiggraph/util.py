@@ -123,27 +123,18 @@ def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[Entity
     return chunked
 
 
-def product(l: Iterable[int]) -> int:
-    p = 1
-    for i in l:
-        p *= i
-    return p
-
-
-def fast_approx_rand(*size: int) -> torch.FloatTensor:
-    numel = product(size)
-    if numel < 1000003:
-        return torch.rand(size)
+def fast_approx_rand(numel: int) -> torch.FloatTensor:
+    if numel < 1_000_003:
+        return torch.randn(numel)
     # construct the tensor storage in shared mem so we don't have to copy it
-    storage = torch.Storage._new_shared(numel)
-    res = torch.Tensor(storage).view(*size)
-    rand = torch.rand(1000003)
-    i = 0
-    while i < res.nelement():
-        k = min(rand.nelement(), res.nelement() - i)
-        res.view(-1)[i:i + k].copy_(rand[:k])
-        i += k
-    return res
+    storage = torch.FloatStorage._new_shared(numel)
+    tensor = torch.FloatTensor(storage)
+    rand = torch.randn(1_000_003)
+    excess = numel % 1_000_003
+    # Using just `-excess` would give bad results when excess == 0.
+    tensor[:numel - excess].view(-1, 1_000_003)[...] = rand
+    tensor[numel - excess:] = rand[:excess]
+    return tensor
 
 
 def infer_input_index_base(config: ConfigSchema) -> int:

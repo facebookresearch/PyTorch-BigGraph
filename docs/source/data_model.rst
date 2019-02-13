@@ -88,8 +88,11 @@ contains files in a format similar to the output format detailed in
 state can be ``None`` and, optionally, one can also omit the :file:`CHECKPOINT_VERSION`
 file and avoid adding a version suffix to any file.
 
-.. todo::
-    If no initial value is provided, it will be auto-generated, using ``init_scale``.
+.. note::
+    If no initial value is provided, it will be auto-generated, with each dimension
+    sampled from the centered normal distribution whose standard deviation can be
+    configured using the ``init_scale`` configuration key. For performance reasons
+    the samples of all the entities of a certain type will not be independent.
 
 Edges
 -----
