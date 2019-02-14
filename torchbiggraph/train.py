@@ -11,7 +11,7 @@ import os.path
 import sys
 import time
 from enum import Enum
-from itertools import chain
+from itertools import chain, groupby, islice, product
 from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 
 import attr
@@ -361,11 +361,13 @@ def train_and_report_stats(
     }
     _, edge_path_count, echunk, state_dict, optim_state = \
         checkpoint_manager.read_metadata()
-    echunk += 1
-    assert echunk <= config.num_edge_chunks
-    if echunk == config.num_edge_chunks:
-        echunk = 0
-        edge_path_count += 1
+    iteration_idx = edge_path_count * config.num_edge_chunks + echunk
+    del edge_path_count
+    del echunk
+    iterations_left = islice(product(range(config.num_epochs),
+                                     range(len(config.edge_paths)),
+                                     range(config.num_edge_chunks)),
+                             iteration_idx + 1, None)
 
     if state_dict is None and loadpath_manager is not None:
         _, _, _, state_dict, optim_state = loadpath_manager.read_metadata()
@@ -494,19 +496,15 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
-    numEdgePaths = len(config.edge_paths)
-    while edge_path_count < config.num_epochs * numEdgePaths:
-        epoch = edge_path_count // numEdgePaths
-        edgePath_idx = edge_path_count % numEdgePaths
-        edgePath = config.edge_paths[edgePath_idx]
-
-        edge_reader = EdgeReader(edgePath, index_base=index_base)
-        while echunk < config.num_edge_chunks:
-            log("Starting epoch %d / %d edgePath %d / %d pass %d / %d" %
+    for (epoch, edge_path_idx), sub_iterations in groupby(iterations_left, lambda i: i[:2]):
+        edge_path = config.edge_paths[edge_path_idx]
+        edge_reader = EdgeReader(edge_path, index_base=index_base)
+        for _, _, edge_chunk in sub_iterations:
+            log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
                 (epoch + 1, config.num_epochs,
-                 edgePath_idx + 1, numEdgePaths,
-                 echunk + 1, config.num_edge_chunks))
-            log("edgePath= %s" % edgePath)
+                 edge_path_idx + 1, len(config.edge_paths),
+                 edge_chunk + 1, config.num_edge_chunks))
+            log("edge_path= %s" % edge_path)
 
             buckets = create_ordered_buckets(
                 nparts_lhs=nparts_lhs,
@@ -529,7 +527,8 @@ def train_and_report_stats(
                                           lock_lhs=len(lhs_partitioned_types) > 0,
                                           lock_rhs=len(rhs_partitioned_types) > 0,
                                           init_tree=config.distributed_tree_init_order
-                                                    and edge_path_count == 0)
+                                                    and edge_path_idx == 0
+                                                    and epoch == 0)
                 td.barrier(group=barrier_group)
 
             # Single-machine case: partition_count keeps track of how
@@ -580,12 +579,16 @@ def train_and_report_stats(
 
                     checkpoint_manager.record_event()
 
-                current_index = edge_path_count * config.num_edge_chunks \
-                    * total_buckets + echunk * total_buckets + total_buckets - remaining
+                current_index = (
+                    ((epoch * len(config.edge_paths) + edge_path_idx)
+                     * config.num_edge_chunks + edge_chunk + 1)
+                    * total_buckets
+                    - remaining
+                )
 
                 log_status("Loading edges")
                 lhs, rhs, rel = edge_reader.read(
-                    curP.lhs, curP.rhs, echunk, config.num_edge_chunks)
+                    curP.lhs, curP.rhs, edge_chunk, config.num_edge_chunks)
                 N = rel.size(0)
                 # this might be off in the case of tensorlist
                 io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
@@ -594,7 +597,7 @@ def train_and_report_stats(
                 # Fix a seed to get the same permutation every time; have it
                 # depend on all and only what affects the set of edges.
                 g = torch.Generator()
-                g.manual_seed(hash((edgePath_idx, echunk, curP.lhs, curP.rhs)))
+                g.manual_seed(hash((edge_path_idx, edge_chunk, curP.lhs, curP.rhs)))
 
                 num_eval_edges = int(N * config.eval_fraction)
                 if num_eval_edges > 0:
@@ -653,8 +656,8 @@ def train_and_report_stats(
                 td.barrier(barrier_group)
 
             # Write metadata: for multiple machines, write from rank-0
-            log("Finished epoch %d path %d pass %d; checkpointing global state." %
-                (epoch + 1, edgePath_idx + 1, echunk + 1))
+            log("Finished epoch %d path %d pass %d; checkpointing global state."
+                % (epoch + 1, edge_path_idx + 1, edge_chunk + 1))
             log("My rank: %d" % rank)
             if rank == 0:
                 for entity, econfig in config.entities.items():
@@ -678,8 +681,8 @@ def train_and_report_stats(
                 log("Writing metadata...")
                 checkpoint_manager.write_metadata(
                     config,
-                    edge_path_count,
-                    echunk,
+                    epoch * len(config.edge_paths) + edge_path_idx,
+                    edge_chunk,
                     sanitized_state_dict,
                     OptimizerStateDict(optimizers[None].state_dict()),
                 )
@@ -699,10 +702,6 @@ def train_and_report_stats(
             # now we're sure that all partition files exist,
             # so be strict about loading them
             strict = True
-            echunk += 1
-
-        echunk = 0
-        edge_path_count += 1
 
     # quiescence
     join_workers(processes, qin, qout)

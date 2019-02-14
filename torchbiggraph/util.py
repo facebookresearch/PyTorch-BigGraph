@@ -294,6 +294,21 @@ def create_ordered_buckets(
         raise NotImplementedError("Unknown bucket order: %s" % order)
 
 
+def create_buckets_ordered_lexicographically(
+    nparts_lhs: int,
+    nparts_rhs: int,
+) -> List[Bucket]:
+    """Return buckets in increasing LHS and, for the same LHS, in increasing RHS
+
+    """
+    buckets = [
+        Bucket(Partition(lhs), Partition(rhs))
+        for lhs in range(nparts_lhs)
+        for rhs in range(nparts_rhs)
+    ]
+    return buckets
+
+
 def create_buckets_ordered_randomly(
     nparts_lhs: int,
     nparts_rhs: int,
@@ -303,11 +318,7 @@ def create_buckets_ordered_randomly(
     Produce buckets for [0, #LHS) x [0, #RHS) and shuffle them.
 
     """
-    buckets = [
-        Bucket(Partition(lhs), Partition(rhs))
-        for lhs in range(nparts_lhs)
-        for rhs in range(nparts_rhs)
-    ]
+    buckets = create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs)
     random.shuffle(buckets)
     return buckets
 

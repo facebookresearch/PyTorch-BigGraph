@@ -9,7 +9,7 @@
 import argparse
 import time
 from itertools import chain
-from typing import Generator, Optional, Tuple, Union
+from typing import Generator, List, Optional, Tuple, Union
 
 import attr
 import torch
@@ -20,7 +20,8 @@ from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder
 from .util import log, get_partitioned_types, chunk_by_index, create_workers, \
     join_workers, update_config_for_dynamic_relations, compute_randomized_auc, \
-    Side, infer_input_index_base, Rank
+    Side, infer_input_index_base, Rank, create_buckets_ordered_lexicographically, \
+    Bucket
 from .stats import Stats, stats
 
 
@@ -35,11 +36,11 @@ class EvalStats(Stats):
 
 
 def eval_one_batch(
-        model: MultiRelationEmbedder,
-        batch_lhs: EntityList,
-        batch_rhs: EntityList,
-        # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
-        batch_rel: Union[int, torch.LongTensor],
+    model: MultiRelationEmbedder,
+    batch_lhs: EntityList,
+    batch_rhs: EntityList,
+    # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
+    batch_rel: Union[int, torch.LongTensor],
 ) -> EvalStats:
     B = batch_lhs.size(0)
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
@@ -127,7 +128,7 @@ def eval_one_thread(
 
 def do_eval_and_report_stats(
     config: ConfigSchema,
-) -> Generator[Tuple[int, Optional[Tuple[int, int]], EvalStats], None, None]:
+) -> Generator[Tuple[Optional[int], Optional[Bucket], EvalStats], None, None]:
     """Computes eval metrics (r1/r10/r50) for a checkpoint with trained
        embeddings.
     """
@@ -165,70 +166,79 @@ def do_eval_and_report_stats(
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)
 
-    for epoch in range(len(config.edge_paths)):  # FIXME: maybe just one epoch?
-        edgePath = config.edge_paths[epoch]
-        log("Starting epoch %d / %d; edgePath= %s" %
-            (epoch + 1, len(config.edge_paths), config.edge_paths[epoch]))
-        edge_reader = EdgeReader(edgePath, index_base=index_base)
+    all_stats: List[EvalStats] = []
+    for edge_path_idx, edge_path in enumerate(config.edge_paths):
+        log("Starting edge path %d / %d (%s)"
+            % (edge_path_idx + 1, len(config.edge_paths), edge_path))
+        edge_reader = EdgeReader(edge_path, index_base=index_base)
 
-        all_epoch_stats = []
-        for lhsP in range(nparts_lhs):
-            for rhsP in range(nparts_rhs):
-                tic = time.time()
-                # log("( %d , %d ): Loading entities" % (lhsP, rhsP))
+        all_edge_path_stats = []
+        for bucket in create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs):
+            tic = time.time()
+            # log("%s: Loading entities" % (bucket,))
 
-                for e in lhs_partitioned_types:
-                    embs = load_embeddings(e, lhsP)
-                    model.set_embeddings(e, embs, Side.LHS)
+            for e in lhs_partitioned_types:
+                embs = load_embeddings(e, bucket.lhs)
+                model.set_embeddings(e, embs, Side.LHS)
 
-                for e in rhs_partitioned_types:
-                    embs = load_embeddings(e, rhsP)
-                    model.set_embeddings(e, embs, Side.RHS)
+            for e in rhs_partitioned_types:
+                embs = load_embeddings(e, bucket.rhs)
+                model.set_embeddings(e, embs, Side.RHS)
 
-                # log("( %d , %d ): Loading edges" % (lhsP, rhsP))
-                lhs, rhs, rel = edge_reader.read(lhsP, rhsP)
-                N = rel.size(0)
+            # log("%s: Loading edges" % (bucket,))
+            lhs, rhs, rel = edge_reader.read(bucket.lhs, bucket.rhs)
+            N = rel.size(0)
 
-                load_time = time.time() - tic
-                tic = time.time()
-                # log("( %d , %d ): Launching workers" % (lhsP, rhsP))
-                for rank in range(config.workers):
-                    start = int(rank * N / config.workers)
-                    end = int((rank + 1) * N / config.workers)
-                    qIn[rank].put(
-                        (model, lhs[start:end], rhs[start:end], rel[start:end]))
+            load_time = time.time() - tic
+            tic = time.time()
+            # log("%s: Launching workers" % (bucket,))
+            for rank in range(config.workers):
+                start = int(rank * N / config.workers)
+                end = int((rank + 1) * N / config.workers)
+                qIn[rank].put(
+                    (model, lhs[start:end], rhs[start:end], rel[start:end]))
 
-                # log("( %d , %d ): Waiting for workers" % (lhsP, rhsP))
-                all_stats = []
-                for rank in range(config.workers):
-                    all_stats.append(qOut[rank].get())
+            # log("%s: Waiting for workers" % (bucket,))
+            all_bucket_stats = []
+            for rank in range(config.workers):
+                all_bucket_stats.append(qOut[rank].get())
 
-                compute_time = time.time() - tic
-                log("( %d , %d ): Processed %d edges in %.2g s (%.2gM/sec);"
-                    " load time: %.2g s" %
-                    (lhsP, rhsP, lhs.size(0), compute_time,
-                     lhs.size(0) / compute_time / 1e6, load_time))
+            compute_time = time.time() - tic
+            log("%s: Processed %d edges in %.2g s (%.2gM/sec); load time: %.2g s"
+                % (bucket, lhs.size(0), compute_time,
+                   lhs.size(0) / compute_time / 1e6, load_time))
 
-                total_stats = EvalStats.sum(all_stats)
-                all_epoch_stats.append(total_stats)
-                mean_stats = total_stats.average()
+            total_bucket_stats = EvalStats.sum(all_bucket_stats)
+            all_edge_path_stats.append(total_bucket_stats)
+            mean_bucket_stats = total_bucket_stats.average()
+            log("Stats for edge path %d / %d, bucket %s: %s"
+                % (edge_path_idx + 1, len(config.edge_paths), bucket,
+                   mean_bucket_stats))
 
-                log("( %d , %d ): %s" % (lhsP, rhsP, mean_stats))
+            yield edge_path_idx, lhs, mean_bucket_stats
 
-                yield epoch, (lhsP, rhsP), mean_stats
+            # clean up memory
+            for e in lhs_partitioned_types:
+                model.clear_embeddings(e)
+            for e in rhs_partitioned_types:
+                model.clear_embeddings(e)
 
-                # clean up memory
-                for e in lhs_partitioned_types:
-                    model.clear_embeddings(e)
-                for e in rhs_partitioned_types:
-                    model.clear_embeddings(e)
-
-        mean_epoch_stats = EvalStats.sum(all_epoch_stats).average()
+        total_edge_path_stats = EvalStats.sum(all_edge_path_stats)
+        all_stats.append(total_edge_path_stats)
+        mean_edge_path_stats = total_edge_path_stats.average()
         log("")
-        log("Epoch %d full stats: %s" % (epoch + 1, mean_epoch_stats))
+        log("Stats for edge path %d / %d: %s"
+            % (edge_path_idx + 1, len(config.edge_paths), mean_edge_path_stats))
         log("")
 
-        yield epoch, None, mean_epoch_stats
+        yield edge_path_idx, None, mean_edge_path_stats
+
+    mean_stats = EvalStats.sum(all_edge_path_stats).average()
+    log("")
+    log("Stats: %s" % mean_stats)
+    log("")
+
+    yield None, None, mean_stats
 
     join_workers(processes, qIn, qOut)
 
