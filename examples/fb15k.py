@@ -15,9 +15,9 @@ import attr
 import torchbiggraph.contrib.utils as utils
 from torchbiggraph.config import parse_config
 from torchbiggraph.contrib.data_processor import convert_input_data
+from torchbiggraph.contrib.filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
-from torchbiggraph.contrib.filtered_eval import FilteredRankingEvaluator
 
 
 FB15K_URL = 'https://dl.fbaipublicfiles.com/starspace/fb15k.tgz'

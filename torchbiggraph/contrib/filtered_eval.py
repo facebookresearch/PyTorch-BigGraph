@@ -8,7 +8,6 @@
 
 from collections import defaultdict
 from typing import Union, List
-
 import torch
 
 from torch_extensions.tensorlist.tensorlist import TensorList
@@ -27,6 +26,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
     we only support one non featurized, non-partitioned entity type and
     evaluation with all negatives to be comparable to standard benchmarks.
     """
+
     def __init__(self, config: ConfigSchema, filter_paths : List[str]):
         if len(config.relations) != 1 or len(config.entities) != 1:
             raise RuntimeError("Filtered Eval should only be used with dynamic relations and one entity type.")

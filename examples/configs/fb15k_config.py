@@ -34,9 +34,8 @@ def get_torchbiggraph_config():
 
         dimension=400,
         global_emb=False,
-        bias=False,
         comparator='dot',
-        lossFn='softmax',
+        loss_fn='softmax',
         lr=0.1,
 
         eval_fraction=0,  # to reproduce results, we need to use all training data

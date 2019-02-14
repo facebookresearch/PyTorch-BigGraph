@@ -8,12 +8,12 @@
 
 from abc import ABC, abstractmethod
 import argparse
-import time
+import attr
 from itertools import chain
+import time
+import torch
 from typing import Generator, Optional, Tuple, Union
 
-import attr
-import torch
 
 from torch_extensions.tensorlist.tensorlist import TensorList
 
@@ -139,7 +139,8 @@ def eval_many_batches(
             for offset in range(0, lhs_rel.size(0), B):
                 batch_lhs = lhs_rel[offset:offset + B]
                 batch_rhs = rhs_rel[offset:offset + B]
-                all_stats.append(eval_one_batch(model, batch_lhs, batch_rhs, rel_type, evaluator))
+                all_stats.append(
+                    eval_one_batch(model, batch_lhs, batch_rhs, rel_type, evaluator))
 
     return EvalStats.sum(all_stats)
 
@@ -201,12 +202,11 @@ def do_eval_and_report_stats(
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)
 
-
     for epoch in range(len(config.edge_paths)):  # FIXME: maybe just one epoch?
-        edgePath = config.edge_paths[epoch]
+        edge_path = config.edge_paths[epoch]
         log("Starting epoch %d / %d; edgePath= %s" %
             (epoch + 1, len(config.edge_paths), config.edge_paths[epoch]))
-        edge_reader = EdgeReader(edgePath, index_base=index_base)
+        edge_reader = EdgeReader(edge_path, index_base=index_base)
 
         all_epoch_stats = []
         for lhsP in range(nparts_lhs):
@@ -232,7 +232,8 @@ def do_eval_and_report_stats(
                 for rank in range(config.workers):
                     start = int(rank * N / config.workers)
                     end = int((rank + 1) * N / config.workers)
-                    qIn[rank].put((model, lhs[start:end], rhs[start:end], rel[start:end], evaluator))
+                    qIn[rank].put(
+                        (model, lhs[start:end], rhs[start:end], rel[start:end], evaluator))
 
                 # log("( %d , %d ): Waiting for workers" % (lhsP, rhsP))
                 all_stats = []
