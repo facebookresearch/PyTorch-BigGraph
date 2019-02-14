@@ -8,6 +8,7 @@
 
 import argparse
 import os.path
+import random
 import sys
 import time
 from enum import Enum
@@ -510,6 +511,7 @@ def train_and_report_stats(
                 nparts_lhs=nparts_lhs,
                 nparts_rhs=nparts_rhs,
                 order=config.bucket_order,
+                generator=random.Random(),
             )
             total_buckets = len(buckets)
 

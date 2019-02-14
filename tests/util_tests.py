@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import random
 from itertools import product
 from unittest import TestCase, main
 
@@ -27,14 +28,20 @@ class TestCreateOrderedBuckets(TestCase):
             BucketOrder.OUTSIDE_IN,
         ]
         shapes = [(4, 4), (3, 5), (6, 1), (1, 6), (1, 1)]
+        generator = random.Random()
 
         for order in orders:
             for nparts_lhs, nparts_rhs in shapes:
-                with self.subTest(order=order, shape=(nparts_lhs, nparts_rhs)):
+                seed = random.getrandbits(32)
+                with self.subTest(
+                    order=order, shape=(nparts_lhs, nparts_rhs), seed=seed,
+                ):
+                    generator.seed(seed)
                     actual_buckets = create_ordered_buckets(
                         nparts_lhs=nparts_lhs,
                         nparts_rhs=nparts_rhs,
                         order=order,
+                        generator=generator,
                     )
 
                     self.assertCountEqual(

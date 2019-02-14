@@ -283,13 +283,18 @@ def create_ordered_buckets(
     nparts_lhs: int,
     nparts_rhs: int,
     order: BucketOrder,
+    *,
+    generator: random.Random,
 ) -> List[Bucket]:
     if order is BucketOrder.RANDOM:
-        return create_buckets_ordered_randomly(nparts_lhs, nparts_rhs)
+        return create_buckets_ordered_randomly(
+            nparts_lhs, nparts_rhs, generator=generator)
     elif order is BucketOrder.AFFINITY:
-        return create_buckets_ordered_by_affinity(nparts_lhs, nparts_rhs)
+        return create_buckets_ordered_by_affinity(
+            nparts_lhs, nparts_rhs, generator=generator)
     elif order is BucketOrder.INSIDE_OUT or order is BucketOrder.OUTSIDE_IN:
-        return create_buckets_ordered_by_layer(nparts_lhs, nparts_rhs, order)
+        return create_buckets_ordered_by_layer(
+            nparts_lhs, nparts_rhs, order, generator=generator)
     else:
         raise NotImplementedError("Unknown bucket order: %s" % order)
 
@@ -312,6 +317,8 @@ def create_buckets_ordered_lexicographically(
 def create_buckets_ordered_randomly(
     nparts_lhs: int,
     nparts_rhs: int,
+    *,
+    generator: random.Random,
 ) -> List[Bucket]:
     """Return all buckets, randomly permuted.
 
@@ -319,13 +326,15 @@ def create_buckets_ordered_randomly(
 
     """
     buckets = create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs)
-    random.shuffle(buckets)
+    generator.shuffle(buckets)
     return buckets
 
 
 def create_buckets_ordered_by_affinity(
     nparts_lhs: int,
     nparts_rhs: int,
+    *,
+    generator: random.Random,
 ) -> List[Bucket]:
     """Try having consecutive buckets share as many partitions as possible.
 
@@ -355,9 +364,9 @@ def create_buckets_ordered_by_affinity(
             buckets_per_partition[lhs].append(b)
             buckets_per_partition[rhs].append(b)
 
-    random.shuffle(all_buckets)
+    generator.shuffle(all_buckets)
     for buckets in buckets_per_partition:
-        random.shuffle(buckets)
+        generator.shuffle(buckets)
 
     b = all_buckets.pop()
     remaining.remove(b)
@@ -368,11 +377,13 @@ def create_buckets_ordered_by_affinity(
         if transposed_b in remaining:
             remaining.remove(transposed_b)
             order.append(transposed_b)
+            if not remaining:
+                break
 
         same_as_lhs = buckets_per_partition[b.lhs]
         same_as_rhs = buckets_per_partition[b.rhs]
         while len(same_as_lhs) > 0 or len(same_as_rhs) > 0:
-            chosen, = random.choices(
+            chosen, = generator.choices(
                 [same_as_lhs, same_as_rhs],
                 weights=[len(same_as_lhs), len(same_as_rhs)],
             )
@@ -395,6 +406,8 @@ def create_layer_of_buckets(
     nparts_lhs: int,
     nparts_rhs: int,
     layer_idx: int,
+    *,
+    generator: random.Random,
 ) -> List[Bucket]:
     """Return the layer of #LHS x #RHS matrix of the given index
 
@@ -406,7 +419,7 @@ def create_layer_of_buckets(
         layer.append(Bucket(Partition(lhs), Partition(layer_idx)))
     for rhs in range(layer_idx + 1, nparts_rhs):
         layer.append(Bucket(Partition(layer_idx), Partition(rhs)))
-    random.shuffle(layer)
+    generator.shuffle(layer)
     return layer
 
 
@@ -414,6 +427,8 @@ def create_buckets_ordered_by_layer(
     nparts_lhs: int,
     nparts_rhs: int,
     order: BucketOrder,
+    *,
+    generator: random.Random,
 ) -> List[Bucket]:
     """Output buckets in concentric L-shaped layers (e.g., first row + column)
 
@@ -447,7 +462,7 @@ def create_buckets_ordered_by_layer(
         raise ValueError("Unknown order: %s" % order)
 
     layers = [
-        create_layer_of_buckets(nparts_lhs, nparts_rhs, i)
+        create_layer_of_buckets(nparts_lhs, nparts_rhs, i, generator=generator)
         for i in range(min(nparts_lhs, nparts_rhs))
     ]
     if order is BucketOrder.INSIDE_OUT:
