@@ -9,7 +9,7 @@
 import gzip
 import os
 import tarfile
-import urllib
+import urllib.request
 
 from tqdm import tqdm
 

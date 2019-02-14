@@ -7,7 +7,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import importlib
+import importlib.util
 from enum import Enum
 from itertools import chain
 from typing import ClassVar, Dict, List, Optional
