@@ -16,7 +16,6 @@ from enum import Enum
 from typing import Any, Callable, Dict, Iterable, List, NamedTuple, NewType, \
     Set, Tuple, TypeVar, Optional
 
-import attr
 import torch
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
@@ -264,19 +263,6 @@ def get_partitioned_types(
             nparts_rhs = max_parts
 
     return nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types
-
-
-def update_config_for_dynamic_relations(config: ConfigSchema) -> ConfigSchema:
-    dynamic_rel_path = os.path.join(config.entity_path, "dynamic_rel_count.pt")
-    if os.path.exists(dynamic_rel_path):
-        num_dynamic_rels = torch.load(dynamic_rel_path)
-        log("Found file at %s ; enabling dynamic rel batches with %d relations" %
-            (dynamic_rel_path, num_dynamic_rels))
-        assert len(config.relations) == 1, """
-            Dynamic relations are enabled so there should only be a single entry
-            in config.relations with config for all relations."""
-        return attr.evolve(config, num_dynamic_rels=num_dynamic_rels)
-    return config
 
 
 def create_ordered_buckets(

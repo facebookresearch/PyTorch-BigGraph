@@ -13,7 +13,6 @@ from torchbiggraph.config import ConfigSchema
 from torchbiggraph.converters.dictionary import Dictionary
 from torchbiggraph.fileio import CheckpointManager
 from torchbiggraph.model import make_model
-from torchbiggraph.util import update_config_for_dynamic_relations
 
 
 def write(outf, word, emb):
@@ -47,7 +46,6 @@ def make_tsv(checkpoint, dictfile, outfile):
     config, _, _, state_dict, _ = checkpoint_manager.read_metadata(strict=True)
 
     config = ConfigSchema.from_dict(config)
-    config = update_config_for_dynamic_relations(config)
 
     model = make_model(config)
     if state_dict:

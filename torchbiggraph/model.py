@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os.path
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
@@ -1126,7 +1127,26 @@ class MultiRelationEmbedder(nn.Module):
              lhs_neg_scores, rhs_neg_scores)
 
 
-def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
+def make_model(
+    config: ConfigSchema,
+    num_dynamic_rels: int = 0,
+) -> MultiRelationEmbedder:
+    if config.dynamic_relations:
+        if len(config.relations) != 1:
+            raise RuntimeError(
+                "Dynamic relations are enabled, so there should only be one "
+                "entry in config.relations with config for all relations."
+            )
+        try:
+            num_dynamic_rels = torch.load(os.path.join(config.entity_path,
+                                                       "dynamic_rel_count.pt"))
+        except FileNotFoundError:
+            raise RuntimeError(
+                "Dynamic relations are enabled, so there should be a file called "
+                "dynamic_rel_count.pt in the entity path with their count."
+            )
+    else:
+        num_dynamic_rels = 0
     return MultiRelationEmbedder(config.dimension,
                                  config.relations,
                                  config.entities,
@@ -1138,7 +1158,7 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
                                  max_norm=config.max_norm,
                                  loss_fn=config.loss_fn,
                                  bias=config.bias,
-                                 num_dynamic_rels=config.num_dynamic_rels)
+                                 num_dynamic_rels=num_dynamic_rels)
 
 
 @contextmanager

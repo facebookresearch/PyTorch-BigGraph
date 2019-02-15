@@ -19,9 +19,8 @@ from .entitylist import EntityList
 from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder
 from .util import log, get_partitioned_types, chunk_by_index, create_workers, \
-    join_workers, update_config_for_dynamic_relations, compute_randomized_auc, \
-    Side, infer_input_index_base, Rank, create_buckets_ordered_lexicographically, \
-    Bucket
+    join_workers, compute_randomized_auc, Side, infer_input_index_base, Rank, \
+    create_buckets_ordered_lexicographically, Bucket
 from .stats import Stats, stats
 
 
@@ -134,8 +133,6 @@ def do_eval_and_report_stats(
     """
 
     index_base = infer_input_index_base(config)
-
-    config = update_config_for_dynamic_relations(config)
 
     checkpoint_manager = CheckpointManager(config.checkpoint_path)
 

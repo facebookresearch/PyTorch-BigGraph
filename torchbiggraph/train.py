@@ -32,9 +32,8 @@ from .parameterserver import setup_parameter_server_thread, \
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_workers, join_workers, fast_approx_rand, DummyOptimizer, \
-    create_ordered_buckets, update_config_for_dynamic_relations, Side, \
-    init_process_group, infer_input_index_base, Bucket, Partition, EntityName, \
-    Rank, ModuleStateDict, OptimizerStateDict
+    create_ordered_buckets, Side, init_process_group, infer_input_index_base, \
+    Bucket, Partition, EntityName, Rank, ModuleStateDict, OptimizerStateDict
 from .stats import Stats, stats
 
 
@@ -241,8 +240,6 @@ def train_and_report_stats(
             name = "entity_count_%s_%d.pt" % (entity, part + index_base)
             path = os.path.join(config.entity_path, name)
             entity_counts[entity].append(torch.load(path))
-
-    config = update_config_for_dynamic_relations(config)
 
     partition_server_ranks = None
     if config.num_machines > 1:

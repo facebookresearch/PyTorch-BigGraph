@@ -294,17 +294,17 @@ class ConfigSchema(Schema):
                           "of all \"Hogwild!\" processes except the first "
                           "one."},
     )
-    num_dynamic_rels: int = attr.ib(
-        default=0,
-        metadata={'help': "When set to a non-zero value, activates the dynamic "
-                          "relation mode, in which case, there must be a "
-                          "single relation type in the config (whose "
-                          "parameters will apply to all dynamic relations "
-                          "types). This flag will get set automatically when "
-                          "the input files are in the right format, so it "
-                          "should not be activated in the config. In this mode "
-                          "batches will contain edges of multiple relation "
-                          "types and negatives will be samples differently."},
+    dynamic_relations: bool = attr.ib(
+        default=False,
+        metadata={'help': "If enabled, activates the dynamic relation mode, in "
+                          "which case, there must be a single relation type in "
+                          "the config (whose parameters will apply to all "
+                          "dynamic relations types) and there must be a file "
+                          "called dynamic_rel_count.pt in the entity path that "
+                          "contains the number of dynamic relations. In this "
+                          "mode, batches will contain edges of multiple "
+                          "relation types and negatives will be sampled "
+                          "differently."},
     )
 
     # distributed training config options
