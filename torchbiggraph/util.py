@@ -398,15 +398,23 @@ def create_layer_of_buckets(
     """Return the layer of #LHS x #RHS matrix of the given index
 
     The i-th layer contains the buckets (lhs, rhs) such that min(lhs, rhs) == i.
+    Buckets that are one the transpose of the other will be consecutive. Other
+    than that, the order is random.
 
     """
-    layer = [Bucket(Partition(layer_idx), Partition(layer_idx))]
-    for lhs in range(layer_idx + 1, nparts_lhs):
-        layer.append(Bucket(Partition(lhs), Partition(layer_idx)))
-    for rhs in range(layer_idx + 1, nparts_rhs):
-        layer.append(Bucket(Partition(layer_idx), Partition(rhs)))
-    generator.shuffle(layer)
-    return layer
+    layer_p = Partition(layer_idx)
+    pairs = [[Bucket(layer_p, layer_p)]]
+    for idx in range(layer_idx + 1, max(nparts_lhs, nparts_rhs)):
+        p = Partition(idx)
+        pair = []
+        if p < nparts_lhs:
+            pair.append(Bucket(p, layer_p))
+        if p < nparts_rhs:
+            pair.append(Bucket(layer_p, p))
+        generator.shuffle(pair)
+        pairs.append(pair)
+    generator.shuffle(pairs)
+    return [b for p in pairs for b in p]
 
 
 def create_buckets_ordered_by_layer(
