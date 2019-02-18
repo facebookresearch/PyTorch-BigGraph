@@ -18,6 +18,8 @@ from torchbiggraph.converters.data_processor import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 
+from filtered_eval import FilteredRankingEvaluator
+
 
 FB15K_URL = 'https://dl.fbaipublicfiles.com/starspace/fb15k.tgz'
 FILENAMES = {
@@ -40,6 +42,8 @@ def main():
     parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('--data_dir', default='data',
                         help='where to save processed data')
+    parser.add_argument('--filtered', default=True,
+                        help='Whether to run filtered eval')
 
     args = parser.parse_args()
 
@@ -74,8 +78,15 @@ def main():
     evalPath = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
     eval_config = attr.evolve(config, edge_paths=evalPath, relations=relations)
-
-    do_eval(eval_config)
+    if args.filtered:
+        filter_paths = [
+            convert_path(os.path.join(data_dir, FILENAMES['test'])),
+            convert_path(os.path.join(data_dir, FILENAMES['valid'])),
+            convert_path(os.path.join(data_dir, FILENAMES['train'])),
+        ]
+        do_eval(eval_config, FilteredRankingEvaluator(eval_config, filter_paths))
+    else:
+        do_eval(eval_config)
 
 
 if __name__ == "__main__":
