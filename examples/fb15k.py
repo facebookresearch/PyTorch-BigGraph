@@ -42,9 +42,8 @@ def main():
     parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('--data_dir', default='data',
                         help='where to save processed data')
-    parser.add_argument('--filtered', default=True,
-                        help='Whether to run filtered eval')
-
+    parser.add_argument('--no-filtered', dest='filtered', action='store_false',
+                        help='Run unfiltered eval')
     args = parser.parse_args()
 
     if args.param is not None:

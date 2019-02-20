@@ -187,6 +187,7 @@ def _loop(
     """Top-level handler for HOGWILD threads. Just calls the main training
     routine.
     """
+    torch.set_num_threads(1)
     while True:
         try:
             data = qIn.get(timeout=0.1)
