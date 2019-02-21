@@ -10,7 +10,28 @@ import random
 from itertools import product
 from unittest import TestCase, main
 
-from torchbiggraph.util import BucketOrder, create_ordered_buckets
+from torchbiggraph.util import BucketOrder, split_almost_equally, create_ordered_buckets
+
+
+class TestSplitAlmostEqually(TestCase):
+
+    def test_exact(self):
+        self.assertEqual(
+            list(split_almost_equally(24, num_parts=4)),
+            [slice(0, 6), slice(6, 12), slice(12, 18), slice(18, 24)],
+        )
+
+    def test_more(self):
+        self.assertEqual(
+            list(split_almost_equally(25, num_parts=4)),
+            [slice(0, 7), slice(7, 13), slice(13, 19), slice(19, 25)],
+        )
+
+    def test_fewer(self):
+        self.assertEqual(
+            list(split_almost_equally(23, num_parts=4)),
+            [slice(0, 6), slice(6, 12), slice(12, 18), slice(18, 23)],
+        )
 
 
 class TestCreateOrderedBuckets(TestCase):

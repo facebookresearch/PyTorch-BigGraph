@@ -386,8 +386,8 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-
     config = parse_config(opt.config, overrides)
+
     print(config[opt.query])
 
 

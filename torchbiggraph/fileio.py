@@ -9,6 +9,7 @@
 import os
 import os.path
 import sys
+from collections import OrderedDict
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import h5py
@@ -23,8 +24,8 @@ from torch_extensions.rpc.rpc import (
 
 from .config import ConfigSchema
 from .entitylist import EntityList
-from .util import log, vlog, create_workers, join_workers, EntityName, Partition, \
-    Rank, OptimizerStateDict, ModuleStateDict
+from .util import log, vlog, create_pool, EntityName, Partition, Rank, \
+    OptimizerStateDict, ModuleStateDict
 
 
 ConfigDict = Any
@@ -143,29 +144,25 @@ def _torch_save(
         os.fsync(f.fileno())
 
 
-def process_io_command(
-    cmd: str,
-    path: Optional[str],
-    data: Optional[CheckpointDataType],
-) -> Tuple[str, Optional[str], Optional[CheckpointDataType]]:
-    if cmd == 'save':
-        if data is None or path is None:
-            raise ValueError("Need data and path for save command")
-        _torch_save(data, path)
-        vlog("Worker thread done save of %s" % path)
-        return cmd, path, None
-    elif cmd == 'load':
-        if path is None:
-            raise ValueError("Need path for load command")
-        vlog("Worker thread starting load of %s" % path)
-        res = torch_load_shared(path)
-        vlog("Worker thread done load of %s" % path)
-        return cmd, path, res
-    elif cmd == 'event':
-        vlog("Processing event...")
-        return cmd, None, None
-    else:
-        raise NotImplementedError("Unknown command: %s" % cmd)
+def save_checkpoint(
+    path: str,
+    data: CheckpointDataType,
+) -> None:
+    _torch_save(data, path)
+    vlog("Worker thread done save of %s" % path)
+
+
+def load_checkpoint(
+    path: str,
+) -> CheckpointDataType:
+    vlog("Worker thread starting load of %s" % path)
+    res = torch_load_shared(path)
+    vlog("Worker thread done load of %s" % path)
+    return res
+
+
+def noop() -> None:
+    pass
 
 
 VERSION_FILE = 'CHECKPOINT_VERSION'
@@ -260,18 +257,10 @@ class CheckpointManager:
 
         self.background: bool = background
         if self.background:
-            io_worker, qin, qout = create_workers(
-                N=1,
-                F=lambda _rank, _args, cmd, data, path: process_io_command(
-                    cmd, data, path),
-                args=None
-            )
-            self.io_worker: mp.Process = io_worker[0]
-            self.qin: mp.Queue = qin[0]
-            self.qout: mp.Queue = qout[0]
-            self.outstanding: Set[str] = set()
+            self.pool: mp.Pool = create_pool(1)
+            # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
+            self.outstanding: OrderedDict = OrderedDict()
             self.prefetched: Dict[str, CheckpointDataType] = {}
-            self.events_outstanding: int = 0
 
         self.partition_client: Optional[PartitionClient] = None
         if partition_server_ranks is not None and len(partition_server_ranks) > 0:
@@ -287,37 +276,33 @@ class CheckpointManager:
         else:
             self.index_base = 0
 
-    def record_event(self) -> None:
+    def record_marker(self, marker: int) -> None:
         assert self.background
-        self.events_outstanding += 1
-        self.qin.put(('event', None, None))
+        marker_key = "marker %d" % marker
+        future_res = self.pool.apply_async(noop, ())
+        self.outstanding[marker_key] = future_res
 
-    def wait_events(self):
-        self._sync(None, events=True)
+    def wait_for_marker(self, marker: int) -> None:
+        marker_key = "marker %d" % marker
+        if marker_key not in self.outstanding:
+            return
+        self._sync(marker_key)
 
-    def _sync(self, sync_path: Optional[str], events: bool = False) -> None:
+    def _sync(self, sync_path: Optional[str] = None) -> None:
         assert self.background
-        vlog("CheckpointManager=>_sync( %s %d )" % (sync_path, events))
-        vlog("outstanding= %s" % self.outstanding)
-        while ((events and self.events_outstanding > 0) or
-               (sync_path is not None and sync_path in self.outstanding) or
-               not self.qout.empty()):
+        vlog("CheckpointManager=>_sync( %s )" % sync_path)
+        vlog("outstanding= %s" % set(self.outstanding))
+        while len(self.outstanding) > 0:
+            path, future_res = self.outstanding.popitem(last=False)
+            res = future_res.get()
 
-            res = self.qout.get(True)
-            if isinstance(res, BaseException):
-                print("Error in background I/O thread:", file=sys.stderr)
-                sys.stderr.flush()
-                raise res
-            cmd, path, data = res
-            if cmd == 'event':
-                self.events_outstanding -= 1
-                continue
-
-            self.outstanding.remove(path)
-            if cmd == 'load':
+            if res is not None:
                 log("Setting prefetched %s; %d outstanding" %
                     (path, len(self.outstanding)))
-                self.prefetched[path] = data
+                self.prefetched[path] = res
+
+            if sync_path is not None and path == sync_path:
+                break
 
     def _version_ext(self, dirty: bool = False) -> str:
         version = self.checkpoint_version
@@ -352,8 +337,8 @@ class CheckpointManager:
         elif self.background:
             if file_path in self.prefetched:
                 self.prefetched.pop(file_path)
-            self.qin.put(('save', file_path, data))
-            self.outstanding.add(file_path)
+            future_res = self.pool.apply_async(save_checkpoint, (file_path, data))
+            self.outstanding[file_path] = future_res
         else:
             _torch_save(data, file_path)
             vlog('fileio.py: done writing path = %s' % file_path)
@@ -395,7 +380,6 @@ class CheckpointManager:
         self,
         entity: EntityName,
         part: Partition,
-        strict: bool = False,
     ) -> None:
         if not self.background:
             return
@@ -405,10 +389,8 @@ class CheckpointManager:
             vlog("Bailing from prefetch of %s" % file_path)
             return
         if os.path.exists(file_path):
-            self.qin.put(('load', file_path, None))
-            self.outstanding.add(file_path)
-        assert not strict, "Did not find a checkpoint at %s" % file_path
-        return None
+            future_res = self.pool.apply_async(load_checkpoint, (file_path,))
+            self.outstanding[file_path] = future_res
 
     def write_metadata(
         self,
@@ -448,8 +430,7 @@ class CheckpointManager:
 
     def commit(self, config: ConfigSchema) -> None:
         if self.background:
-            self.record_event()
-            self.wait_events()
+            self._sync()
         self.dirty.clear()
         self.checkpoint_version += 1
         new_ext = self._version_ext(False)
@@ -483,7 +464,8 @@ class CheckpointManager:
 
     def close(self) -> None:
         if self.background:
-            join_workers([self.io_worker], [self.qin], [self.qout])
+            self.pool.close()
+            self.pool.join()
 
     def join(self) -> None:
         # FIXME: this whole join thing doesn't work with torch.distributed

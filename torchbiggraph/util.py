@@ -8,13 +8,11 @@
 
 import os
 import os.path
-import queue
 import random
-import traceback
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, Iterable, List, NamedTuple, NewType, \
-    Set, Tuple, TypeVar, Optional
+from typing import Any, Dict, Iterable, List, NamedTuple, NewType, Optional, \
+    Set, Tuple, TypeVar
 
 import torch
 import torch.multiprocessing as mp
@@ -70,6 +68,22 @@ _verbosity_level = 0
 def vlog(msg: str, level: int = 1) -> None:
     if _verbosity_level >= level:
         log(msg)
+
+
+def split_almost_equally(size: int, *, num_parts: int) -> Iterable[slice]:
+    """Split an interval of the given size into the given number of subintervals
+
+    The sizes of the subintervals will be between the floor and the ceil of the
+    "exact" fractional size, with larger intervals preceding smaller ones.
+
+    """
+    size_per_part = size // num_parts
+    num_larger_parts = size % num_parts
+    prev = 0
+    for i in range(num_parts):
+        next_ = prev + size_per_part + (1 if i < num_larger_parts else 0)
+        yield slice(prev, next_)
+        prev = next_
 
 
 def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[EntityList]]:
@@ -177,66 +191,21 @@ class DummyOptimizer(Optimizer):
 
 # HOGWILD
 
-def _loop(
-    rank: Rank,
-    qIn: mp.Queue,
-    qOut: mp.Queue,
-    F: Callable,
-    args: Any,
-) -> None:
-    """Top-level handler for HOGWILD threads. Just calls the main training
-    routine.
-    """
+def create_pool(num_workers: int) -> mp.Pool:
+    # PyTorch relies on OpenMP, which by default parallelizes operations by
+    # implicitly spawning as many threads as there are cores, and synchronizing
+    # them with each other. This interacts poorly with Hogwild!-style subprocess
+    # pools as if each child process spawns its own OpenMP threads there can
+    # easily be thousands of threads that mostly wait in barriers. Calling
+    # set_num_threads(1) in both the parent and children prevents this.
+    # OpenMP can also lead to deadlocks if it gets initialized in the parent
+    # process before the fork (this bit us in unit tests, due to the generation
+    # of the test input data). Using the "spawn" context (i.e., fork + exec)
+    # solved the issue in most cases but still left some deadlocks. See
+    # https://github.com/pytorch/pytorch/issues/17199 for some more information
+    # and discussion.
     torch.set_num_threads(1)
-    while True:
-        try:
-            data = qIn.get(timeout=0.1)
-            if data is None:
-                break
-
-            res = F(rank, args, *data)
-            del data   # allow memory to be freed
-            qOut.put(res)
-        except queue.Empty:
-            pass
-        except BaseException as e:
-            traceback.print_exc()
-            qOut.put(e)
-            raise
-
-
-def create_workers(
-    N: int,
-    F: Callable,
-    args: Any,
-) -> Tuple[List[mp.Process], List[mp.Queue], List[mp.Queue]]:
-    # setup workers
-    torch.set_num_threads(1)
-    qIn, qOut = [], []
-    processes = []
-    for rank in range(N):
-        qi, qo = mp.Queue(), mp.Queue()
-        p = mp.Process(target=_loop, args=(
-            rank, qi, qo, F, args))
-        p.daemon = True
-        p.start()
-        processes.append(p)
-        qIn.append(qi)
-        qOut.append(qo)
-
-    return processes, qIn, qOut
-
-
-def join_workers(
-    processes: List[mp.Process],
-    qIn: List[mp.Queue],
-    qOut: List[mp.Queue],
-) -> None:
-    # log("Joining workers...")
-    for p, q in zip(processes, qIn):
-        q.put(None)
-        p.join()
-    # log("Done joining workers.")
+    return mp.Pool(num_workers, initializer=torch.set_num_threads, initargs=(1,))
 
 
 # config routines

@@ -30,7 +30,6 @@ def run_partition_server(config, rank=0):
 
 
 def main():
-    # torch.multiprocessing.set_start_method("spawn")
     config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
@@ -47,8 +46,8 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-
     config = parse_config(opt.config, overrides)
+
     run_partition_server(config, opt.rank)
 
 

@@ -31,9 +31,9 @@ from .parameterserver import setup_parameter_server_thread, \
     setup_parameter_server
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
-    create_workers, join_workers, fast_approx_rand, DummyOptimizer, \
-    create_ordered_buckets, Side, init_process_group, infer_input_index_base, \
-    Bucket, Partition, EntityName, Rank, ModuleStateDict, OptimizerStateDict
+    create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, Side, \
+    init_process_group, infer_input_index_base, Bucket, Partition, EntityName, \
+    Rank, ModuleStateDict, OptimizerStateDict, split_almost_equally
 from .stats import Stats, stats
 
 
@@ -164,9 +164,8 @@ def perform_action_one_thread(
 
 
 def distribute_action_among_workers(
-    num_workers: int,
-    qin: List[mp.Queue],
-    qout: List[mp.Queue],
+    pool: mp.Pool,
+    config: ConfigSchema,
     action: Action,
     model: MultiRelationEmbedder,
     lhs: EntityList,
@@ -175,24 +174,10 @@ def distribute_action_among_workers(
     edge_perm: torch.LongTensor,
     optimizers: Optional[List[Optimizer]] = None
 ) -> Union[TrainStats, EvalStats]:
-    if num_workers != len(qin) or num_workers != len(qout):
-        raise ValueError("Lengths don't match: %d, %d, %d"
-                         % (num_workers, len(qin), len(qout)))
-    N = len(edge_perm)
-    for worker in range(num_workers):
-        start = int(worker * N / num_workers)
-        end = int((worker + 1) * N / num_workers)
-        qin[worker].put((
-            action, model, lhs, rhs, rel, edge_perm[start:end], optimizers))
-
-    all_stats = []
-    for worker in range(num_workers):
-        res = qout[worker].get()
-        if isinstance(res, BaseException):
-            print("Error in worker %d:" % worker, file=sys.stderr)
-            sys.stderr.flush()
-            raise res
-        all_stats.append(res)
+    all_stats = pool.starmap(perform_action_one_thread, [
+        (Rank(i), config, action, model, lhs, rhs, rel, edge_perm[s], optimizers)
+        for i, s in enumerate(split_almost_equally(len(edge_perm), num_parts=config.workers))
+    ])
 
     if action is action.TRAIN:
         return TrainStats.sum(all_stats).average()
@@ -294,8 +279,7 @@ def train_and_report_stats(
 
     # fork early for HOGWILD threads
     log("Creating workers...")
-    processes, qin, qout = create_workers(
-        config.workers, perform_action_one_thread, config)
+    pool = create_pool(config.workers)
 
     def make_optimizer(params, is_emb):
         params = list(params)
@@ -565,9 +549,17 @@ def train_and_report_stats(
 
                 io_bytes += swap_partitioned_embeddings(oldP, curP)
 
+                current_index = (
+                    ((epoch * len(config.edge_paths) + edge_path_idx)
+                     * config.num_edge_chunks + edge_chunk + 1)
+                    * total_buckets
+                    - remaining
+                )
+
                 if partition_count < total_buckets - 1 and background_io:
                     assert config.num_machines == 1
-                    checkpoint_manager.wait_events()
+                    # Ensure the previous bucket finished writing to disk.
+                    checkpoint_manager.wait_for_marker(current_index - 1)
 
                     log_status("Prefetching")
                     next_partition = buckets[partition_count + 1]
@@ -576,14 +568,7 @@ def train_and_report_stats(
                     for entity in rhs_partitioned_types:
                         checkpoint_manager.prefetch(entity, next_partition.rhs)
 
-                    checkpoint_manager.record_event()
-
-                current_index = (
-                    ((epoch * len(config.edge_paths) + edge_path_idx)
-                     * config.num_edge_chunks + edge_chunk + 1)
-                    * total_buckets
-                    - remaining
-                )
+                    checkpoint_manager.record_marker(current_index)
 
                 log_status("Loading edges")
                 lhs, rhs, rel = edge_reader.read(
@@ -612,7 +597,7 @@ def train_and_report_stats(
                 if num_eval_edges > 0:
                     log_status("Waiting for workers to perform evaluation")
                     eval_stats_before = distribute_action_among_workers(
-                        config.workers, qin, qout,
+                        pool, config,
                         Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
                     log("stats before %s: %s" % (curP, eval_stats_before))
 
@@ -621,7 +606,7 @@ def train_and_report_stats(
                 # HOGWILD training
                 log_status("Waiting for workers to perform training")
                 stats = distribute_action_among_workers(
-                    config.workers, qin, qout,
+                    pool, config,
                     Action.TRAIN, model, lhs, rhs, rel, edge_perm,
                     list(optimizers.values()))
                 compute_time = time.time() - tic
@@ -639,7 +624,7 @@ def train_and_report_stats(
                 if num_eval_edges > 0:
                     log_status("Waiting for workers to perform evaluation")
                     eval_stats_after = distribute_action_among_workers(
-                        config.workers, qin, qout,
+                        pool, config,
                         Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
                     log("stats after %s: %s" % (curP, eval_stats_after))
 
@@ -703,7 +688,8 @@ def train_and_report_stats(
             strict = True
 
     # quiescence
-    join_workers(processes, qin, qout)
+    pool.close()
+    pool.join()
 
     if config.num_machines > 1:
         td.barrier(barrier_group)
@@ -727,7 +713,6 @@ def train(
 
 
 def main():
-    # torch.multiprocessing.set_start_method("spawn")
     config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
@@ -744,8 +729,8 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-
     config = parse_config(opt.config, overrides)
+
     train(config, rank=Rank(opt.rank))
 
 

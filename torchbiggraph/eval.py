@@ -21,9 +21,10 @@ from .entitylist import EntityList
 from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder, \
     Margins, Scores
-from .util import log, get_partitioned_types, chunk_by_index, create_workers, \
-    join_workers, compute_randomized_auc, Side, infer_input_index_base, Rank, \
-    create_buckets_ordered_lexicographically, Bucket, Partition
+from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
+    compute_randomized_auc, Side, infer_input_index_base, Rank, \
+    create_buckets_ordered_lexicographically, Bucket, Partition, \
+    split_almost_equally
 from .stats import Stats, stats
 
 
@@ -198,7 +199,7 @@ def do_eval_and_report_stats(
     (nparts_lhs, nparts_rhs,
      lhs_partitioned_types, rhs_partitioned_types) = get_partitioned_types(config)
 
-    processes, qIn, qOut = create_workers(config.workers, eval_one_thread, config)
+    pool = create_pool(config.workers)
 
     model = make_model(config)
 
@@ -239,17 +240,11 @@ def do_eval_and_report_stats(
 
             load_time = time.time() - tic
             tic = time.time()
-            # log("%s: Launching workers" % (bucket,))
-            for rank in range(config.workers):
-                start = int(rank * N / config.workers)
-                end = int((rank + 1) * N / config.workers)
-                qIn[rank].put(
-                    (model, lhs[start:end], rhs[start:end], rel[start:end], evaluator))
-
-            # log("%s: Waiting for workers" % (bucket,))
-            all_bucket_stats = []
-            for rank in range(config.workers):
-                all_bucket_stats.append(qOut[rank].get())
+            # log("%s: Launching and waiting for workers" % (bucket,))
+            all_bucket_stats = pool.starmap(eval_one_thread, [
+                (Rank(i), config, model, lhs[s], rhs[s], rel[s], evaluator)
+                for i, s in enumerate(split_almost_equally(N, num_parts=config.workers))
+            ])
 
             compute_time = time.time() - tic
             log("%s: Processed %d edges in %.2g s (%.2gM/sec); load time: %.2g s"
@@ -288,7 +283,8 @@ def do_eval_and_report_stats(
 
     yield None, None, mean_stats
 
-    join_workers(processes, qIn, qOut)
+    pool.close()
+    pool.join()
 
 
 def do_eval(
@@ -301,8 +297,6 @@ def do_eval(
 
 
 def main():
-    torch.set_num_threads(1)
-
     config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
@@ -318,7 +312,7 @@ def main():
     else:
         overrides = None
     config = parse_config(opt.config, overrides)
-    # log(config)
+
     do_eval(config)
 
 
