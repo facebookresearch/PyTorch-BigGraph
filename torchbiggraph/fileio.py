@@ -428,24 +428,24 @@ class CheckpointManager:
             f.flush()
             os.fsync(f.fileno())
 
-    def commit(self, config: ConfigSchema) -> None:
+    def write_new_version(self, config: ConfigSchema) -> None:
         if self.background:
             self._sync()
-        self.dirty.clear()
-        self.checkpoint_version += 1
-        new_ext = self._version_ext(False)
-        assert self.rank >= 0
-        for entity, econf in config.entities.items():
-            for part in range(self.rank, econf.num_partitions, self.num_machines):
-                if self.partition_client is not None:
-                    vlog("Rank %d: get %s %d" % (self.rank, entity, part))
+        new_ext = self._version_ext(True)
+        if self.partition_client is not None:
+            for entity, econf in config.entities.items():
+                for part in range(self.rank, econf.num_partitions, self.num_machines):
+                    vlog("Rank %d: getting %s %d" % (self.rank, entity, part))
                     data = self.partition_client.get(EntityName(entity), Partition(part))
-                    vlog("Rank %d saving to disk" % self.rank)
+                    vlog("Rank %d: saving %s %d to disk" % (self.rank, entity, part))
                     new_file_path = os.path.join(
                         self.path, "%s_%d.pt%s" % (entity, part + self.index_base, new_ext)
                     )
                     _torch_save(data, new_file_path)
 
+    def switch_to_new_version(self) -> None:
+        self.dirty.clear()
+        self.checkpoint_version += 1
         if self.rank == 0:
             vlog("Rank 0: write version file")
             self._write_version_file(self.checkpoint_version)

@@ -671,13 +671,21 @@ def train_and_report_stats(
                     OptimizerStateDict(optimizers[None].state_dict()),
                 )
 
-            log("Committing checkpoints...")
-            checkpoint_manager.commit(config)
+            log("Writing the checkpoint...")
+            checkpoint_manager.write_new_version(config)
 
             if config.num_machines > 1:
-                log("Waiting on barrier: rank %d" % rank)
+                log("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
                 td.barrier(barrier_group)
-                log("Done barrier")
+                log("All parts of the checkpoint have been written")
+
+            log("Switching to new checkpoint version...")
+            checkpoint_manager.switch_to_new_version()
+
+            if config.num_machines > 1:
+                log("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
+                td.barrier(barrier_group)
+                log("All workers have switched to the new checkpoint version")
 
             # After all the machines have finished committing
             # checkpoints, we remove the old checkpoints.
