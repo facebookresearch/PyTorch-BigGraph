@@ -179,7 +179,12 @@ def infer_input_index_base(config: ConfigSchema) -> int:
 
 
 class DummyOptimizer(Optimizer):
-    def step(self):
+
+    def __init__(self):
+        # This weird dance makes Optimizer accept an empty parameter list.
+        super().__init__([{'params': []}], {})
+
+    def step(self, closure=None):
         pass
 
     def state_dict(self):

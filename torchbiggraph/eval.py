@@ -258,7 +258,7 @@ def do_eval_and_report_stats(
                 % (edge_path_idx + 1, len(config.edge_paths), bucket,
                    mean_bucket_stats))
 
-            yield edge_path_idx, lhs, mean_bucket_stats
+            yield edge_path_idx, bucket, mean_bucket_stats
 
             # clean up memory
             for e in lhs_partitioned_types:
