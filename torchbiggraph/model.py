@@ -711,7 +711,8 @@ class SoftmaxLoss(AbstractLoss):
 
 class Negatives(Enum):
     NONE = "none"
-    CHUNK = "chunk"
+    UNIFORM = "uniform"
+    BATCH_UNIFORM = "batch_uniform"
     ALL = "all"
 
 
@@ -930,8 +931,10 @@ class MultiRelationEmbedder(nn.Module):
         ignore_mask: Mask = []
         if type_ is Negatives.NONE:
             neg_embs = torch.empty(num_chunks, 0, dim)
-
-        elif type_ is Negatives.CHUNK:
+        elif type_ is Negatives.UNIFORM:
+            neg_embs = module.sample_entities(
+                num_chunks, num_uniform_neg)
+        elif type_ is Negatives.BATCH_UNIFORM:
             neg_embs = pos_embs
             if num_uniform_neg > 0:
                 try:
@@ -1055,16 +1058,13 @@ class MultiRelationEmbedder(nn.Module):
 
         if relation.all_negs:
             chunk_size = num_pos
-            lhs_negatives = rhs_negatives = Negatives.ALL
-            lhs_num_uniform_negs = rhs_num_uniform_negs = 0
+            negative_sampling_method = Negatives.ALL
+        elif self.num_batch_negs == 0:
+            chunk_size = self.num_uniform_negs
+            negative_sampling_method = Negatives.UNIFORM
         else:
             chunk_size = self.num_batch_negs
-            lhs_negatives = rhs_negatives = Negatives.CHUNK
-            lhs_num_uniform_negs = rhs_num_uniform_negs = self.num_uniform_negs
-
-        # Legacy...
-        if self.num_dynamic_rels == 0 and relation.all_negs:
-            lhs_negatives = Negatives.NONE
+            negative_sampling_method = Negatives.BATCH_UNIFORM
 
         num_chunks = (num_pos - 1) // chunk_size + 1  # ceil(num_pos / chunk_size)
         if num_pos < num_chunks * chunk_size:
@@ -1082,22 +1082,22 @@ class MultiRelationEmbedder(nn.Module):
 
         if self.num_dynamic_rels == 0:
             lhs_neg, lhs_ignore_mask = self.prepare_negatives(
-                lhs, lhs_pos, lhs_module, lhs_negatives, lhs_num_uniform_negs,
-                rel=rel, side=Side.LHS)
+                lhs, lhs_pos, lhs_module, negative_sampling_method,
+                self.num_uniform_negs, rel=rel, side=Side.LHS)
             rhs_neg, rhs_ignore_mask = self.prepare_negatives(
-                rhs, rhs_pos, rhs_module, rhs_negatives, rhs_num_uniform_negs,
-                rel=rel, side=Side.RHS)
+                rhs, rhs_pos, rhs_module, negative_sampling_method,
+                self.num_uniform_negs, rel=rel, side=Side.RHS)
             pos_scores, lhs_neg_scores, rhs_neg_scores = self.comparator(
                 lhs_pos, rhs_pos, lhs_neg, rhs_neg)
             lhs_pos_scores = rhs_pos_scores = pos_scores
 
         else:
             lhs_neg, lhs_ignore_mask = self.prepare_negatives(
-                lhs, lhs_pos, lhs_module, lhs_negatives, lhs_num_uniform_negs,
-                rel=None, side=Side.LHS)
+                lhs, lhs_pos, lhs_module, negative_sampling_method,
+                self.num_uniform_negs, rel=None, side=Side.LHS)
             rhs_neg, rhs_ignore_mask = self.prepare_negatives(
-                rhs, rhs_pos, rhs_module, rhs_negatives, rhs_num_uniform_negs,
-                rel=None, side=Side.RHS)
+                rhs, rhs_pos, rhs_module, negative_sampling_method,
+                self.num_uniform_negs, rel=None, side=Side.RHS)
             lhs_pos_scores, lhs_neg_scores, _ = self.comparator(
                 lhs_pos, rhs_r_pos, lhs_neg, torch.empty(num_chunks, 0, self.dim))
             rhs_pos_scores, _, rhs_neg_scores = self.comparator(
@@ -1123,10 +1123,6 @@ class MultiRelationEmbedder(nn.Module):
         rhs_loss, rhs_margin = self.loss_fn(rhs_pos_scores, rhs_neg_scores)
         loss = relation.weight * (lhs_loss + rhs_loss)
 
-        # Legacy...
-        if self.num_dynamic_rels == 0 and relation.all_negs:
-            lhs_margin = rhs_margin
-            lhs_neg_scores = rhs_neg_scores
 
         return loss, (lhs_margin, rhs_margin), \
             (lhs_pos_scores.unsqueeze(-1), rhs_pos_scores.unsqueeze(-1),
