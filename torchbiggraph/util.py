@@ -138,7 +138,7 @@ def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[Entity
 
 def fast_approx_rand(numel: int) -> torch.FloatTensor:
     if numel < 1_000_003:
-        return torch.randn(numel)
+        return torch.randn(numel).share_memory_()
     # construct the tensor storage in shared mem so we don't have to copy it
     storage = torch.FloatStorage._new_shared(numel)
     tensor = torch.FloatTensor(storage)
@@ -191,6 +191,9 @@ class DummyOptimizer(Optimizer):
         return None
 
     def load_state_dict(self, state_dict):
+        pass
+
+    def share_memory(self):
         pass
 
 

@@ -10,12 +10,11 @@ import os
 import os.path
 import sys
 from collections import OrderedDict
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import h5py
 import torch
 import torch.multiprocessing as mp
-import torch.nn as nn
 from torch_extensions.tensorlist.tensorlist import TensorList
 from torch_extensions.rpc.rpc import (
     _serialize as torch_rpc_serialize,
@@ -26,31 +25,6 @@ from .config import ConfigSchema
 from .entitylist import EntityList
 from .util import log, vlog, create_pool, EntityName, Partition, Rank, \
     OptimizerStateDict, ModuleStateDict
-
-
-ConfigDict = Any
-EntityDataType = Tuple[nn.Parameter, OptimizerStateDict]
-MetadataType = Tuple[ConfigDict, int, int, ModuleStateDict, OptimizerStateDict]
-CheckpointDataType = Union[EntityDataType, MetadataType]
-
-
-def torch_load_shared(filename: str) -> Any:
-    """Perform torch.load, with copy-free load of FloatTensors into shared memory."""
-
-    # `torch.load` calls the `map_location` function on `storage` immediately
-    # after it is constructed (before it is written to). Since the storage is not
-    # accessed, no physical memory is allocated to the original until after it is moved to
-    # shared memory.
-    #
-    # I construct a new storage rather than calling `share_memory_()` because
-    # it avoids an extra copy of the uninitialized tensor into shared memory,
-    # and is thus almost 2x faster.
-    #
-    # Note: an alternative (if this stops working) is to temporarily override
-    # torch.FloatStorage.__new__ to point to _new_shared, then call `torch.load`.
-
-    return torch.load(filename,
-                      map_location=lambda storage, _: storage._new_shared(storage.size()))
 
 
 class EdgeReader:
@@ -133,32 +107,75 @@ class EdgeReader:
             )
 
 
+EntityPartitionType = Tuple[torch.FloatTensor, OptimizerStateDict]
+MetadataType = Tuple[ConfigSchema, int, int, ModuleStateDict, OptimizerStateDict]
+
+
 def _torch_save(
     data: Any,
     file_path: str,
 ) -> None:
-    vlog("Saving to %s" % file_path)
     with open(file_path, 'wb') as f:
         torch.save(data, f)
         f.flush()
         os.fsync(f.fileno())
 
 
-def save_checkpoint(
+def torch_load_shared(filename: str) -> Any:
+    """Perform torch.load, with copy-free load of FloatTensors into shared memory."""
+
+    # `torch.load` calls the `map_location` function on `storage` immediately
+    # after it is constructed (before it is written to). Since the storage is not
+    # accessed, no physical memory is allocated to the original until after it is moved to
+    # shared memory.
+    #
+    # I construct a new storage rather than calling `share_memory_()` because
+    # it avoids an extra copy of the uninitialized tensor into shared memory,
+    # and is thus almost 2x faster.
+    #
+    # Note: an alternative (if this stops working) is to temporarily override
+    # torch.FloatStorage.__new__ to point to _new_shared, then call `torch.load`.
+
+    return torch.load(filename,
+                      map_location=lambda storage, _: storage._new_shared(storage.size()))
+
+
+def save_entity_partition(
     path: str,
-    data: CheckpointDataType,
+    embs: torch.FloatTensor,
+    optim_state: OptimizerStateDict,
 ) -> None:
-    _torch_save(data, path)
-    vlog("Worker thread done save of %s" % path)
+    vlog("Saving to %s" % path)
+    _torch_save((embs, optim_state), path)
+    vlog("Done saving to %s" % path)
 
 
-def load_checkpoint(
+def save_metadata(
     path: str,
-) -> CheckpointDataType:
-    vlog("Worker thread starting load of %s" % path)
-    res = torch_load_shared(path)
-    vlog("Worker thread done load of %s" % path)
-    return res
+    config: ConfigSchema,
+    edge_path_count: int,
+    pazz: int,
+    state_dict: ModuleStateDict,
+    optim_state: OptimizerStateDict,
+) -> None:
+    vlog("Saving to %s" % path)
+    _torch_save((config.to_dict(), edge_path_count, pazz, state_dict, optim_state), path)
+    vlog("Done saving to %s" % path)
+
+
+def load_entity_partition(path: str) -> EntityPartitionType:
+    vlog("Loading from %s" % path)
+    embs, optim_state = torch_load_shared(path)
+    vlog("Done loading from %s" % path)
+    return embs, optim_state
+
+
+def load_metadata(path: str) -> MetadataType:
+    vlog("Loading from %s" % path)
+    config_dict, edge_path_count, pazz, state_dict, optim_state = torch_load_shared(path)
+    vlog("Done loading from %s" % path)
+    config = ConfigSchema.from_dict(config_dict)
+    return config, edge_path_count, pazz, state_dict, optim_state
 
 
 def noop() -> None:
@@ -181,22 +198,23 @@ class PartitionClient:
         self,
         entity: EntityName,
         part: Partition,
-        data: EntityDataType,
+        embs: torch.FloatTensor,
+        optim_state: OptimizerStateDict,
     ) -> None:
-        embs, optim_state = data
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
-        client.store(key + "__embs", embs.data)
+        client.store(key + "__embs", embs)
         client.store(key + "__optim", torch_rpc_serialize(optim_state))
 
     def get(
         self,
         entity: EntityName,
         part: Partition,
-    ) -> EntityDataType:
+    ) -> EntityPartitionType:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
         embs = client.get(key + "__embs", shared=True)
+        assert embs is not None
         optim_state = torch_rpc_deserialize(client.get(key + "__optim"))
         return embs, optim_state
 
@@ -260,7 +278,7 @@ class CheckpointManager:
             self.pool: mp.Pool = create_pool(1)
             # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
             self.outstanding: OrderedDict = OrderedDict()
-            self.prefetched: Dict[str, CheckpointDataType] = {}
+            self.prefetched: Dict[str, EntityPartitionType] = {}
 
         self.partition_client: Optional[PartitionClient] = None
         if partition_server_ranks is not None and len(partition_server_ranks) > 0:
@@ -310,7 +328,7 @@ class CheckpointManager:
             version += 1
         return ('.%d' % version) if version > 0 else ''
 
-    def _file_path(self, entity: EntityName, part: Partition):
+    def _file_path(self, entity: EntityName, part: Partition) -> str:
         ext = self._version_ext((entity, part) in self.dirty)
         file_path = os.path.join(
             self.path, "%s_%d.pt%s" % (entity, part + self.index_base, ext)
@@ -321,8 +339,9 @@ class CheckpointManager:
     def write(
         self,
         entity: EntityName,
-        data: CheckpointDataType,
         part: Partition,
+        embs: torch.FloatTensor,
+        optim_state: OptimizerStateDict,
     ) -> None:
         self.dirty.add((entity, part))
 
@@ -331,50 +350,52 @@ class CheckpointManager:
         if self.background:
             self._sync(file_path)
 
-        # The `== 2` distinguishes data from metadata.
-        if self.partition_client is not None and len(data) == 2:
-            self.partition_client.store(entity, part, data)  # noqa: T484
+        if self.partition_client is not None:
+            self.partition_client.store(entity, part, embs, optim_state)
         elif self.background:
             if file_path in self.prefetched:
                 self.prefetched.pop(file_path)
-            future_res = self.pool.apply_async(save_checkpoint, (file_path, data))
+            future_res = self.pool.apply_async(
+                save_entity_partition, (file_path, embs, optim_state))
             self.outstanding[file_path] = future_res
         else:
-            _torch_save(data, file_path)
-            vlog('fileio.py: done writing path = %s' % file_path)
+            save_entity_partition(file_path, embs, optim_state)
 
     def read(
         self,
         entity: EntityName,
         part: Partition,
-        strict: bool = False,
+        *,
         force_dirty: bool = False,
-    ) -> Optional[CheckpointDataType]:
+    ) -> EntityPartitionType:
         # if counter > 1, we are inside a pass. Otherwise, we are doing
         # evals or just finished an epoch so ".new" files do not exist.
         if force_dirty:
             self.dirty.add((entity, part))
 
-        strict = strict or (entity, part) in self.dirty
-
         file_path = self._file_path(entity, part)
         if (entity, part) in self.dirty and self.partition_client is not None:
-            res = self.partition_client.get(entity, part)
-            assert not (res is None and strict)
-            return res
-        elif self.background:
+            return self.partition_client.get(entity, part)
+        if self.background:
             self._sync(file_path)
             if file_path in self.prefetched:
                 return self.prefetched.pop(file_path)
+        return load_entity_partition(file_path)
 
-        vlog('CheckPointManager.read=>file_path: ' + file_path)
-        if strict or os.path.exists(file_path):
-            # we know there should be a file, we may just have to wait for it
-            # to sync on gfsai (for distributed)
-            # note, the outer function is retryable, so this doesn't have to be
-            return torch_load_shared(file_path)
-        else:
-            return None
+    def maybe_read(
+        self,
+        entity: EntityName,
+        part: Partition,
+        *,
+        force_dirty: bool = False,
+    ) -> Tuple[Optional[torch.FloatTensor], Optional[OptimizerStateDict]]:
+        try:
+            return self.read(entity, part, force_dirty=force_dirty)
+        except FileNotFoundError:
+            # if it's dirty then we've already written this file, so it should exist
+            if (entity, part) in self.dirty:
+                raise
+            return None, None
 
     def prefetch(
         self,
@@ -389,7 +410,7 @@ class CheckpointManager:
             vlog("Bailing from prefetch of %s" % file_path)
             return
         if os.path.exists(file_path):
-            future_res = self.pool.apply_async(load_checkpoint, (file_path,))
+            future_res = self.pool.apply_async(load_entity_partition, (file_path,))
             self.outstanding[file_path] = future_res
 
     def write_metadata(
@@ -399,27 +420,24 @@ class CheckpointManager:
         pazz: int,
         model_state: ModuleStateDict,
         optim_state: OptimizerStateDict,
-    ):
-        # FIXME(lcw) Don't (ab)use the embedding codepath for metadata.
-        self.write(
-            EntityName('METADATA'),
-            (config.to_dict(), edge_path_count, pazz, model_state, optim_state),
-            Partition(0),
-        )
+    ) -> None:
+        ext = self._version_ext(True)
+        file_path = os.path.join(
+            self.path, "METADATA_%d.pt%s" % (self.index_base, ext))
+        save_metadata(file_path, config, edge_path_count, pazz, model_state, optim_state)
 
-    def read_metadata(
+    def read_metadata(self) -> MetadataType:
+        ext = self._version_ext(False)
+        file_path = os.path.join(
+            self.path, "METADATA_%d.pt%s" % (self.index_base, ext))
+        return load_metadata(file_path)
+
+    def maybe_read_metadata(
         self,
-        strict: bool = False,
-    ) -> Optional[MetadataType]:
-        # FIXME(lcw) Don't (ab)use the embedding codepath for metadata.
-        data = self.read(
-            EntityName('METADATA'),
-            Partition(0),
-            strict=strict,
-        )
-        if data is not None:
-            return data  # noqa: T484 (we know we're getting metadata back)
-        else:
+    ) -> Tuple[Optional[ConfigSchema], int, int, Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
+        try:
+            return self.read_metadata()
+        except FileNotFoundError:
             return None, 0, -1, None, None
 
     def _write_version_file(self, version: int) -> None:
@@ -436,12 +454,13 @@ class CheckpointManager:
             for entity, econf in config.entities.items():
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
                     vlog("Rank %d: getting %s %d" % (self.rank, entity, part))
-                    data = self.partition_client.get(EntityName(entity), Partition(part))
+                    embs, optim_state = \
+                        self.partition_client.get(EntityName(entity), Partition(part))
                     vlog("Rank %d: saving %s %d to disk" % (self.rank, entity, part))
                     new_file_path = os.path.join(
                         self.path, "%s_%d.pt%s" % (entity, part + self.index_base, new_ext)
                     )
-                    _torch_save(data, new_file_path)
+                    save_entity_partition(new_file_path, embs, optim_state)
 
     def switch_to_new_version(self) -> None:
         self.dirty.clear()

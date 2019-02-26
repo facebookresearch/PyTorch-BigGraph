@@ -23,7 +23,7 @@ from .model import RankingLoss, make_model, override_model, MultiRelationEmbedde
     Margins, Scores
 from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
     compute_randomized_auc, Side, infer_input_index_base, Rank, \
-    create_buckets_ordered_lexicographically, Bucket, Partition, \
+    create_buckets_ordered_lexicographically, Bucket, EntityName, Partition, \
     split_almost_equally
 from .stats import Stats, stats
 
@@ -188,13 +188,10 @@ def do_eval_and_report_stats(
 
     checkpoint_manager = CheckpointManager(config.checkpoint_path)
 
-    def load_embeddings(entity, part: Partition = 0):
-        data = checkpoint_manager.read(entity, part, strict=True)
-        embs, _optim_state = data
-        embs.share_memory_()
-        if not isinstance(embs, torch.nn.Parameter):  # Pytorch bug workaround
-            embs = torch.nn.Parameter(embs)
-        return embs
+    def load_embeddings(entity: EntityName, part: Partition) -> torch.nn.Parameter:
+        embs, _ = checkpoint_manager.read(entity, part)
+        assert embs.is_shared()
+        return torch.nn.Parameter(embs)
 
     (nparts_lhs, nparts_rhs,
      lhs_partitioned_types, rhs_partitioned_types) = get_partitioned_types(config)
@@ -203,15 +200,15 @@ def do_eval_and_report_stats(
 
     model = make_model(config)
 
-    train_config, _, _, state_dict, _ = checkpoint_manager.read_metadata()
-    if state_dict:
+    _, _, _, state_dict, _ = checkpoint_manager.maybe_read_metadata()
+    if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
-    model.share_memory()
+
     model.eval()
 
     for entity, econfig in config.entities.items():
         if econfig.num_partitions == 1:
-            embs = load_embeddings(entity)
+            embs = load_embeddings(entity, Partition(0))
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)
 

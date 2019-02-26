@@ -43,12 +43,10 @@ def make_tsv(checkpoint, dictfile, outfile):
 
     print('Load model check point.')
     checkpoint_manager = CheckpointManager(checkpoint)
-    config, _, _, state_dict, _ = checkpoint_manager.read_metadata(strict=True)
-
-    config = ConfigSchema.from_dict(config)
+    config, _, _, state_dict, _ = checkpoint_manager.read_metadata()
 
     model = make_model(config)
-    if state_dict:
+    if state_dict is not None:
         print('Init model from state dict.')
         model.load_state_dict(state_dict, strict=False)
 
@@ -64,12 +62,10 @@ def make_tsv(checkpoint, dictfile, outfile):
         idx = 0
         for part in parts:
             print('Load embeddings for entity %s, part %d.' % (entity, part))
-            embs, _ = checkpoint_manager.read(entity, part=part)
+            embs, _ = checkpoint_manager.read(entity, part)
             # remove dummy embeddings due to partition
             sz = min(len(embs), size - idx)
             embs = embs[:sz]
-            if isinstance(embs, torch.nn.Parameter):
-                embs = embs.detach()
 
             if config.global_emb:
                 print("Applying the global embedding...")

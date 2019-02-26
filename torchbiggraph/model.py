@@ -817,7 +817,7 @@ class MultiRelationEmbedder(nn.Module):
 
         self.max_norm: Optional[float] = max_norm
 
-    def set_embeddings(self, entity: str, weights: torch.FloatTensor, side: Side):
+    def set_embeddings(self, entity: str, weights: nn.Parameter, side: Side):
         if self.entities[entity].featurized:
             emb = FeaturizedEmbedding(weights, max_norm=self.max_norm)
         else:
@@ -834,7 +834,7 @@ class MultiRelationEmbedder(nn.Module):
         except KeyError:
             pass
 
-    def get_embeddings(self, entity: str, side: Side) -> torch.FloatTensor:
+    def get_embeddings(self, entity: str, side: Side) -> nn.Parameter:
         embs = side.pick(self.lhs_embs, self.rhs_embs)
         try:
             emb = embs[self.EMB_PREFIX + entity]
@@ -1153,18 +1153,22 @@ def make_model(
             )
     else:
         num_dynamic_rels = 0
-    return MultiRelationEmbedder(config.dimension,
-                                 config.relations,
-                                 config.entities,
-                                 num_uniform_negs=config.num_uniform_negs,
-                                 num_batch_negs=config.num_batch_negs,
-                                 margin=config.margin,
-                                 comparator=config.comparator,
-                                 global_emb=config.global_emb,
-                                 max_norm=config.max_norm,
-                                 loss_fn=config.loss_fn,
-                                 bias=config.bias,
-                                 num_dynamic_rels=num_dynamic_rels)
+    model = MultiRelationEmbedder(
+        config.dimension,
+        config.relations,
+        config.entities,
+        num_uniform_negs=config.num_uniform_negs,
+        num_batch_negs=config.num_batch_negs,
+        margin=config.margin,
+        comparator=config.comparator,
+        global_emb=config.global_emb,
+        max_norm=config.max_norm,
+        loss_fn=config.loss_fn,
+        bias=config.bias,
+        num_dynamic_rels=num_dynamic_rels,
+    )
+    model.share_memory()
+    return model
 
 
 @contextmanager

@@ -13,7 +13,7 @@ import sys
 import time
 from enum import Enum
 from itertools import chain, groupby, islice, product
-from typing import Dict, Generator, List, Optional, Set, Tuple, Union
+from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 import attr
 import torch
@@ -24,7 +24,7 @@ from torch.optim import Optimizer, Adagrad
 from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
-from .fileio import CheckpointManager, EdgeReader, EntityDataType
+from .fileio import CheckpointManager, EdgeReader, EntityPartitionType
 from .lockserver import setup_lock_server
 from .model import make_model, override_model, MultiRelationEmbedder
 from .parameterserver import setup_parameter_server_thread, \
@@ -281,12 +281,14 @@ def train_and_report_stats(
     log("Creating workers...")
     pool = create_pool(config.workers)
 
-    def make_optimizer(params, is_emb):
+    def make_optimizer(params: Iterable[torch.nn.Parameter], is_emb: bool) -> Optimizer:
         params = list(params)
         if len(params) == 0:
-            return DummyOptimizer()
-        constructor = RowAdagrad if is_emb else Adagrad
-        optimizer = constructor(params, lr=config.lr)
+            optimizer = DummyOptimizer()
+        elif is_emb:
+            optimizer = RowAdagrad(params, lr=config.lr)
+        else:
+            optimizer = Adagrad(params, lr=config.lr)
         optimizer.share_memory()
         return optimizer
 
@@ -309,19 +311,23 @@ def train_and_report_stats(
         part: Partition,
         strict: bool = False,
         force_dirty: bool = False,
-    ) -> EntityDataType:
-        data = checkpoint_manager.read(entity, part, strict=strict,
-                                       force_dirty=force_dirty)
-        if data is None and loadpath_manager is not None:
-            data = loadpath_manager.read(entity, part)
-        if data is None:
-            data = init_embs(entity, entity_counts[entity][part],
-                             config.dimension, config.init_scale)
-        embs, optim_state = data
-        if not isinstance(embs, torch.nn.Parameter):  # Pytorch bug workaround
-            embs = torch.nn.Parameter(embs)
-        embs.share_memory_()
-        return embs, optim_state
+    ) -> EntityPartitionType:
+        if strict:
+            embs, optim_state = checkpoint_manager.read(entity, part,
+                                                        force_dirty=force_dirty)
+        else:
+            # Strict is only false during the first iteration, because in that
+            # case the checkpoint may not contain any data (unless a previous
+            # run was resumed) so we fall back on initial values.
+            embs, optim_state = checkpoint_manager.maybe_read(entity, part,
+                                                              force_dirty=force_dirty)
+            if embs is None and loadpath_manager is not None:
+                embs, optim_state = loadpath_manager.maybe_read(entity, part)
+            if embs is None:
+                embs, optim_state = init_embs(entity, entity_counts[entity][part],
+                                              config.dimension, config.init_scale)
+        assert embs.is_shared()
+        return torch.nn.Parameter(embs), optim_state
 
     # Figure out how many lhs and rhs partitions we need
     (nparts_lhs, nparts_rhs,
@@ -341,8 +347,9 @@ def train_and_report_stats(
         # The "None" optimizer is for the non-entity-specific parameters.
         None: make_optimizer(model.parameters(), False)
     }
+
     _, edge_path_count, echunk, state_dict, optim_state = \
-        checkpoint_manager.read_metadata()
+        checkpoint_manager.maybe_read_metadata()
     iteration_idx = edge_path_count * config.num_edge_chunks + echunk
     del edge_path_count
     del echunk
@@ -352,14 +359,11 @@ def train_and_report_stats(
                              iteration_idx + 1, None)
 
     if state_dict is None and loadpath_manager is not None:
-        _, _, _, state_dict, optim_state = loadpath_manager.read_metadata()
+        _, _, _, state_dict, optim_state = loadpath_manager.maybe_read_metadata()
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
     if optim_state is not None:
         optimizers[None].load_state_dict(optim_state)
-        optimizers[None].share_memory()
-
-    model.share_memory()
 
     vlog("Loading unpartitioned entities...")
     max_parts = max(e.num_partitions for e in config.entities.values())
@@ -375,7 +379,6 @@ def train_and_report_stats(
             optimizer = make_optimizer([embs], True)
             if optim_state is not None:
                 optimizer.load_state_dict(optim_state)
-                optimizer.share_memory()
             optimizers[(entity, Partition(0))] = optimizer
 
     if config.num_machines > 1:
@@ -421,7 +424,7 @@ def train_and_report_stats(
                 optim_key = (entity, part)
                 optim_state = OptimizerStateDict(optimizers[optim_key].state_dict())
                 io_bytes += embs.nelement() * 4  # ignore optim state
-                checkpoint_manager.write(entity, (embs, optim_state), part)
+                checkpoint_manager.write(entity, part, embs.detach(), optim_state)
                 if optim_key in optimizers:
                     del optimizers[optim_key]
                 # these variables are holding large objects; let them be freed
@@ -650,10 +653,8 @@ def train_and_report_stats(
                         optimizer = optimizers[(entity, Partition(0))]
 
                         checkpoint_manager.write(
-                            entity,
-                            (embs, OptimizerStateDict(optimizer.state_dict())),
-                            Partition(0)
-                        )
+                            entity, Partition(0),
+                            embs.detach(), OptimizerStateDict(optimizer.state_dict()))
 
                 sanitized_state_dict: ModuleStateDict = {}
                 for k, v in ModuleStateDict(model.state_dict()).items():
