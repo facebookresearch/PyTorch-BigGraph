@@ -199,6 +199,11 @@ class DummyOptimizer(Optimizer):
 
 # HOGWILD
 
+def _pool_init():
+    torch.set_num_threads(1)
+    torch.manual_seed(os.getpid())
+
+
 def create_pool(num_workers: int) -> mp.Pool:
     # PyTorch relies on OpenMP, which by default parallelizes operations by
     # implicitly spawning as many threads as there are cores, and synchronizing
@@ -213,7 +218,7 @@ def create_pool(num_workers: int) -> mp.Pool:
     # https://github.com/pytorch/pytorch/issues/17199 for some more information
     # and discussion.
     torch.set_num_threads(1)
-    return mp.Pool(num_workers, initializer=torch.set_num_threads, initargs=(1,))
+    return mp.Pool(num_workers, initializer=_pool_init)
 
 
 # config routines
