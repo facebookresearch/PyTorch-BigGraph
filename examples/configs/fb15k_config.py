@@ -25,7 +25,6 @@ def get_torchbiggraph_config():
             'lhs': 'all',
             'rhs': 'all',
             'operator': 'complex_diagonal',
-            'all_negs': True,
         }],
         dynamic_relations=True,
 
@@ -38,6 +37,7 @@ def get_torchbiggraph_config():
         comparator='dot',
         loss_fn='softmax',
         lr=0.1,
+        num_uniform_negs=1000,
 
         eval_fraction=0,  # to reproduce results, we need to use all training data
     )
