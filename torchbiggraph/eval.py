@@ -186,9 +186,13 @@ def do_eval_and_report_stats(
     config: ConfigSchema,
     evaluator: AbstractEvaluator[StatsType] = DEFAULT_EVALUATOR,
 ) -> Generator[Tuple[Optional[int], Optional[Bucket], StatsType], None, None]:
-    """Computes eval metrics (r1/r10/r50) for a checkpoint with trained
+    """Computes eval metrics (mr/mrr/r1/r10/r50) for a checkpoint with trained
        embeddings.
     """
+
+    if config.verbose > 0:
+        import pprint
+        pprint.PrettyPrinter().pprint(config.to_dict())
 
     index_base = infer_input_index_base(config)
 
