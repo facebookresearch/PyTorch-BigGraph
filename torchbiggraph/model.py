@@ -825,13 +825,10 @@ class MultiRelationEmbedder(nn.Module):
             emb = SimpleEmbedding(weights, max_norm=self.max_norm)
         side.pick(self.lhs_embs, self.rhs_embs)[self.EMB_PREFIX + entity] = emb
 
-    def clear_embeddings(self, entity: str):
+    def clear_embeddings(self, entity: str, side: Side) -> None:
+        embs = side.pick(self.lhs_embs, self.rhs_embs)
         try:
-            del self.lhs_embs[self.EMB_PREFIX + entity]
-        except KeyError:
-            pass
-        try:
-            del self.rhs_embs[self.EMB_PREFIX + entity]
+            del embs[self.EMB_PREFIX + entity]
         except KeyError:
             pass
 

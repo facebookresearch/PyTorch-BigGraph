@@ -445,7 +445,8 @@ def train_and_report_stats(
         tmp_emb = {x: model.get_embeddings(x[0], old_parts[x]) for x in preserved}
 
         for entity, _ in types:
-            model.clear_embeddings(entity)
+            model.clear_embeddings(entity, Side.LHS)
+            model.clear_embeddings(entity, Side.RHS)
 
         if newP is None:  # there are no new embeddings to load
             return io_bytes

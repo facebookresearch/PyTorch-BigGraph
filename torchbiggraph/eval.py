@@ -178,7 +178,7 @@ def eval_one_thread(
     """ This is the eval loop executed by each HOGWILD thread.
     """
     stats = eval_many_batches(config, model, lhs, rhs, rel, evaluator)
-    print("Rank %d done" % rank)
+    # print("Rank %d done" % rank)
     return stats
 
 
@@ -225,17 +225,23 @@ def do_eval_and_report_stats(
         edge_reader = EdgeReader(edge_path, index_base=index_base)
 
         all_edge_path_stats = []
+        last_lhs, last_rhs = None, None
         for bucket in create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs):
             tic = time.time()
             # log("%s: Loading entities" % (bucket,))
 
-            for e in lhs_partitioned_types:
-                embs = load_embeddings(e, bucket.lhs)
-                model.set_embeddings(e, embs, Side.LHS)
+            if last_lhs != bucket.lhs:
+                for e in lhs_partitioned_types:
+                    model.clear_embeddings(e, Side.LHS)
+                    embs = load_embeddings(e, bucket.lhs)
+                    model.set_embeddings(e, embs, Side.LHS)
+            if last_rhs != bucket.rhs:
+                for e in rhs_partitioned_types:
+                    model.clear_embeddings(e, Side.RHS)
+                    embs = load_embeddings(e, bucket.rhs)
+                    model.set_embeddings(e, embs, Side.RHS)
+            last_lhs, last_rhs = bucket.lhs, bucket.rhs
 
-            for e in rhs_partitioned_types:
-                embs = load_embeddings(e, bucket.rhs)
-                model.set_embeddings(e, embs, Side.RHS)
 
             # log("%s: Loading edges" % (bucket,))
             lhs, rhs, rel = edge_reader.read(bucket.lhs, bucket.rhs)
@@ -262,12 +268,6 @@ def do_eval_and_report_stats(
                    mean_bucket_stats))
 
             yield edge_path_idx, bucket, mean_bucket_stats
-
-            # clean up memory
-            for e in lhs_partitioned_types:
-                model.clear_embeddings(e)
-            for e in rhs_partitioned_types:
-                model.clear_embeddings(e)
 
         total_edge_path_stats = evaluator.sum_stats(all_edge_path_stats)
         all_stats.append(total_edge_path_stats)
