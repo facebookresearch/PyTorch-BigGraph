@@ -33,7 +33,8 @@ from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, Side, \
     init_process_group, infer_input_index_base, Bucket, Partition, EntityName, \
-    Rank, ModuleStateDict, OptimizerStateDict, split_almost_equally
+    Rank, ModuleStateDict, OptimizerStateDict, split_almost_equally, \
+    round_up_to_nearest_multiple
 from .stats import Stats, stats
 
 
@@ -153,10 +154,15 @@ def perform_action_one_thread(
             time.sleep(config.hogwild_delay)
         stats = train_many_batches(config, model, optimizers, lhs, rhs, rel)
     elif action is Action.EVAL:
+        eval_batch_size = round_up_to_nearest_multiple(
+            config.batch_size, config.eval_num_batch_negs
+        )
+        eval_config = attr.evolve(config, batch_size=eval_batch_size)
+
         with override_model(model,
                             num_uniform_negs=config.eval_num_uniform_negs,
                             num_batch_negs=config.eval_num_batch_negs):
-            stats = eval_many_batches(config, model, lhs, rhs, rel)
+            stats = eval_many_batches(eval_config, model, lhs, rhs, rel)
     else:
         raise NotImplementedError("Unknown action: %s" % action)
     assert stats.count == my_edges.size(0)
@@ -336,8 +342,6 @@ def train_and_report_stats(
          (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
 
     log("Initializing global model...")
-    assert config.batch_size % config.num_batch_negs == 0, (
-        "You really want this to avoid padding every batch")
 
     model = make_model(config)
 

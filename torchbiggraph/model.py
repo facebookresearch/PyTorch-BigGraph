@@ -1149,6 +1149,13 @@ def make_model(
             )
     else:
         num_dynamic_rels = 0
+
+    if config.num_batch_negs > 0 and config.batch_size % config.num_batch_negs != 0:
+        raise RuntimeError(
+            "Batch size (%d) must be a multiple of num_batch_negs (%d)" %
+            (config.batch_size, config.num_batch_negs)
+        )
+
     model = MultiRelationEmbedder(
         config.dimension,
         config.relations,

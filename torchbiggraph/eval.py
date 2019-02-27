@@ -133,6 +133,12 @@ def eval_many_batches(
     evaluator: AbstractEvaluator[StatsType] = DEFAULT_EVALUATOR,
 ) -> StatsType:
     all_stats = []
+
+    # FIXME: it's not really safe to do partial batches if numBatchNegs != 0
+    # because partial batches will produce incorrect results, and if the
+    # dataset per thread is very small then every batch may be partial. I don't
+    # know if a perfect solution for this that doesn't introduce other biases...
+
     if model.num_dynamic_rels > 0:
         offset, N = 0, rel.size(0)
         while offset < N:

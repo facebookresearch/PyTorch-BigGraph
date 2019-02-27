@@ -86,6 +86,10 @@ def split_almost_equally(size: int, *, num_parts: int) -> Iterable[slice]:
         prev = next_
 
 
+def round_up_to_nearest_multiple(value: int, factor: int) -> int:
+    return ((value - 1) // factor + 1) * factor
+
+
 def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[EntityList]]:
     """
     Parameters:
