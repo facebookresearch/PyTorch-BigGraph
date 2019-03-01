@@ -170,7 +170,7 @@ def noop() -> None:
     pass
 
 
-VERSION_FILE = 'CHECKPOINT_VERSION'
+VERSION_FILE = "checkpoint_version.txt"
 
 
 class PartitionClient:
@@ -219,7 +219,7 @@ class CheckpointManager:
 
     Swapped-out partitions are saved to disk with a temporary extension, and when
     `commit()` is called, that extension is marked as the 'checkpoint' extension
-    via the CHECKPOINT_VERSION file. This scheme is chosen to work with shared
+    via the checkpoint_version.txt file. This scheme is chosen to work with shared
     filesystems (specifically, Gluster) which guarantee close/open data consistency
     but no metadata consistency (so os.rename is out).
 
@@ -253,11 +253,10 @@ class CheckpointManager:
         # after a few versions, and then it reruns but one of the write_version=False
         # machines has cached the metadata and thinks it doesn't exist, then it
         # will expect checkpoint_version=0 and fail.
-        if os.path.exists(os.path.join(self.path, VERSION_FILE)):
-            with open(os.path.join(self.path, VERSION_FILE)) as f:
-                vstr = f.read()
-                self.checkpoint_version = int(vstr) if vstr != '' else 0
-        else:
+        try:
+            with open(os.path.join(self.path, VERSION_FILE), "rt") as tf:
+                self.checkpoint_version = int(tf.read().strip())
+        except FileNotFoundError:
             self.checkpoint_version = 0
 
         self.background: bool = background
@@ -413,10 +412,10 @@ class CheckpointManager:
             return None, 0, -1, None, None
 
     def _write_version_file(self, version: int) -> None:
-        with open(os.path.join(self.path, VERSION_FILE), 'w') as f:
-            f.write(str(version))
-            f.flush()
-            os.fsync(f.fileno())
+        with open(os.path.join(self.path, VERSION_FILE), "wt") as tf:
+            tf.write("%d" % version)
+            tf.flush()
+            os.fsync(tf.fileno())
 
     def write_new_version(self, config: ConfigSchema) -> None:
         if self.background:

@@ -111,8 +111,8 @@ def init_embeddings(
     *,
     version: int = 0,
 ):
-    with open(os.path.join(target, "CHECKPOINT_VERSION"), "wb") as f:
-        f.write(b"%d" % version)
+    with open(os.path.join(target, "checkpoint_version.txt"), "xt") as tf:
+        tf.write("%d" % version)
     version_ext = ".%d" % version if version > 0 else ""
     for entity_name, entity in config.entities.items():
         for partition in range(entity.num_partitions):
@@ -149,8 +149,8 @@ class TestFunctional(TestCase):
         self.addCleanup(self.checkpoint_path.cleanup)
 
     def assertCheckpointWritten(self, config: ConfigSchema, *, version: int):
-        with open(os.path.join(config.checkpoint_path, "CHECKPOINT_VERSION"), "rb") as f:
-            self.assertEqual(version, int(f.read().strip()))
+        with open(os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt") as tf:
+            self.assertEqual(version, int(tf.read().strip()))
 
         version_ext = ".%d" % version if version > 0 else ""
         stored_config, epoch, edge_chunk_idx, _, _ = torch.load(

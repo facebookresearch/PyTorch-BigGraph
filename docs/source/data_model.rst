@@ -85,7 +85,7 @@ It is possible to provide an initial value for the embeddings, by specifying a
 value for the ``init_path`` configuration key, which is the name of a directory that
 contains files in a format similar to the output format detailed in
 :ref:`output-format`: the :file:`METADATA_1` file can be omitted, the optimizer
-state can be ``None`` and, optionally, one can also omit the :file:`CHECKPOINT_VERSION`
+state can be ``None`` and, optionally, one can also omit the :file:`checkpoint_version.txt`
 file and avoid adding a version suffix to any file.
 
 .. note::
@@ -157,7 +157,7 @@ entities as a two-dimensional PyTorch tensor (possibly wrapped in a
 entities and the second being the dimension of the embedding. The second element
 is the state of the optimizer for those entities.
 
-An additional file in the same directory, called :file:`CHECKPOINT_VERSION`,
+An additional file in the same directory, called :file:`checkpoint_version.txt`,
 contains the latest checkpoint version, as an ASCII-encoded decimal number.
 While the metadata files are never deleted, the embedding files are removed as
 soon as a newer version of the checkpoint is fully committed.
