@@ -12,7 +12,7 @@ import random
 import sys
 import time
 from enum import Enum
-from itertools import chain, groupby
+from itertools import chain
 from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 import attr
@@ -541,213 +541,212 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
-    for (epoch_idx, edge_path_idx), sub_iterations \
-            in groupby(iteration_manager.remaining_iterations(), lambda i: i[:2]):
+    for epoch_idx, edge_path_idx, edge_chunk_idx \
+            in iteration_manager.remaining_iterations():
+        log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
+            (epoch_idx + 1, iteration_manager.num_epochs,
+             edge_path_idx + 1, iteration_manager.num_edge_paths,
+             edge_chunk_idx + 1, iteration_manager.num_edge_chunks))
         edge_reader = EdgeReader(iteration_manager.edge_path)
-        for _, _, edge_chunk_idx in sub_iterations:
-            log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
-                (epoch_idx + 1, iteration_manager.num_epochs,
-                 edge_path_idx + 1, iteration_manager.num_edge_paths,
-                 edge_chunk_idx + 1, iteration_manager.num_edge_chunks))
-            log("edge_path= %s" % iteration_manager.edge_path)
+        log("edge_path= %s" % iteration_manager.edge_path)
 
-            buckets = create_ordered_buckets(
-                nparts_lhs=nparts_lhs,
-                nparts_rhs=nparts_rhs,
-                order=config.bucket_order,
-                generator=random.Random(),
-            )
-            total_buckets = len(buckets)
+        buckets = create_ordered_buckets(
+            nparts_lhs=nparts_lhs,
+            nparts_rhs=nparts_rhs,
+            order=config.bucket_order,
+            generator=random.Random(),
+        )
+        total_buckets = len(buckets)
 
-            # Print buckets
-            vlog('\nPartition pairs:')
-            for bucket in buckets:
-                vlog("%s" % (bucket,))
-            vlog('')
+        # Print buckets
+        vlog('\nPartition pairs:')
+        for bucket in buckets:
+            vlog("%s" % (bucket,))
+        vlog('')
 
-            if config.num_machines > 1:
-                td.barrier(group=barrier_group)
-                log("Lock client new epoch...")
-                if rank == 0:
-                    lock_client.new_epoch(buckets,
-                                          lock_lhs=len(lhs_partitioned_types) > 0,
-                                          lock_rhs=len(rhs_partitioned_types) > 0,
-                                          init_tree=config.distributed_tree_init_order
-                                                    and edge_path_idx == 0
-                                                    and epoch_idx == 0)
-                td.barrier(group=barrier_group)
-
-            # Single-machine case: partition_count keeps track of how
-            # many partitions have been processed so far. This is used in
-            # pre-fetching only.
-            partition_count = 0
-            remaining = len(buckets)
-            curP = None
-            while remaining > 0:
-                oldP = curP
-                io_time = 0.
-                io_bytes = 0
-                if config.num_machines > 1:
-                    curP, remaining = lock_client.acquire_pair(rank, maybe_old_bucket=oldP)
-                    curP = Bucket(*curP) if curP is not None else None
-                    print('still in queue: %d' % remaining, file=sys.stderr)
-                    if curP is None:
-                        if oldP is not None:
-                            # if you couldn't get a new pair, release the lock
-                            # to prevent a deadlock!
-                            tic = time.time()
-                            io_bytes += swap_partitioned_embeddings(oldP, None)
-                            io_time += time.time() - tic
-                        time.sleep(1)  # don't hammer td
-                        continue
-                else:
-                    curP = buckets.pop(0)
-                    remaining -= 1
-
-                def log_status(msg, always=False):
-                    F = log if always else vlog
-                    F("%s: %s" % (curP, msg))
-
-                tic = time.time()
-
-                io_bytes += swap_partitioned_embeddings(oldP, curP)
-
-                current_index = \
-                    (iteration_manager.iteration_idx + 1) * total_buckets - remaining
-
-                if partition_count < total_buckets - 1 and background_io:
-                    assert config.num_machines == 1
-                    # Ensure the previous bucket finished writing to disk.
-                    checkpoint_manager.wait_for_marker(current_index - 1)
-
-                    log_status("Prefetching")
-                    next_partition = buckets[partition_count + 1]
-                    for entity in lhs_partitioned_types:
-                        checkpoint_manager.prefetch(entity, next_partition.lhs)
-                    for entity in rhs_partitioned_types:
-                        checkpoint_manager.prefetch(entity, next_partition.rhs)
-
-                    checkpoint_manager.record_marker(current_index)
-
-                log_status("Loading edges")
-                lhs, rhs, rel = edge_reader.read(
-                    curP.lhs, curP.rhs, edge_chunk_idx, config.num_edge_chunks)
-                N = rel.size(0)
-                # this might be off in the case of tensorlist
-                io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
-
-                log_status("Shuffling edges")
-                # Fix a seed to get the same permutation every time; have it
-                # depend on all and only what affects the set of edges.
-                g = torch.Generator()
-                g.manual_seed(hash((edge_path_idx, edge_chunk_idx, curP.lhs, curP.rhs)))
-
-                num_eval_edges = int(N * config.eval_fraction)
-                if num_eval_edges > 0:
-                    edge_perm = torch.randperm(N, generator=g)
-                    eval_edge_perm = edge_perm[-num_eval_edges:]
-                    N -= num_eval_edges
-                    edge_perm = edge_perm[torch.randperm(N)]
-                else:
-                    edge_perm = torch.randperm(N)
-
-                # HOGWILD evaluation before training
-                eval_stats_before: Optional[EvalStats] = None
-                if num_eval_edges > 0:
-                    log_status("Waiting for workers to perform evaluation")
-                    eval_stats_before = distribute_action_among_workers(
-                        pool, config,
-                        Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
-                    log("stats before %s: %s" % (curP, eval_stats_before))
-
-                io_time += time.time() - tic
-                tic = time.time()
-                # HOGWILD training
-                log_status("Waiting for workers to perform training")
-                stats = distribute_action_among_workers(
-                    pool, config,
-                    Action.TRAIN, model, lhs, rhs, rel, edge_perm,
-                    list(optimizers.values()))
-                compute_time = time.time() - tic
-
-                log_status("bucket %d / %d : Processed %d edges in %.2f s "
-                    "( %.2g M/sec ); io: %.2f s ( %.2f MB/sec )" %
-                    (total_buckets - remaining, total_buckets,
-                     lhs.size(0), compute_time, lhs.size(0) / compute_time / 1e6,
-                     io_time, io_bytes / io_time / 1e6),
-                    always=True)
-                log_status("%s" % stats, always=True)
-
-                # HOGWILD eval after training
-                eval_stats_after: Optional[EvalStats] = None
-                if num_eval_edges > 0:
-                    log_status("Waiting for workers to perform evaluation")
-                    eval_stats_after = distribute_action_among_workers(
-                        pool, config,
-                        Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
-                    log("stats after %s: %s" % (curP, eval_stats_after))
-
-                # Add train/eval metrics to queue
-                yield current_index, eval_stats_before, stats, eval_stats_after
-
-                partition_count += 1
-
-            swap_partitioned_embeddings(curP, None)
-
-            # Distributed Processing: all machines can leave the barrier now.
-            if config.num_machines > 1:
-                td.barrier(barrier_group)
-
-            # Write metadata: for multiple machines, write from rank-0
-            log("Finished epoch %d path %d pass %d; checkpointing global state."
-                % (epoch_idx + 1, edge_path_idx + 1, edge_chunk_idx + 1))
-            log("My rank: %d" % rank)
+        if config.num_machines > 1:
+            td.barrier(group=barrier_group)
+            log("Lock client new epoch...")
             if rank == 0:
-                for entity, econfig in config.entities.items():
-                    if econfig.num_partitions == 1:
-                        embs = model.get_embeddings(entity, Side.LHS)
-                        optimizer = optimizers[(entity, Partition(0))]
+                lock_client.new_epoch(buckets,
+                                      lock_lhs=len(lhs_partitioned_types) > 0,
+                                      lock_rhs=len(rhs_partitioned_types) > 0,
+                                      init_tree=config.distributed_tree_init_order
+                                                and edge_path_idx == 0
+                                                and epoch_idx == 0)
+            td.barrier(group=barrier_group)
 
-                        checkpoint_manager.write(
-                            entity, Partition(0),
-                            embs.detach(), OptimizerStateDict(optimizer.state_dict()))
-
-                sanitized_state_dict: ModuleStateDict = {}
-                for k, v in ModuleStateDict(model.state_dict()).items():
-                    if k.startswith('lhs_embs') or k.startswith('rhs_embs'):
-                        # skipping state that's an entity embedding
-                        continue
-                    sanitized_state_dict[k] = v
-
-                log("Writing metadata...")
-                checkpoint_manager.write_model(
-                    sanitized_state_dict,
-                    OptimizerStateDict(optimizers[None].state_dict()),
-                )
-
-            log("Writing the checkpoint...")
-            checkpoint_manager.write_new_version(config)
-
+        # Single-machine case: partition_count keeps track of how
+        # many partitions have been processed so far. This is used in
+        # pre-fetching only.
+        partition_count = 0
+        remaining = len(buckets)
+        curP = None
+        while remaining > 0:
+            oldP = curP
+            io_time = 0.
+            io_bytes = 0
             if config.num_machines > 1:
-                log("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
-                td.barrier(barrier_group)
-                log("All parts of the checkpoint have been written")
+                curP, remaining = lock_client.acquire_pair(rank, maybe_old_bucket=oldP)
+                curP = Bucket(*curP) if curP is not None else None
+                print('still in queue: %d' % remaining, file=sys.stderr)
+                if curP is None:
+                    if oldP is not None:
+                        # if you couldn't get a new pair, release the lock
+                        # to prevent a deadlock!
+                        tic = time.time()
+                        io_bytes += swap_partitioned_embeddings(oldP, None)
+                        io_time += time.time() - tic
+                    time.sleep(1)  # don't hammer td
+                    continue
+            else:
+                curP = buckets.pop(0)
+                remaining -= 1
 
-            log("Switching to new checkpoint version...")
-            checkpoint_manager.switch_to_new_version()
+            def log_status(msg, always=False):
+                F = log if always else vlog
+                F("%s: %s" % (curP, msg))
 
-            if config.num_machines > 1:
-                log("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
-                td.barrier(barrier_group)
-                log("All workers have switched to the new checkpoint version")
+            tic = time.time()
 
-            # After all the machines have finished committing
-            # checkpoints, we remove the old checkpoints.
-            checkpoint_manager.remove_old_version(config)
+            io_bytes += swap_partitioned_embeddings(oldP, curP)
 
-            # now we're sure that all partition files exist,
-            # so be strict about loading them
-            strict = True
+            current_index = \
+                (iteration_manager.iteration_idx + 1) * total_buckets - remaining
+
+            if partition_count < total_buckets - 1 and background_io:
+                assert config.num_machines == 1
+                # Ensure the previous bucket finished writing to disk.
+                checkpoint_manager.wait_for_marker(current_index - 1)
+
+                log_status("Prefetching")
+                next_partition = buckets[partition_count + 1]
+                for entity in lhs_partitioned_types:
+                    checkpoint_manager.prefetch(entity, next_partition.lhs)
+                for entity in rhs_partitioned_types:
+                    checkpoint_manager.prefetch(entity, next_partition.rhs)
+
+                checkpoint_manager.record_marker(current_index)
+
+            log_status("Loading edges")
+            lhs, rhs, rel = edge_reader.read(
+                curP.lhs, curP.rhs, edge_chunk_idx, config.num_edge_chunks)
+            N = rel.size(0)
+            # this might be off in the case of tensorlist
+            io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
+
+            log_status("Shuffling edges")
+            # Fix a seed to get the same permutation every time; have it
+            # depend on all and only what affects the set of edges.
+            g = torch.Generator()
+            g.manual_seed(hash((edge_path_idx, edge_chunk_idx, curP.lhs, curP.rhs)))
+
+            num_eval_edges = int(N * config.eval_fraction)
+            if num_eval_edges > 0:
+                edge_perm = torch.randperm(N, generator=g)
+                eval_edge_perm = edge_perm[-num_eval_edges:]
+                N -= num_eval_edges
+                edge_perm = edge_perm[torch.randperm(N)]
+            else:
+                edge_perm = torch.randperm(N)
+
+            # HOGWILD evaluation before training
+            eval_stats_before: Optional[EvalStats] = None
+            if num_eval_edges > 0:
+                log_status("Waiting for workers to perform evaluation")
+                eval_stats_before = distribute_action_among_workers(
+                    pool, config,
+                    Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
+                log("stats before %s: %s" % (curP, eval_stats_before))
+
+            io_time += time.time() - tic
+            tic = time.time()
+            # HOGWILD training
+            log_status("Waiting for workers to perform training")
+            stats = distribute_action_among_workers(
+                pool, config,
+                Action.TRAIN, model, lhs, rhs, rel, edge_perm,
+                list(optimizers.values()))
+            compute_time = time.time() - tic
+
+            log_status("bucket %d / %d : Processed %d edges in %.2f s "
+                "( %.2g M/sec ); io: %.2f s ( %.2f MB/sec )" %
+                (total_buckets - remaining, total_buckets,
+                 lhs.size(0), compute_time, lhs.size(0) / compute_time / 1e6,
+                 io_time, io_bytes / io_time / 1e6),
+                always=True)
+            log_status("%s" % stats, always=True)
+
+            # HOGWILD eval after training
+            eval_stats_after: Optional[EvalStats] = None
+            if num_eval_edges > 0:
+                log_status("Waiting for workers to perform evaluation")
+                eval_stats_after = distribute_action_among_workers(
+                    pool, config,
+                    Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
+                log("stats after %s: %s" % (curP, eval_stats_after))
+
+            # Add train/eval metrics to queue
+            yield current_index, eval_stats_before, stats, eval_stats_after
+
+            partition_count += 1
+
+        swap_partitioned_embeddings(curP, None)
+
+        # Distributed Processing: all machines can leave the barrier now.
+        if config.num_machines > 1:
+            td.barrier(barrier_group)
+
+        # Write metadata: for multiple machines, write from rank-0
+        log("Finished epoch %d path %d pass %d; checkpointing global state."
+            % (epoch_idx + 1, edge_path_idx + 1, edge_chunk_idx + 1))
+        log("My rank: %d" % rank)
+        if rank == 0:
+            for entity, econfig in config.entities.items():
+                if econfig.num_partitions == 1:
+                    embs = model.get_embeddings(entity, Side.LHS)
+                    optimizer = optimizers[(entity, Partition(0))]
+
+                    checkpoint_manager.write(
+                        entity, Partition(0),
+                        embs.detach(), OptimizerStateDict(optimizer.state_dict()))
+
+            sanitized_state_dict: ModuleStateDict = {}
+            for k, v in ModuleStateDict(model.state_dict()).items():
+                if k.startswith('lhs_embs') or k.startswith('rhs_embs'):
+                    # skipping state that's an entity embedding
+                    continue
+                sanitized_state_dict[k] = v
+
+            log("Writing metadata...")
+            checkpoint_manager.write_model(
+                sanitized_state_dict,
+                OptimizerStateDict(optimizers[None].state_dict()),
+            )
+
+        log("Writing the checkpoint...")
+        checkpoint_manager.write_new_version(config)
+
+        if config.num_machines > 1:
+            log("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
+            td.barrier(barrier_group)
+            log("All parts of the checkpoint have been written")
+
+        log("Switching to new checkpoint version...")
+        checkpoint_manager.switch_to_new_version()
+
+        if config.num_machines > 1:
+            log("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
+            td.barrier(barrier_group)
+            log("All workers have switched to the new checkpoint version")
+
+        # After all the machines have finished committing
+        # checkpoints, we remove the old checkpoints.
+        checkpoint_manager.remove_old_version(config)
+
+        # now we're sure that all partition files exist,
+        # so be strict about loading them
+        strict = True
 
     # quiescence
     pool.close()
