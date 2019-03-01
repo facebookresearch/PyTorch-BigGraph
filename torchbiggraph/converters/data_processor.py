@@ -208,7 +208,8 @@ def convert_and_partition_data(
             print('Partition (%d, %d) contains %d edges.' % (i, j, len(p_lhs)))
             out_f = os.path.join(out_dir, "edges_%d_%d.h5" % (i, j))
             print("Saving edges to %s" % out_f)
-            with h5py.File(out_f, 'w') as hf:
+            with h5py.File(out_f, "w") as hf:
+                hf.attrs["format_version"] = 1
                 hf.create_dataset("lhs", data=np.asarray(p_lhs))
                 hf.create_dataset("rhs", data=np.asarray(p_rhs))
                 hf.create_dataset("rel", data=np.asarray(p_rel))

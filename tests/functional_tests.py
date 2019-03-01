@@ -99,7 +99,8 @@ def generate_dataset(
                 end_idx = start_idx + int(fraction * len(edges))
                 with h5py.File(os.path.join(
                     path.name, "edges_%d_%d.h5" % (lhs_partition, rhs_partition)
-                )) as hf:
+                ), "x") as hf:
+                    hf.attrs["format_version"] = 1
                     hf["lhs"] = edges[start_idx:end_idx, 0]
                     hf["rhs"] = edges[start_idx:end_idx, 1]
                     hf["rel"] = edges[start_idx:end_idx, 2]

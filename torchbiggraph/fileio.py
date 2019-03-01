@@ -57,10 +57,12 @@ class EdgeReader:
     ) -> Tuple[EntityList, EntityList, torch.LongTensor]:
         file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhsP, rhsP))
         assert os.path.exists(file_path), "%s does not exist" % file_path
-        with h5py.File(file_path, 'r') as f:
-            lhs = f['lhs']
-            rhs = f['rhs']
-            rel = f['rel']
+        with h5py.File(file_path, 'r') as hf:
+            if hf.attrs[FORMAT_VERSION_ATTR] != FORMAT_VERSION:
+                raise RuntimeError("Version mismatch in edge file %s" % file_path)
+            lhs = hf['lhs']
+            rhs = hf['rhs']
+            rel = hf['rel']
 
             L = rel.len()
             begin = int(i * L / N)
@@ -69,8 +71,8 @@ class EdgeReader:
             lhs = torch.from_numpy(lhs[begin:end])
             rhs = torch.from_numpy(rhs[begin:end])
             rel = torch.from_numpy(rel[begin:end])
-            lhsd = self.read_dynamic(f, 'lhsd', begin, end)
-            rhsd = self.read_dynamic(f, 'rhsd', begin, end)
+            lhsd = self.read_dynamic(hf, 'lhsd', begin, end)
+            rhsd = self.read_dynamic(hf, 'rhsd', begin, end)
 
             return (EntityList(lhs, lhsd),
                     EntityList(rhs, rhsd),
@@ -78,16 +80,16 @@ class EdgeReader:
 
     def read_dynamic(
         self,
-        f: h5py.File,
+        hf: h5py.File,
         key: str,
         begin: int,
         end: int,
     ) -> TensorList:
         offsets_field = '%s_offsets' % key
         data_field = '%s_data' % key
-        if offsets_field in f and data_field in f:
-            offsets = torch.from_numpy(f[offsets_field][begin:end + 1]).long()
-            data = torch.from_numpy(f[data_field][offsets[0]:offsets[-1]]).long()
+        if offsets_field in hf and data_field in hf:
+            offsets = torch.from_numpy(hf[offsets_field][begin:end + 1]).long()
+            data = torch.from_numpy(hf[data_field][offsets[0]:offsets[-1]]).long()
 
             # careful! as of Pytorch 0.4, offsets[0] is a 0d tensor view, so
             # offsets -= offsets[0] will give the wrong result
