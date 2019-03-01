@@ -1137,12 +1137,12 @@ def make_model(
                 "entry in config.relations with config for all relations."
             )
         try:
-            num_dynamic_rels = torch.load(os.path.join(config.entity_path,
-                                                       "dynamic_rel_count.pt"))
+            with open(os.path.join(config.entity_path, "dynamic_rel_count.txt"), "rt") as tf:
+                num_dynamic_rels = int(tf.read().strip())
         except FileNotFoundError:
             raise RuntimeError(
                 "Dynamic relations are enabled, so there should be a file called "
-                "dynamic_rel_count.pt in the entity path with their count."
+                "dynamic_rel_count.txt in the entity path with their count."
             )
     else:
         num_dynamic_rels = 0

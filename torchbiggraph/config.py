@@ -300,7 +300,7 @@ class ConfigSchema(Schema):
                           "which case, there must be a single relation type in "
                           "the config (whose parameters will apply to all "
                           "dynamic relations types) and there must be a file "
-                          "called dynamic_rel_count.pt in the entity path that "
+                          "called dynamic_rel_count.txt in the entity path that "
                           "contains the number of dynamic relations. In this "
                           "mode, batches will contain edges of multiple "
                           "relation types and negatives will be sampled "

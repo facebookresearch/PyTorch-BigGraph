@@ -127,7 +127,7 @@ allowed to contain loops, that is, edges with the same entity on both sides)
 
 .. note::
     When using dynamic relations there also needs to be an additional file,
-    named :file:`dynamic_rel_count.pt`, in the ``entity_path`` directory.
+    named :file:`dynamic_rel_count.txt`, in the ``entity_path`` directory.
 
 .. _output-format:
 

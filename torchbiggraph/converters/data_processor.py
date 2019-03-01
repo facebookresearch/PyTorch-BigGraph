@@ -250,10 +250,8 @@ def convert_input_data(
     )
 
     if isDynamic:
-        torch.save(
-            rdict.size(),
-            os.path.join(entity_path, 'dynamic_rel_count.pt')
-        )
+        with open(os.path.join(entity_path, "dynamic_rel_count.txt"), "wt") as tf:
+            tf.write("%d" % rdict.size())
 
     edict_params = {k : v.get_params() for k, v in edict.items()}
     rdict_params = rdict.get_params()
