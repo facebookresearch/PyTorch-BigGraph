@@ -22,9 +22,8 @@ from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder, \
     Margins, Scores
 from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
-    compute_randomized_auc, Side, infer_input_index_base, Rank, \
-    create_buckets_ordered_lexicographically, Bucket, EntityName, Partition, \
-    split_almost_equally
+    compute_randomized_auc, Side, Rank, create_buckets_ordered_lexicographically, \
+    Bucket, EntityName, Partition, split_almost_equally
 from .stats import Stats, stats
 
 
@@ -194,8 +193,6 @@ def do_eval_and_report_stats(
         import pprint
         pprint.PrettyPrinter().pprint(config.to_dict())
 
-    index_base = infer_input_index_base(config)
-
     checkpoint_manager = CheckpointManager(config.checkpoint_path)
 
     def load_embeddings(entity: EntityName, part: Partition) -> torch.nn.Parameter:
@@ -226,7 +223,7 @@ def do_eval_and_report_stats(
     for edge_path_idx, edge_path in enumerate(config.edge_paths):
         log("Starting edge path %d / %d (%s)"
             % (edge_path_idx + 1, len(config.edge_paths), edge_path))
-        edge_reader = EdgeReader(edge_path, index_base=index_base)
+        edge_reader = EdgeReader(edge_path)
 
         all_edge_path_stats = []
         last_lhs, last_rhs = None, None

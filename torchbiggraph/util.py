@@ -154,34 +154,6 @@ def fast_approx_rand(numel: int) -> torch.FloatTensor:
     return tensor
 
 
-def infer_input_index_base(config: ConfigSchema) -> int:
-    """Infer whether input data has indices starting at 0 or at 1.
-
-    Torchbiggraph used to use 1-based indexing. It now supports (and prefers)
-    0-based indexing as well. To keep backwards compatibility, it auto-detects
-    the format of the input data and sticks to the same format in the output.
-
-    """
-    one_based: Set[bool] = set()
-    one_based.update(
-        os.path.exists(os.path.join(path, "edges_1_1.h5"))
-        and not os.path.exists(os.path.join(path, "edges_0_0.h5"))
-        for path in config.edge_paths
-    )
-    one_based.update(
-        os.path.exists(os.path.join(config.entity_path, "entity_count_%s_1.pt" % entity))
-        and not os.path.exists(os.path.join(config.entity_path, "entity_count_%s_0.pt" % entity))
-        for entity in config.entities
-    )
-    if len(one_based) != 1:
-        raise RuntimeError(
-            "Cannot determine whether the input files are using 0- or 1-based "
-            "indexing. Either they are in a mixed format, or some files are "
-            "missing or some ther I/O error occurred."
-        )
-    return 1 if one_based.pop() else 0
-
-
 class DummyOptimizer(Optimizer):
 
     def __init__(self):

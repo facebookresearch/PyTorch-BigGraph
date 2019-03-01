@@ -37,11 +37,10 @@ class EdgeReader:
     pipelined.
     """
 
-    def __init__(self, path: str, index_base: int) -> None:
+    def __init__(self, path: str) -> None:
         if not os.path.isdir(path):
             raise RuntimeError("Invalid edge dir: %s" % path)
         self.path: str = path
-        self.index_base = index_base
 
     def read(
         self,
@@ -50,10 +49,7 @@ class EdgeReader:
         i: int = 0,
         N: int = 1,
     ) -> Tuple[EntityList, EntityList, torch.LongTensor]:
-        file_path = os.path.join(
-            self.path,
-            "edges_%d_%d.h5" % (lhsP + self.index_base, rhsP + self.index_base),
-        )
+        file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhsP, rhsP))
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as f:
             lhs = f['lhs']
@@ -69,11 +65,6 @@ class EdgeReader:
             rel = torch.from_numpy(rel[begin:end])
             lhsd = self.read_dynamic(f, 'lhsd', begin, end)
             rhsd = self.read_dynamic(f, 'rhsd', begin, end)
-
-            if self.index_base != 0:
-                lhs -= self.index_base
-                rhs -= self.index_base
-                rel -= self.index_base
 
             return (EntityList(lhs, lhsd),
                     EntityList(rhs, rhsd),
@@ -91,9 +82,6 @@ class EdgeReader:
         if offsets_field in f and data_field in f:
             offsets = torch.from_numpy(f[offsets_field][begin:end + 1]).long()
             data = torch.from_numpy(f[data_field][offsets[0]:offsets[-1]]).long()
-
-            if self.index_base != 0:
-                data -= self.index_base
 
             # careful! as of Pytorch 0.4, offsets[0] is a 0d tensor view, so
             # offsets -= offsets[0] will give the wrong result
@@ -244,7 +232,6 @@ class CheckpointManager:
         num_machines: int = 1,
         background: bool = False,
         partition_server_ranks: Optional[List[int]] = None,
-        index_base: Optional[int] = None,
     ) -> None:
         """
         Args:
@@ -284,16 +271,6 @@ class CheckpointManager:
         if partition_server_ranks is not None and len(partition_server_ranks) > 0:
             self.partition_client = PartitionClient(partition_server_ranks)
 
-        version_ext = ".%d" % self.checkpoint_version if self.checkpoint_version > 0 else ''
-        if index_base is not None:
-            self.index_base = index_base
-        elif os.path.exists(os.path.join(self.path, "METADATA_0.pt%s" % version_ext)):
-            self.index_base = 0
-        elif os.path.exists(os.path.join(self.path, "METADATA_1.pt%s" % version_ext)):
-            self.index_base = 1
-        else:
-            self.index_base = 0
-
     def record_marker(self, marker: int) -> None:
         assert self.background
         marker_key = "marker %d" % marker
@@ -330,10 +307,7 @@ class CheckpointManager:
 
     def _file_path(self, entity: EntityName, part: Partition) -> str:
         ext = self._version_ext((entity, part) in self.dirty)
-        file_path = os.path.join(
-            self.path, "%s_%d.pt%s" % (entity, part + self.index_base, ext)
-        )
-
+        file_path = os.path.join(self.path, "%s_%d.pt%s" % (entity, part, ext))
         return file_path
 
     def write(
@@ -422,14 +396,12 @@ class CheckpointManager:
         optim_state: OptimizerStateDict,
     ) -> None:
         ext = self._version_ext(True)
-        file_path = os.path.join(
-            self.path, "METADATA_%d.pt%s" % (self.index_base, ext))
+        file_path = os.path.join(self.path, "METADATA_0.pt%s" % ext)
         save_metadata(file_path, config, edge_path_count, pazz, model_state, optim_state)
 
     def read_metadata(self) -> MetadataType:
         ext = self._version_ext(False)
-        file_path = os.path.join(
-            self.path, "METADATA_%d.pt%s" % (self.index_base, ext))
+        file_path = os.path.join(self.path, "METADATA_0.pt%s" % ext)
         return load_metadata(file_path)
 
     def maybe_read_metadata(
@@ -458,8 +430,7 @@ class CheckpointManager:
                         self.partition_client.get(EntityName(entity), Partition(part))
                     vlog("Rank %d: saving %s %d to disk" % (self.rank, entity, part))
                     new_file_path = os.path.join(
-                        self.path, "%s_%d.pt%s" % (entity, part + self.index_base, new_ext)
-                    )
+                        self.path, "%s_%d.pt%s" % (entity, part, new_ext))
                     save_entity_partition(new_file_path, embs, optim_state)
 
     def switch_to_new_version(self) -> None:
@@ -475,8 +446,7 @@ class CheckpointManager:
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 old_file_path = os.path.join(
-                    self.path, "%s_%d.pt%s" % (entity, part + self.index_base, old_ext)
-                )
+                    self.path, "%s_%d.pt%s" % (entity, part, old_ext))
                 vlog("%d os.remove %s" % (self.rank, old_file_path))
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)

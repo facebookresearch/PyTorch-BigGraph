@@ -16,7 +16,7 @@ from torchbiggraph.config import ConfigSchema
 from torchbiggraph.eval import RankingEvaluator, EvalStats
 from torchbiggraph.fileio import EdgeReader
 from torchbiggraph.model import Margins, Scores
-from torchbiggraph.util import log, infer_input_index_base, Partition
+from torchbiggraph.util import log, Partition
 
 
 class FilteredRankingEvaluator(RankingEvaluator):
@@ -40,12 +40,11 @@ class FilteredRankingEvaluator(RankingEvaluator):
         if entity.num_partitions > 1:
             raise RuntimeError("Entity cannot be partitioned for filtered eval.")
 
-        index_base = infer_input_index_base(config)
         self.lhs_map: Dict[Tuple[int, int], List[int]] = defaultdict(list)
         self.rhs_map: Dict[Tuple[int, int], List[int]] = defaultdict(list)
         for path in filter_paths:
             log("Building links map from path %s" % path)
-            e_reader = EdgeReader(path, index_base=index_base)
+            e_reader = EdgeReader(path)
             # Assume unpartitioned.
             lhs, rhs, rel = e_reader.read(Partition(0), Partition(0))
             N = lhs.size(0)

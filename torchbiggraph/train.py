@@ -32,9 +32,8 @@ from .parameterserver import setup_parameter_server_thread, \
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, Side, \
-    init_process_group, infer_input_index_base, Bucket, Partition, EntityName, \
-    Rank, ModuleStateDict, OptimizerStateDict, split_almost_equally, \
-    round_up_to_nearest_multiple
+    init_process_group, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
+    OptimizerStateDict, split_almost_equally, round_up_to_nearest_multiple
 from .stats import Stats, stats
 
 
@@ -221,14 +220,12 @@ def train_and_report_stats(
         import pprint
         pprint.PrettyPrinter().pprint(config.to_dict())
 
-    index_base = infer_input_index_base(config)
-
     log("Loading entity counts...")
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.num_partitions):
-            name = "entity_count_%s_%d.pt" % (entity, part + index_base)
+            name = "entity_count_%s_%d.pt" % (entity, part)
             path = os.path.join(config.entity_path, name)
             entity_counts[entity].append(torch.load(path))
 
@@ -305,8 +302,7 @@ def train_and_report_stats(
             background=background_io,
             rank=rank,
             num_machines=config.num_machines,
-            partition_server_ranks=partition_server_ranks,
-            index_base=index_base)
+            partition_server_ranks=partition_server_ranks)
     if config.init_path is not None:
         loadpath_manager = CheckpointManager(config.init_path)
     else:
@@ -488,7 +484,7 @@ def train_and_report_stats(
     # Start of the main training loop.
     for (epoch, edge_path_idx), sub_iterations in groupby(iterations_left, lambda i: i[:2]):
         edge_path = config.edge_paths[edge_path_idx]
-        edge_reader = EdgeReader(edge_path, index_base=index_base)
+        edge_reader = EdgeReader(edge_path)
         for _, _, edge_chunk in sub_iterations:
             log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
                 (epoch + 1, config.num_epochs,
