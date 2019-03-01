@@ -11,6 +11,7 @@ import io
 import json
 import os
 import os.path
+import re
 import sys
 from abc import ABC, abstractmethod
 from collections import OrderedDict
@@ -100,8 +101,6 @@ class EdgeReader:
             )
 
 
-MetadataType = Tuple[ModuleStateDict, OptimizerStateDict]
-
 NP_VOID_DTYPE = np.dtype("V1")
 
 
@@ -166,8 +165,10 @@ class DatasetIO(io.RawIOBase):
 # Names and values of metadata attributes for the HDF5 files.
 FORMAT_VERSION_ATTR = "format_version"
 FORMAT_VERSION = 1
+STATE_DICT_KEY_ATTR = "state_dict_key"
 # Names of groups and datasets inside the HDF5 files.
 EMBEDDING_DATASET = "embeddings"
+MODEL_STATE_DICT_GROUP = "model"
 OPTIMIZER_STATE_DICT_DATASET = "optimizer/state_dict"
 
 
@@ -198,41 +199,84 @@ def save_optimizer_state_dict(
 def load_optimizer_state_dict(hf: h5py.File) -> Optional[OptimizerStateDict]:
     if OPTIMIZER_STATE_DICT_DATASET not in hf:
         return None
-    # No need to load into shared memory: load_state_dict will copy the tensors
-    # of the dictionary onto the ones that are already there, so the sharedness
-    # of the target is what matters, while the source (i.e., what we're loading
-    # here) will be discarded anyways.
     with io.BufferedReader(DatasetIO(hf[OPTIMIZER_STATE_DICT_DATASET])) as fobj:
         return torch.load(fobj)
 
 
-def _torch_save(
-    data: Any,
-    file_path: str,
-) -> None:
-    with open(file_path, 'wb') as f:
-        torch.save(data, f)
-        f.flush()
-        os.fsync(f.fileno())
+class OneWayMapping:
+
+    def __init__(self, src: str, dst: str, fields: List[str]) -> None:
+        self.src = re.compile(src.format(**{f: r"(?P<%s>[^.]+)" % f for f in fields}))
+        self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
+
+    def map(self, name: str) -> str:
+        match = self.src.fullmatch(name)
+        if match is None:
+            raise ValueError()
+        return match.expand(self.dst)
 
 
-def torch_load_shared(filename: str) -> Any:
-    """Perform torch.load, with copy-free load of FloatTensors into shared memory."""
+class Mapping:
 
-    # `torch.load` calls the `map_location` function on `storage` immediately
-    # after it is constructed (before it is written to). Since the storage is not
-    # accessed, no physical memory is allocated to the original until after it is moved to
-    # shared memory.
-    #
-    # I construct a new storage rather than calling `share_memory_()` because
-    # it avoids an extra copy of the uninitialized tensor into shared memory,
-    # and is thus almost 2x faster.
-    #
-    # Note: an alternative (if this stops working) is to temporarily override
-    # torch.FloatStorage.__new__ to point to _new_shared, then call `torch.load`.
+    def __init__(self, private: str, public: str, fields: List[str]) -> None:
+        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
+        self.public_to_private = OneWayMapping(public, private, fields)
 
-    return torch.load(filename,
-                      map_location=lambda storage, _: storage._new_shared(storage.size()))
+
+MODEL_STATE_DICT_MAPPINGS = [
+    Mapping(private="{side}_operators.{idx}.{param}",
+            public="relations/{idx}/operator/{side}/{param}",
+            fields=["idx", "side", "param"]),
+    Mapping(private="global_embs.emb_{type}",
+            public="entities/{type}/global_embedding",
+            fields=["type"]),
+]
+
+
+def save_model_state_dict(hf: h5py.File, state_dict: ModuleStateDict) -> None:
+    g = hf.create_group(MODEL_STATE_DICT_GROUP, track_order=True)
+    for private_key, tensor in state_dict.items():
+        if not isinstance(tensor, torch.Tensor):
+            raise RuntimeError("Isn't the state dict supposed to be "
+                               "a shallow key-to-tensor mapping?!")
+        for mapping in MODEL_STATE_DICT_MAPPINGS:
+            try:
+                public_key = mapping.private_to_public.map(private_key)
+            except ValueError:
+                continue
+            else:
+                break
+        else:
+            raise RuntimeError("Couldn't find a match for state dict key: %s"
+                               % private_key)
+
+        dataset = g.create_dataset(public_key, data=tensor.numpy())
+        dataset.attrs[STATE_DICT_KEY_ATTR] = private_key
+
+
+def load_model_state_dict(hf: h5py.File) -> ModuleStateDict:
+    if MODEL_STATE_DICT_GROUP not in hf:
+        return None
+    g = hf[MODEL_STATE_DICT_GROUP]
+    state_dict = ModuleStateDict({})
+
+    def process_dataset(public_key, dataset) -> None:
+        if not isinstance(dataset, h5py.Dataset):
+            return
+        for mapping in MODEL_STATE_DICT_MAPPINGS:
+            try:
+                private_key = mapping.public_to_private.map(public_key)
+            except ValueError:
+                continue
+            else:
+                break
+        else:
+            raise RuntimeError("Couldn't find a match for dataset name: %s"
+                               % public_key)
+        state_dict[private_key] = torch.from_numpy(dataset[...])
+
+    g.visititems(process_dataset)
+    return state_dict
 
 
 def save_entity_partition(
@@ -252,13 +296,20 @@ def save_entity_partition(
     vlog("Done saving to %s" % path)
 
 
-def save_metadata(
+def save_model(
     path: str,
     state_dict: ModuleStateDict,
-    optim_state: OptimizerStateDict,
+    optim_state: Optional[OptimizerStateDict],
+    metadata: Dict[str, Any],
 ) -> None:
     vlog("Saving to %s" % path)
-    _torch_save((state_dict, optim_state), path)
+    with h5py.File(path, "w") as hf:
+        hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
+        for k, v in metadata.items():
+            hf.attrs[k] = v
+        save_model_state_dict(hf, state_dict)
+        save_optimizer_state_dict(hf, optim_state)
+        hf.flush()
     vlog("Done saving to %s" % path)
 
 
@@ -282,9 +333,22 @@ def load_entity_partition(
     return embs, optim_state
 
 
-def load_metadata(path: str) -> MetadataType:
+def load_model(
+    path: str,
+) -> Tuple[ModuleStateDict, Optional[OptimizerStateDict]]:
     vlog("Loading from %s" % path)
-    state_dict, optim_state = torch_load_shared(path)
+    try:
+        with h5py.File(path, "r") as hf:
+            if hf.attrs[FORMAT_VERSION_ATTR] != FORMAT_VERSION:
+                raise RuntimeError("Version mismatch in model file %s")
+            state_dict = load_model_state_dict(hf)
+            optim_state = load_optimizer_state_dict(hf)
+    except OSError as err:
+        # h5py refuses to make it easy to figure out what went wrong. The errno
+        # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
+        if "errno = %d" % errno.ENOENT in str(err):
+            raise FileNotFoundError() from err
+        raise err
     vlog("Done loading from %s" % path)
     return state_dict, optim_state
 
@@ -556,25 +620,26 @@ class CheckpointManager:
             future_res = self.pool.apply_async(load_entity_partition, (file_path,))
             self.outstanding[file_path] = future_res
 
-    def write_metadata(
+    def write_model(
         self,
         model_state: ModuleStateDict,
-        optim_state: OptimizerStateDict,
+        optim_state: Optional[OptimizerStateDict],
     ) -> None:
         ext = self._version_ext(True)
-        file_path = os.path.join(self.path, "METADATA_0.pt%s" % ext)
-        save_metadata(file_path, model_state, optim_state)
+        file_path = os.path.join(self.path, "model%s.h5" % ext)
+        metadata = self.collect_metadata()
+        save_model(file_path, model_state, optim_state, metadata)
 
-    def read_metadata(self) -> MetadataType:
+    def read_model(self) -> Tuple[ModuleStateDict, Optional[OptimizerStateDict]]:
         ext = self._version_ext(False)
-        file_path = os.path.join(self.path, "METADATA_0.pt%s" % ext)
-        return load_metadata(file_path)
+        file_path = os.path.join(self.path, "model%s.h5" % ext)
+        return load_model(file_path)
 
-    def maybe_read_metadata(
+    def maybe_read_model(
         self,
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         try:
-            return self.read_metadata()
+            return self.read_model()
         except FileNotFoundError:
             return None, None
 

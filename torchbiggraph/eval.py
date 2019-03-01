@@ -207,7 +207,7 @@ def do_eval_and_report_stats(
 
     model = make_model(config)
 
-    state_dict, _ = checkpoint_manager.maybe_read_metadata()
+    state_dict, _ = checkpoint_manager.maybe_read_model()
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
 

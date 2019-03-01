@@ -131,13 +131,8 @@ def init_embeddings(
                 hf.attrs["format_version"] = 1
                 hf.create_dataset("embeddings",
                                   data=torch.randn(entity_count, config.dimension).numpy())
-    torch.save(
-        (
-            None,  # model state dict (without embeddings)
-            None,  # common optimizer state dict
-        ),
-        os.path.join(target, "METADATA_0.pt%s" % version_ext),
-    )
+    with h5py.File(os.path.join(target, "model%s.h5" % version_ext), "x") as hf:
+        hf.attrs["format_version"] = 1
 
 
 class TestFunctional(TestCase):
@@ -155,7 +150,7 @@ class TestFunctional(TestCase):
             self.assertEqual(json.load(tf), config.to_dict())
 
         self.assertTrue(os.path.exists(os.path.join(
-            config.checkpoint_path, "METADATA_0.pt%s" % version_ext)))
+            config.checkpoint_path, "model%s.h5" % version_ext)))
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
@@ -234,7 +229,7 @@ class TestFunctional(TestCase):
         self.assertCheckpointWritten(train_config, version=8)
         # Check we did resume the run, not start the whole thing anew.
         self.assertFalse(os.path.exists(
-            os.path.join(train_config.checkpoint_path, "METADATA_0.pt.6")))
+            os.path.join(train_config.checkpoint_path, "model.v6.h5")))
 
     def test_with_initial_value(self):
         entity_name = "e"

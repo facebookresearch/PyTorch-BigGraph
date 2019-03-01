@@ -140,13 +140,10 @@ by successive positive integers, starting from 1, and all the files belonging to
 a certain checkpoint have their names end with :file:`.{version}`.
 
 Each checkpoint contains a JSON dump of the config that was used to produce it
-stored in the :file:`config.json` file and a metadata file named :file:`METADATA_1.pt`, whose
-content is a PyTorch-flavored pickled tuple (as produced by :func:`torch.save`)
-with 5 elements: the configuration of the run (serialized as a dictionary), two
-integers (encoding the epoch, the edge path index and the edge chunk index), the
-state dictionary of the model (minus the entity embeddings) and the state of the
-model optimizer. Sifting through the model's state dict is currently the only way
-to retrieve the relation operator parameters.
+stored in the :file:`config.json` file and a metadata file named :file:`model.h5`,
+which is a HDF5 file containing the parameters of the model (minus the entity
+embeddings) inside the ``model`` group, and the state of the model optimizer
+inside the ``optimizer/state_dict`` dataset.
 
 Then, for each entity type and each of its partitions, there is a file
 :file:`embeddings_{type}_{part}.h5` (where ``type`` is the type's name and ``part``

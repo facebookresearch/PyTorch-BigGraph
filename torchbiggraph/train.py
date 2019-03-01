@@ -412,10 +412,10 @@ def train_and_report_stats(
         None: make_optimizer(model.parameters(), False)
     }
 
-    state_dict, optim_state = checkpoint_manager.maybe_read_metadata()
+    state_dict, optim_state = checkpoint_manager.maybe_read_model()
 
     if state_dict is None and loadpath_manager is not None:
-        state_dict, optim_state = loadpath_manager.maybe_read_metadata()
+        state_dict, optim_state = loadpath_manager.maybe_read_model()
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
     if optim_state is not None:
@@ -717,7 +717,7 @@ def train_and_report_stats(
                     sanitized_state_dict[k] = v
 
                 log("Writing metadata...")
-                checkpoint_manager.write_metadata(
+                checkpoint_manager.write_model(
                     sanitized_state_dict,
                     OptimizerStateDict(optimizers[None].state_dict()),
                 )
