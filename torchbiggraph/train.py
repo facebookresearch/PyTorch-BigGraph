@@ -12,7 +12,7 @@ import random
 import sys
 import time
 from enum import Enum
-from itertools import chain, groupby, islice, product
+from itertools import chain, groupby
 from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 import attr
@@ -208,6 +208,47 @@ def init_embs(
 RANK_ZERO = Rank(0)
 
 
+class IterationManager:
+
+    def __init__(
+        self,
+        num_epochs: int,
+        edge_paths: List[str],
+        num_edge_chunks: int,
+        *,
+        iteration_idx: int = 0,
+    ) -> None:
+        self.num_epochs = num_epochs
+        self.edge_paths = edge_paths
+        self.num_edge_chunks = num_edge_chunks
+        self.iteration_idx = iteration_idx
+
+    @property
+    def epoch_idx(self) -> int:
+        return self.iteration_idx // self.num_edge_chunks // self.num_edge_paths
+
+    @property
+    def num_edge_paths(self) -> int:
+        return len(self.edge_paths)
+
+    @property
+    def edge_path_idx(self) -> int:
+        return self.iteration_idx // self.num_edge_chunks % self.num_edge_paths
+
+    @property
+    def edge_path(self) -> str:
+        return self.edge_paths[self.edge_path_idx]
+
+    @property
+    def edge_chunk_idx(self) -> int:
+        return self.iteration_idx % self.num_edge_chunks
+
+    def remaining_iterations(self) -> Iterable[Tuple[int, int, int]]:
+        while self.epoch_idx < self.num_epochs:
+            yield self.epoch_idx, self.edge_path_idx, self.edge_chunk_idx
+            self.iteration_idx += 1
+
+
 def train_and_report_stats(
     config: ConfigSchema,
     rank: Rank = RANK_ZERO,
@@ -299,11 +340,13 @@ def train_and_report_stats(
     # background_io is only supported in single-machine mode
     background_io = config.background_io and config.num_machines == 1
 
-    checkpoint_manager = CheckpointManager(config.checkpoint_path,
-            background=background_io,
-            rank=rank,
-            num_machines=config.num_machines,
-            partition_server_ranks=partition_server_ranks)
+    checkpoint_manager = CheckpointManager(
+        config.checkpoint_path,
+        background=background_io,
+        rank=rank,
+        num_machines=config.num_machines,
+        partition_server_ranks=partition_server_ranks,
+    )
     checkpoint_manager.write_config(config)
     if config.init_path is not None:
         loadpath_manager = CheckpointManager(config.init_path)
@@ -476,19 +519,18 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
-    iterations_left = islice(product(range(config.num_epochs),
-                                     range(len(config.edge_paths)),
-                                     range(config.num_edge_chunks)),
-                             checkpoint_manager.checkpoint_version, None)
-    for (epoch, edge_path_idx), sub_iterations in groupby(iterations_left, lambda i: i[:2]):
-        edge_path = config.edge_paths[edge_path_idx]
-        edge_reader = EdgeReader(edge_path)
-        for _, _, edge_chunk in sub_iterations:
+    iteration_manager = IterationManager(
+        config.num_epochs, config.edge_paths, config.num_edge_chunks,
+        iteration_idx=checkpoint_manager.checkpoint_version)
+    for (epoch_idx, edge_path_idx), sub_iterations \
+            in groupby(iteration_manager.remaining_iterations(), lambda i: i[:2]):
+        edge_reader = EdgeReader(iteration_manager.edge_path)
+        for _, _, edge_chunk_idx in sub_iterations:
             log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
-                (epoch + 1, config.num_epochs,
-                 edge_path_idx + 1, len(config.edge_paths),
-                 edge_chunk + 1, config.num_edge_chunks))
-            log("edge_path= %s" % edge_path)
+                (epoch_idx + 1, iteration_manager.num_epochs,
+                 edge_path_idx + 1, iteration_manager.num_edge_paths,
+                 edge_chunk_idx + 1, iteration_manager.num_edge_chunks))
+            log("edge_path= %s" % iteration_manager.edge_path)
 
             buckets = create_ordered_buckets(
                 nparts_lhs=nparts_lhs,
@@ -513,7 +555,7 @@ def train_and_report_stats(
                                           lock_rhs=len(rhs_partitioned_types) > 0,
                                           init_tree=config.distributed_tree_init_order
                                                     and edge_path_idx == 0
-                                                    and epoch == 0)
+                                                    and epoch_idx == 0)
                 td.barrier(group=barrier_group)
 
             # Single-machine case: partition_count keeps track of how
@@ -551,12 +593,8 @@ def train_and_report_stats(
 
                 io_bytes += swap_partitioned_embeddings(oldP, curP)
 
-                current_index = (
-                    ((epoch * len(config.edge_paths) + edge_path_idx)
-                     * config.num_edge_chunks + edge_chunk + 1)
-                    * total_buckets
-                    - remaining
-                )
+                current_index = \
+                    (iteration_manager.iteration_idx + 1) * total_buckets - remaining
 
                 if partition_count < total_buckets - 1 and background_io:
                     assert config.num_machines == 1
@@ -574,7 +612,7 @@ def train_and_report_stats(
 
                 log_status("Loading edges")
                 lhs, rhs, rel = edge_reader.read(
-                    curP.lhs, curP.rhs, edge_chunk, config.num_edge_chunks)
+                    curP.lhs, curP.rhs, edge_chunk_idx, config.num_edge_chunks)
                 N = rel.size(0)
                 # this might be off in the case of tensorlist
                 io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
@@ -583,7 +621,7 @@ def train_and_report_stats(
                 # Fix a seed to get the same permutation every time; have it
                 # depend on all and only what affects the set of edges.
                 g = torch.Generator()
-                g.manual_seed(hash((edge_path_idx, edge_chunk, curP.lhs, curP.rhs)))
+                g.manual_seed(hash((edge_path_idx, edge_chunk_idx, curP.lhs, curP.rhs)))
 
                 num_eval_edges = int(N * config.eval_fraction)
                 if num_eval_edges > 0:
@@ -643,7 +681,7 @@ def train_and_report_stats(
 
             # Write metadata: for multiple machines, write from rank-0
             log("Finished epoch %d path %d pass %d; checkpointing global state."
-                % (epoch + 1, edge_path_idx + 1, edge_chunk + 1))
+                % (epoch_idx + 1, edge_path_idx + 1, edge_chunk_idx + 1))
             log("My rank: %d" % rank)
             if rank == 0:
                 for entity, econfig in config.entities.items():
