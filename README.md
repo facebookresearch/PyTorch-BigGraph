@@ -62,7 +62,7 @@ NOTE: If your edgelist is too large or not amenable to a text input format, you 
 
 2. Convert your data into PBG's input format.
 ```
-$ torchbiggraph_data_processor my_config.py ... # FIXME
+$ torchbiggraph_import_from_tsv my_config.py ... # FIXME
 ```
 
 3. Train a model
