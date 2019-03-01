@@ -43,7 +43,7 @@ def make_tsv(checkpoint, dictfile, outfile):
 
     print('Load model check point.')
     checkpoint_manager = CheckpointManager(checkpoint)
-    config, _, _, state_dict, _ = checkpoint_manager.read_metadata()
+    config, state_dict, _ = checkpoint_manager.read_metadata()
 
     model = make_model(config)
     if state_dict is not None:

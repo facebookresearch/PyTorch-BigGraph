@@ -96,7 +96,7 @@ class EdgeReader:
 
 
 EntityPartitionType = Tuple[torch.FloatTensor, OptimizerStateDict]
-MetadataType = Tuple[ConfigSchema, int, int, ModuleStateDict, OptimizerStateDict]
+MetadataType = Tuple[ConfigSchema, ModuleStateDict, OptimizerStateDict]
 
 
 def _torch_save(
@@ -141,13 +141,11 @@ def save_entity_partition(
 def save_metadata(
     path: str,
     config: ConfigSchema,
-    edge_path_count: int,
-    pazz: int,
     state_dict: ModuleStateDict,
     optim_state: OptimizerStateDict,
 ) -> None:
     vlog("Saving to %s" % path)
-    _torch_save((config.to_dict(), edge_path_count, pazz, state_dict, optim_state), path)
+    _torch_save((config.to_dict(), state_dict, optim_state), path)
     vlog("Done saving to %s" % path)
 
 
@@ -160,10 +158,10 @@ def load_entity_partition(path: str) -> EntityPartitionType:
 
 def load_metadata(path: str) -> MetadataType:
     vlog("Loading from %s" % path)
-    config_dict, edge_path_count, pazz, state_dict, optim_state = torch_load_shared(path)
+    config_dict, state_dict, optim_state = torch_load_shared(path)
     vlog("Done loading from %s" % path)
     config = ConfigSchema.from_dict(config_dict)
-    return config, edge_path_count, pazz, state_dict, optim_state
+    return config, state_dict, optim_state
 
 
 def noop() -> None:
@@ -389,14 +387,12 @@ class CheckpointManager:
     def write_metadata(
         self,
         config: ConfigSchema,
-        edge_path_count: int,
-        pazz: int,
         model_state: ModuleStateDict,
         optim_state: OptimizerStateDict,
     ) -> None:
         ext = self._version_ext(True)
         file_path = os.path.join(self.path, "METADATA_0.pt%s" % ext)
-        save_metadata(file_path, config, edge_path_count, pazz, model_state, optim_state)
+        save_metadata(file_path, config, model_state, optim_state)
 
     def read_metadata(self) -> MetadataType:
         ext = self._version_ext(False)
@@ -405,11 +401,11 @@ class CheckpointManager:
 
     def maybe_read_metadata(
         self,
-    ) -> Tuple[Optional[ConfigSchema], int, int, Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
+    ) -> Tuple[Optional[ConfigSchema], Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         try:
             return self.read_metadata()
         except FileNotFoundError:
-            return None, 0, -1, None, None
+            return None, None, None
 
     def _write_version_file(self, version: int) -> None:
         with open(os.path.join(self.path, VERSION_FILE), "wt") as tf:

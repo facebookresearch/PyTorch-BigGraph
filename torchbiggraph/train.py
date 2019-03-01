@@ -349,18 +349,10 @@ def train_and_report_stats(
         None: make_optimizer(model.parameters(), False)
     }
 
-    _, edge_path_count, echunk, state_dict, optim_state = \
-        checkpoint_manager.maybe_read_metadata()
-    iteration_idx = edge_path_count * config.num_edge_chunks + echunk
-    del edge_path_count
-    del echunk
-    iterations_left = islice(product(range(config.num_epochs),
-                                     range(len(config.edge_paths)),
-                                     range(config.num_edge_chunks)),
-                             iteration_idx + 1, None)
+    _, state_dict, optim_state = checkpoint_manager.maybe_read_metadata()
 
     if state_dict is None and loadpath_manager is not None:
-        _, _, _, state_dict, optim_state = loadpath_manager.maybe_read_metadata()
+        _, state_dict, optim_state = loadpath_manager.maybe_read_metadata()
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
     if optim_state is not None:
@@ -483,6 +475,10 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
+    iterations_left = islice(product(range(config.num_epochs),
+                                     range(len(config.edge_paths)),
+                                     range(config.num_edge_chunks)),
+                             checkpoint_manager.checkpoint_version, None)
     for (epoch, edge_path_idx), sub_iterations in groupby(iterations_left, lambda i: i[:2]):
         edge_path = config.edge_paths[edge_path_idx]
         edge_reader = EdgeReader(edge_path)
@@ -668,8 +664,6 @@ def train_and_report_stats(
                 log("Writing metadata...")
                 checkpoint_manager.write_metadata(
                     config,
-                    epoch * len(config.edge_paths) + edge_path_idx,
-                    edge_chunk,
                     sanitized_state_dict,
                     OptimizerStateDict(optimizers[None].state_dict()),
                 )

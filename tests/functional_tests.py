@@ -135,8 +135,6 @@ def init_embeddings(
     torch.save(
         (
             config.to_dict(),
-            (version - 1) // config.num_edge_chunks,
-            (version - 1) % config.num_edge_chunks,
             None,  # model state dict (without embeddings)
             None,  # common optimizer state dict
         ),
@@ -155,12 +153,10 @@ class TestFunctional(TestCase):
             self.assertEqual(version, int(tf.read().strip()))
 
         version_ext = ".%d" % version if version > 0 else ""
-        stored_config, epoch, edge_chunk_idx, _, _ = torch.load(
+        stored_config, _, _ = torch.load(
             os.path.join(config.checkpoint_path, "METADATA_0.pt%s" % version_ext)
         )
         self.assertEqual(config.to_dict(), stored_config)
-        self.assertEqual(epoch, (version - 1) // config.num_edge_chunks)
-        self.assertEqual(edge_chunk_idx, (version - 1) % config.num_edge_chunks)
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
