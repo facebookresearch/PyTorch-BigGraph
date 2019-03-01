@@ -225,9 +225,10 @@ def train_and_report_stats(
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.num_partitions):
-            name = "entity_count_%s_%d.pt" % (entity, part)
-            path = os.path.join(config.entity_path, name)
-            entity_counts[entity].append(torch.load(path))
+            with open(os.path.join(
+                config.entity_path, "entity_count_%s_%d.txt" % (entity, part)
+            ), "rt") as tf:
+                entity_counts[entity].append(int(tf.read().strip()))
 
     partition_server_ranks = None
     if config.num_machines > 1:

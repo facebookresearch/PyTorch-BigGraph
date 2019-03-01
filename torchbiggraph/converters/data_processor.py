@@ -111,13 +111,10 @@ def generate_entity_size_file(entities, entity_path, entity_dict):
         part_size = entity_dict[entity].part_size()
 
         for i in range(npart):
-            torch.save(
-                part_size,
-                os.path.join(
-                    entity_path,
-                    'entity_count_%s_%d.pt' % (entity, i)
-                )
-            )
+            with open(os.path.join(
+                entity_path, "entity_count_%s_%d.txt" % (entity, i)
+            ), "wt") as tf:
+                tf.write("%d" % part_size)
 
     return
 

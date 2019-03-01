@@ -75,10 +75,9 @@ Entities
 
 The only information that needs to be provided about entities is how many there
 are in each entity type's partition. This is done by putting, in a certain directory,
-a file named :file:`entity_count_{type}_{part}.pt` for each entity type identified
-by ``type`` and each partition ``part``. These files must contain a
-PyTorch-flavored pickled integer (i.e., the format produced by :func:`torch.save`),
-which is the number of entities in that partition. The directory where all these
+a file named :file:`entity_count_{type}_{part}.txt` for each entity type identified
+by ``type`` and each partition ``part``. These files must contain an ASCII-encoded
+integer, which is the number of entities in that partition. The directory where all these
 files reside must be specified as the ``entity_path`` key of the configuration file.
 
 It is possible to provide an initial value for the embeddings, by specifying a

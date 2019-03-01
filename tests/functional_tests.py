@@ -64,9 +64,10 @@ def generate_dataset(
             ).sample().long().tolist(),
         )
         for partition, embedding in enumerate(embeddings[entity_name]):
-            torch.save(len(embedding), os.path.join(
-                entity_path.name, "entity_count_%s_%d.pt" % (entity_name, partition)
-            ))
+            with open(os.path.join(
+                entity_path.name, "entity_count_%s_%d.txt" % (entity_name, partition)
+            ), "xt") as tf:
+                tf.write("%d" % len(embedding))
 
     num_lhs_partitions = \
         broadcast_nums(len(embeddings[relation.lhs]) for relation in config.relations)
@@ -116,10 +117,11 @@ def init_embeddings(
     version_ext = ".%d" % version if version > 0 else ""
     for entity_name, entity in config.entities.items():
         for partition in range(entity.num_partitions):
-            entity_count = torch.load(os.path.join(
+            with open(os.path.join(
                 config.entity_path,
-                "entity_count_%s_%d.pt" % (entity_name, partition),
-            ))
+                "entity_count_%s_%d.txt" % (entity_name, partition),
+            ), "rt") as tf:
+                entity_count = int(tf.read().strip())
             torch.save(
                 (
                     torch.randn(entity_count, config.dimension),
@@ -162,10 +164,11 @@ class TestFunctional(TestCase):
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
-                entity_count = torch.load(os.path.join(
+                with open(os.path.join(
                     config.entity_path,
-                    "entity_count_%s_%d.pt" % (entity_name, partition),
-                ))
+                    "entity_count_%s_%d.txt" % (entity_name, partition),
+                ), "rt") as tf:
+                    entity_count = int(tf.read().strip())
                 embedding, _ = torch.load(os.path.join(
                     config.checkpoint_path,
                     "%s_%d.pt%s" % (entity_name, partition, version_ext),
