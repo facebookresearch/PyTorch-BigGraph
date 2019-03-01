@@ -25,7 +25,7 @@ from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
-    ConfigMetadataProvider
+    ConfigMetadataProvider, maybe_old_entity_path
 from .lockserver import setup_lock_server
 from .model import make_model, override_model, MultiRelationEmbedder
 from .parameterserver import setup_parameter_server_thread, \
@@ -274,6 +274,9 @@ def train_and_report_stats(
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     log("Loading entity counts...")
+    if maybe_old_entity_path(config.entity_path):
+        log("WARNING: It may be that your entity path contains files using the "
+            "old format. See D14241362 for how to update them.")
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []

@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
 from .config import LossFunction, Operator, Comparator, EntitySchema, RelationSchema, ConfigSchema
+from .fileio import maybe_old_entity_path
 from .util import log, Side
 
 
@@ -1136,6 +1137,9 @@ def make_model(
                 "Dynamic relations are enabled, so there should only be one "
                 "entry in config.relations with config for all relations."
             )
+        if maybe_old_entity_path(config.entity_path):
+            log("WARNING: It may be that your entity path contains files using "
+                "the old format. See D14241362 for how to update them.")
         try:
             with open(os.path.join(config.entity_path, "dynamic_rel_count.txt"), "rt") as tf:
                 num_dynamic_rels = int(tf.read().strip())
