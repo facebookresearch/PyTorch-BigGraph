@@ -139,7 +139,8 @@ given as the ``checkpoint_path`` parameter in the configuration. Checkpoints are
 by successive positive integers, starting from 1, and all the files belonging to
 a certain checkpoint have their names end with :file:`.{version}`.
 
-Each checkpoint contains a metadata file named :file:`METADATA_1.pt`, whose
+Each checkpoint contains a JSON dump of the config that was used to produce it
+stored in the :file:`config.json` file and a metadata file named :file:`METADATA_1.pt`, whose
 content is a PyTorch-flavored pickled tuple (as produced by :func:`torch.save`)
 with 5 elements: the configuration of the run (serialized as a dictionary), two
 integers (encoding the epoch, the edge path index and the edge chunk index), the

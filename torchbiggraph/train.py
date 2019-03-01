@@ -304,6 +304,7 @@ def train_and_report_stats(
             rank=rank,
             num_machines=config.num_machines,
             partition_server_ranks=partition_server_ranks)
+    checkpoint_manager.write_config(config)
     if config.init_path is not None:
         loadpath_manager = CheckpointManager(config.init_path)
     else:
@@ -349,10 +350,10 @@ def train_and_report_stats(
         None: make_optimizer(model.parameters(), False)
     }
 
-    _, state_dict, optim_state = checkpoint_manager.maybe_read_metadata()
+    state_dict, optim_state = checkpoint_manager.maybe_read_metadata()
 
     if state_dict is None and loadpath_manager is not None:
-        _, state_dict, optim_state = loadpath_manager.maybe_read_metadata()
+        state_dict, optim_state = loadpath_manager.maybe_read_metadata()
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
     if optim_state is not None:
@@ -663,7 +664,6 @@ def train_and_report_stats(
 
                 log("Writing metadata...")
                 checkpoint_manager.write_metadata(
-                    config,
                     sanitized_state_dict,
                     OptimizerStateDict(optimizers[None].state_dict()),
                 )

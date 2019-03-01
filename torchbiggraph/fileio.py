@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 import os
 import os.path
 import sys
@@ -96,7 +97,7 @@ class EdgeReader:
 
 
 EntityPartitionType = Tuple[torch.FloatTensor, OptimizerStateDict]
-MetadataType = Tuple[ConfigSchema, ModuleStateDict, OptimizerStateDict]
+MetadataType = Tuple[ModuleStateDict, OptimizerStateDict]
 
 
 def _torch_save(
@@ -140,12 +141,11 @@ def save_entity_partition(
 
 def save_metadata(
     path: str,
-    config: ConfigSchema,
     state_dict: ModuleStateDict,
     optim_state: OptimizerStateDict,
 ) -> None:
     vlog("Saving to %s" % path)
-    _torch_save((config.to_dict(), state_dict, optim_state), path)
+    _torch_save((state_dict, optim_state), path)
     vlog("Done saving to %s" % path)
 
 
@@ -158,10 +158,9 @@ def load_entity_partition(path: str) -> EntityPartitionType:
 
 def load_metadata(path: str) -> MetadataType:
     vlog("Loading from %s" % path)
-    config_dict, state_dict, optim_state = torch_load_shared(path)
+    state_dict, optim_state = torch_load_shared(path)
     vlog("Done loading from %s" % path)
-    config = ConfigSchema.from_dict(config_dict)
-    return config, state_dict, optim_state
+    return state_dict, optim_state
 
 
 def noop() -> None:
@@ -169,6 +168,7 @@ def noop() -> None:
 
 
 VERSION_FILE = "checkpoint_version.txt"
+CONFIG_FILE = "config.json"
 
 
 class PartitionClient:
@@ -386,13 +386,12 @@ class CheckpointManager:
 
     def write_metadata(
         self,
-        config: ConfigSchema,
         model_state: ModuleStateDict,
         optim_state: OptimizerStateDict,
     ) -> None:
         ext = self._version_ext(True)
         file_path = os.path.join(self.path, "METADATA_0.pt%s" % ext)
-        save_metadata(file_path, config, model_state, optim_state)
+        save_metadata(file_path, model_state, optim_state)
 
     def read_metadata(self) -> MetadataType:
         ext = self._version_ext(False)
@@ -401,11 +400,19 @@ class CheckpointManager:
 
     def maybe_read_metadata(
         self,
-    ) -> Tuple[Optional[ConfigSchema], Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
+    ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         try:
             return self.read_metadata()
         except FileNotFoundError:
-            return None, None, None
+            return None, None
+
+    def write_config(self, config: ConfigSchema) -> None:
+        with open(os.path.join(self.path, CONFIG_FILE), "wt") as tf:
+            json.dump(config.to_dict(), tf, indent=4)
+
+    def read_config(self) -> ConfigSchema:
+        with open(os.path.join(self.path, CONFIG_FILE), "rt") as tf:
+            return ConfigSchema.from_dict(json.load(tf))
 
     def _write_version_file(self, version: int) -> None:
         with open(os.path.join(self.path, VERSION_FILE), "wt") as tf:

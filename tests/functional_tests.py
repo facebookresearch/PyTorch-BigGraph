@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 import os.path
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, NamedTuple, Tuple
@@ -134,7 +135,6 @@ def init_embeddings(
             )
     torch.save(
         (
-            config.to_dict(),
             None,  # model state dict (without embeddings)
             None,  # common optimizer state dict
         ),
@@ -153,10 +153,11 @@ class TestFunctional(TestCase):
             self.assertEqual(version, int(tf.read().strip()))
 
         version_ext = ".%d" % version if version > 0 else ""
-        stored_config, _, _ = torch.load(
-            os.path.join(config.checkpoint_path, "METADATA_0.pt%s" % version_ext)
-        )
-        self.assertEqual(config.to_dict(), stored_config)
+        with open(os.path.join(config.checkpoint_path, "config.json"), "rt") as tf:
+            self.assertEqual(json.load(tf), config.to_dict())
+
+        self.assertTrue(os.path.exists(os.path.join(
+            config.checkpoint_path, "METADATA_0.pt%s" % version_ext)))
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
