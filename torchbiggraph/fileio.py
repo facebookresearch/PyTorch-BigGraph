@@ -421,15 +421,15 @@ class CheckpointManager:
     """Reads and writes checkpoint data to/from disk.
 
     Checkpoints are saved as HDF5 files. The embeddings for an entity partition
-    are stored in the `embeddings_<entity>_<partition>.<version>.h5` file.
+    are stored in the `embeddings_<entity>_<partition>.v<version>.h5` file.
 
-        hf = h5py.File("embeddings_foo_0.123.h5", "r")
+        hf = h5py.File("embeddings_foo_0.v123.h5", "r")
         embedding_of_entity_42 = hf["embeddings"][42, :]
 
     The parameters that are not specific to a certain entity (i.e., all but the
-    embeddings) are stored in a `model.<version>.h5` file.
+    embeddings) are stored in a `model.v<version>.h5` file.
 
-        hf = h5py.File("model.123.h5", "r")
+        hf = h5py.File("model.v123.h5", "r")
         keys = []
         hf["model"].visit(keys.append)
         print(keys)
@@ -532,15 +532,15 @@ class CheckpointManager:
             if sync_path is not None and path == sync_path:
                 break
 
-    def _version_ext(self, dirty: bool = False) -> str:
+    def _version(self, dirty: bool = False) -> int:
         version = self.checkpoint_version
         if dirty:
             version += 1
-        return ('.%d' % version) if version > 0 else ''
+        return version
 
     def _file_path(self, entity: EntityName, part: Partition) -> str:
-        ext = self._version_ext((entity, part) in self.dirty)
-        file_path = os.path.join(self.path, "embeddings_%s_%d%s.h5" % (entity, part, ext))
+        version = self._version((entity, part) in self.dirty)
+        file_path = os.path.join(self.path, "embeddings_%s_%d.v%d.h5" % (entity, part, version))
         return file_path
 
     def write(
@@ -627,14 +627,14 @@ class CheckpointManager:
         model_state: ModuleStateDict,
         optim_state: Optional[OptimizerStateDict],
     ) -> None:
-        ext = self._version_ext(True)
-        file_path = os.path.join(self.path, "model%s.h5" % ext)
+        version = self._version(True)
+        file_path = os.path.join(self.path, "model.v%d.h5" % version)
         metadata = self.collect_metadata()
         save_model(file_path, model_state, optim_state, metadata)
 
     def read_model(self) -> Tuple[ModuleStateDict, Optional[OptimizerStateDict]]:
-        ext = self._version_ext(False)
-        file_path = os.path.join(self.path, "model%s.h5" % ext)
+        version = self._version(False)
+        file_path = os.path.join(self.path, "model.v%d.h5" % version)
         return load_model(file_path)
 
     def maybe_read_model(
@@ -663,7 +663,7 @@ class CheckpointManager:
         if self.background:
             self._sync()
         metadata = self.collect_metadata()
-        new_ext = self._version_ext(True)
+        new_version = self._version(True)
         if self.partition_client is not None:
             for entity, econf in config.entities.items():
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
@@ -672,7 +672,7 @@ class CheckpointManager:
                         self.partition_client.get(EntityName(entity), Partition(part))
                     vlog("Rank %d: saving %s %d to disk" % (self.rank, entity, part))
                     new_file_path = os.path.join(
-                        self.path, "embeddings_%s_%d%s.h5" % (entity, part, new_ext))
+                        self.path, "embeddings_%s_%d.v%d.h5" % (entity, part, new_version))
                     save_entity_partition(new_file_path, embs, optim_state, metadata)
 
     def switch_to_new_version(self) -> None:
@@ -684,11 +684,11 @@ class CheckpointManager:
             vlog("Rank 0: done")
 
     def remove_old_version(self, config: ConfigSchema) -> None:
-        old_ext = '.%d' % (self.checkpoint_version - 1)
+        old_version = self.checkpoint_version - 1
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 old_file_path = os.path.join(
-                    self.path, "embeddings_%s_%d%s.h5" % (entity, part, old_ext))
+                    self.path, "embeddings_%s_%d.v%d.h5" % (entity, part, old_version))
                 vlog("%d os.remove %s" % (self.rank, old_file_path))
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)

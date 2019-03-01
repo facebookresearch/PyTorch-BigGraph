@@ -117,7 +117,6 @@ def init_embeddings(
 ):
     with open(os.path.join(target, "checkpoint_version.txt"), "xt") as tf:
         tf.write("%d" % version)
-    version_ext = ".%d" % version if version > 0 else ""
     for entity_name, entity in config.entities.items():
         for partition in range(entity.num_partitions):
             with open(os.path.join(
@@ -127,12 +126,12 @@ def init_embeddings(
                 entity_count = int(tf.read().strip())
             with h5py.File(os.path.join(
                 target,
-                "embeddings_%s_%d%s.h5" % (entity_name, partition, version_ext),
+                "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
             ), "x") as hf:
                 hf.attrs["format_version"] = 1
                 hf.create_dataset("embeddings",
                                   data=torch.randn(entity_count, config.dimension).numpy())
-    with h5py.File(os.path.join(target, "model%s.h5" % version_ext), "x") as hf:
+    with h5py.File(os.path.join(target, "model.v%d.h5" % version), "x") as hf:
         hf.attrs["format_version"] = 1
 
 
@@ -146,12 +145,11 @@ class TestFunctional(TestCase):
         with open(os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt") as tf:
             self.assertEqual(version, int(tf.read().strip()))
 
-        version_ext = ".%d" % version if version > 0 else ""
         with open(os.path.join(config.checkpoint_path, "config.json"), "rt") as tf:
             self.assertEqual(json.load(tf), config.to_dict())
 
         self.assertTrue(os.path.exists(os.path.join(
-            config.checkpoint_path, "model%s.h5" % version_ext)))
+            config.checkpoint_path, "model.v%d.h5" % version)))
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
@@ -162,7 +160,7 @@ class TestFunctional(TestCase):
                     entity_count = int(tf.read().strip())
                 with h5py.File(os.path.join(
                     config.checkpoint_path,
-                    "embeddings_%s_%d%s.h5" % (entity_name, partition, version_ext),
+                    "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
                 ), "r") as hf:
                     embeddings_dataset = hf["embeddings"]
                     self.assertEqual(embeddings_dataset.dtype, np.float32)
