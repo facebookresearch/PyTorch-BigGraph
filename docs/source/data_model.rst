@@ -149,13 +149,12 @@ model optimizer. Sifting through the model's state dict is currently the only wa
 to retrieve the relation operator parameters.
 
 Then, for each entity type and each of its partitions, there is a file
-:file:`{type}_{part}.pt` (where ``type`` is the type's name and ``part``
-is the 1-based index of the partition), which is again a PyTorch-flavored
-pickled tuple, with 2 elements. The first element is the embeddings of the
-entities as a two-dimensional PyTorch tensor (possibly wrapped in a
-:class:`torch.nn.Parameter`) with the first dimension being the number of
-entities and the second being the dimension of the embedding. The second element
-is the state of the optimizer for those entities.
+:file:`embeddings_{type}_{part}.h5` (where ``type`` is the type's name and ``part``
+is the 0-based index of the partition), which is a HDF5 file with two datasets.
+One two-dimensional dataset, called ``embeddings``, contains the embeddings of
+the entities, with the first dimension being the number of entities and the
+second being the dimension of the embedding. A second binary one-dimensional
+dataset is the pickled state dictionary of the optimizer for those entities.
 
 An additional file in the same directory, called :file:`checkpoint_version.txt`,
 contains the latest checkpoint version, as an ASCII-encoded decimal number.

@@ -13,7 +13,7 @@ import sys
 import time
 from enum import Enum
 from itertools import chain, groupby
-from typing import Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 import attr
 import torch
@@ -24,7 +24,8 @@ from torch.optim import Optimizer, Adagrad
 from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
-from .fileio import CheckpointManager, EdgeReader, EntityPartitionType
+from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
+    ConfigMetadataProvider
 from .lockserver import setup_lock_server
 from .model import make_model, override_model, MultiRelationEmbedder
 from .parameterserver import setup_parameter_server_thread, \
@@ -208,7 +209,7 @@ def init_embs(
 RANK_ZERO = Rank(0)
 
 
-class IterationManager:
+class IterationManager(MetadataProvider):
 
     def __init__(
         self,
@@ -247,6 +248,17 @@ class IterationManager:
         while self.epoch_idx < self.num_epochs:
             yield self.epoch_idx, self.edge_path_idx, self.edge_chunk_idx
             self.iteration_idx += 1
+
+    def get_checkpoint_metadata(self) -> Dict[str, Any]:
+        return {
+            "iteration/num_epochs": self.num_epochs,
+            "iteration/epoch_idx": self.epoch_idx,
+            "iteration/num_edge_paths": self.num_edge_paths,
+            "iteration/edge_path_idx": self.edge_path_idx,
+            "iteration/edge_path": self.edge_path,
+            "iteration/num_edge_chunks": self.num_edge_chunks,
+            "iteration/edge_chunk_idx": self.edge_chunk_idx,
+        }
 
 
 def train_and_report_stats(
@@ -347,7 +359,14 @@ def train_and_report_stats(
         num_machines=config.num_machines,
         partition_server_ranks=partition_server_ranks,
     )
+    checkpoint_manager.register_metadata_provider(ConfigMetadataProvider(config))
     checkpoint_manager.write_config(config)
+
+    iteration_manager = IterationManager(
+        config.num_epochs, config.edge_paths, config.num_edge_chunks,
+        iteration_idx=checkpoint_manager.checkpoint_version)
+    checkpoint_manager.register_metadata_provider(iteration_manager)
+
     if config.init_path is not None:
         loadpath_manager = CheckpointManager(config.init_path)
     else:
@@ -358,7 +377,7 @@ def train_and_report_stats(
         part: Partition,
         strict: bool = False,
         force_dirty: bool = False,
-    ) -> EntityPartitionType:
+    ) -> Tuple[torch.FloatTensor, OptimizerStateDict]:
         if strict:
             embs, optim_state = checkpoint_manager.read(entity, part,
                                                         force_dirty=force_dirty)
@@ -519,9 +538,6 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
-    iteration_manager = IterationManager(
-        config.num_epochs, config.edge_paths, config.num_edge_chunks,
-        iteration_idx=checkpoint_manager.checkpoint_version)
     for (epoch_idx, edge_path_idx), sub_iterations \
             in groupby(iteration_manager.remaining_iterations(), lambda i: i[:2]):
         edge_reader = EdgeReader(iteration_manager.edge_path)

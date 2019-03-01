@@ -14,6 +14,7 @@ from unittest import TestCase, main
 
 import attr
 import h5py
+import numpy as np
 import torch
 from torch.distributions.multinomial import Multinomial
 
@@ -123,16 +124,13 @@ def init_embeddings(
                 "entity_count_%s_%d.txt" % (entity_name, partition),
             ), "rt") as tf:
                 entity_count = int(tf.read().strip())
-            torch.save(
-                (
-                    torch.randn(entity_count, config.dimension),
-                    None,  # embedding optimizer state dict
-                ),
-                os.path.join(
-                    target,
-                    "%s_%d.pt%s" % (entity_name, partition, version_ext),
-                ),
-            )
+            with h5py.File(os.path.join(
+                target,
+                "embeddings_%s_%d%s.h5" % (entity_name, partition, version_ext),
+            ), "x") as hf:
+                hf.attrs["format_version"] = 1
+                hf.create_dataset("embeddings",
+                                  data=torch.randn(entity_count, config.dimension).numpy())
     torch.save(
         (
             None,  # model state dict (without embeddings)
@@ -166,12 +164,14 @@ class TestFunctional(TestCase):
                     "entity_count_%s_%d.txt" % (entity_name, partition),
                 ), "rt") as tf:
                     entity_count = int(tf.read().strip())
-                embedding, _ = torch.load(os.path.join(
+                with h5py.File(os.path.join(
                     config.checkpoint_path,
-                    "%s_%d.pt%s" % (entity_name, partition, version_ext),
-                ))
-                self.assertIsInstance(embedding, torch.FloatTensor)
-                self.assertEqual(embedding.size(), (entity_count, config.dimension))
+                    "embeddings_%s_%d%s.h5" % (entity_name, partition, version_ext),
+                ), "r") as hf:
+                    embeddings_dataset = hf["embeddings"]
+                    self.assertEqual(embeddings_dataset.dtype, np.float32)
+                    self.assertEqual(embeddings_dataset.shape,
+                                     (entity_count, config.dimension))
 
     def test_default(self):
         entity_name = "e"
