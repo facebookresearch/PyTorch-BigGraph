@@ -105,7 +105,7 @@ class AbstractEmbedding(nn.Module, ABC):
 
 class SimpleEmbedding(AbstractEmbedding):
 
-    def __init__(self, weight: nn.Parameter, max_norm: Optional[float]=None):
+    def __init__(self, weight: nn.Parameter, max_norm: Optional[float] = None):
         super().__init__()
         self.weight: nn.Parameter = weight
         self.max_norm: Optional[float] = max_norm
@@ -124,7 +124,7 @@ class SimpleEmbedding(AbstractEmbedding):
 
 class FeaturizedEmbedding(AbstractEmbedding):
 
-    def __init__(self, weight: nn.Parameter, max_norm: Optional[float]=None):
+    def __init__(self, weight: nn.Parameter, max_norm: Optional[float] = None):
         super().__init__()
         self.weight: nn.Parameter = weight
         self.max_norm: Optional[float] = max_norm
@@ -1120,7 +1120,6 @@ class MultiRelationEmbedder(nn.Module):
         lhs_loss, lhs_margin = self.loss_fn(lhs_pos_scores, lhs_neg_scores)
         rhs_loss, rhs_margin = self.loss_fn(rhs_pos_scores, rhs_neg_scores)
         loss = relation.weight * (lhs_loss + rhs_loss)
-
 
         return loss, (lhs_margin, rhs_margin), \
             (lhs_pos_scores.unsqueeze(-1), rhs_pos_scores.unsqueeze(-1),

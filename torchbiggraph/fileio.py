@@ -12,7 +12,6 @@ import json
 import os
 import os.path
 import re
-import sys
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from glob import glob
@@ -72,12 +71,12 @@ class EdgeReader:
 
     def read(
         self,
-        lhsP: Partition,
-        rhsP: Partition,
-        i: int = 0,
-        N: int = 1,
+        lhs_p: Partition,
+        rhs_p: Partition,
+        chunk_idx: int = 0,
+        num_chunks: int = 1,
     ) -> Tuple[EntityList, EntityList, torch.LongTensor]:
-        file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhsP, rhsP))
+        file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhs_p, rhs_p))
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as hf:
             if FORMAT_VERSION_ATTR not in hf.attrs:
@@ -90,9 +89,9 @@ class EdgeReader:
             rhs = hf['rhs']
             rel = hf['rel']
 
-            L = rel.len()
-            begin = int(i * L / N)
-            end = int((i + 1) * L / N)
+            num_edges = rel.len()
+            begin = int(chunk_idx * num_edges / num_chunks)
+            end = int((chunk_idx + 1) * num_edges / num_chunks)
 
             lhs = torch.from_numpy(lhs[begin:end])
             rhs = torch.from_numpy(rhs[begin:end])
@@ -221,7 +220,7 @@ def save_optimizer_state_dict(
     with io.BytesIO() as fobj:
         torch.save(state_dict, fobj)
         hf.create_dataset(OPTIMIZER_STATE_DICT_DATASET,
-                         data=np.frombuffer(fobj.getbuffer(), dtype=NP_VOID_DTYPE))
+                          data=np.frombuffer(fobj.getbuffer(), dtype=NP_VOID_DTYPE))
 
 
 def load_optimizer_state_dict(hf: h5py.File) -> Optional[OptimizerStateDict]:

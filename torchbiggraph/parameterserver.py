@@ -101,7 +101,7 @@ class ParameterServer:
                     break
             else:
                 raise RuntimeError("Command is unknown value %d from rank %d."
-                        % (cmd, rank))
+                                   % (cmd, rank))
 
     def _recv_key(self, rank, keylen):
         """Receive a string tensor key from a client node."""
@@ -283,6 +283,7 @@ class GradientParameterServerClient:
 
 MIN_BYTES_TO_SHARD = 1e7  # only shard parameters above 10MB
 
+
 def _client_thread_loop(process_group_params,
                         client_rank,
                         all_server_ranks,
@@ -406,6 +407,7 @@ def setup_parameter_server(server_rank,
                           )
     p_server.daemon = True
     p_server.start()
+
 
 def setup_parameter_server_thread(client_rank,
                                   server_rank,

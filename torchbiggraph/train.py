@@ -58,7 +58,7 @@ def train_one_batch(
     # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
     batch_rel: Union[int, torch.LongTensor],
 ) -> TrainStats:
-    B = batch_lhs.size(0)
+    batch_size = batch_lhs.size(0)
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
     batch_rhs = batch_rhs.collapse(model.is_featurized(batch_rel, Side.RHS))
     model.zero_grad()
@@ -73,7 +73,7 @@ def train_one_batch(
         # this from the number of violators
         violators_lhs=lhs_margin.gt(0).long().sum().item(),
         violators_rhs=rhs_margin.gt(0).long().sum().item(),
-        count=B)
+        count=batch_size)
 
     loss.backward()
     for optimizer in optimizers:
@@ -93,15 +93,15 @@ def train_many_batches(
     all_stats = []
     if model.num_dynamic_rels > 0:
         # do standard batching
-        offset, N = 0, rel.size(0)
-        while offset < N:
-            B = min(N - offset, config.batch_size)
+        offset, num_edges = 0, rel.size(0)
+        while offset < num_edges:
+            batch_size = min(num_edges - offset, config.batch_size)
             all_stats.append(train_one_batch(
                 model, optimizers,
-                lhs[offset:offset + B],
-                rhs[offset:offset + B],
-                rel[offset:offset + B]))
-            offset += B
+                lhs[offset:offset + batch_size],
+                rhs[offset:offset + batch_size],
+                rel[offset:offset + batch_size]))
+            offset += batch_size
     else:
         # group the edges by relation, and only do batches of a single
         # relation type
@@ -112,16 +112,16 @@ def train_many_batches(
         while edge_count_by_relation.sum() > 0:
             # pick which relation to do proportional to number of edges of that type
             batch_rel = torch.multinomial(edge_count_by_relation.float(), 1).item()
-            B = min(edge_count_by_relation[batch_rel].item(), config.batch_size)
+            batch_size = min(edge_count_by_relation[batch_rel].item(), config.batch_size)
             offset = offset_by_relation[batch_rel]
-            lhs_rel = lhs_chunked[batch_rel][offset:offset + B]
-            rhs_rel = rhs_chunked[batch_rel][offset:offset + B]
+            lhs_rel = lhs_chunked[batch_rel][offset:offset + batch_size]
+            rhs_rel = rhs_chunked[batch_rel][offset:offset + batch_size]
 
             all_stats.append(train_one_batch(
                 model, optimizers, lhs_rel, rhs_rel, batch_rel))
 
-            edge_count_by_relation[batch_rel] -= B
-            offset_by_relation[batch_rel] += B
+            edge_count_by_relation[batch_rel] -= batch_size
+            offset_by_relation[batch_rel] += batch_size
 
     return TrainStats.sum(all_stats)
 
@@ -195,15 +195,15 @@ def distribute_action_among_workers(
 
 def init_embs(
     entity: EntityName,
-    N: int,
-    D: int,
+    entity_count: int,
+    dim: int,
     scale: float,
 ) -> Tuple[torch.FloatTensor, None]:
-    """Initialize embeddings of size N x D.
+    """Initialize embeddings of size entity_count x dim.
     """
     # FIXME: Use multi-threaded instead of fast_approx_rand
     vlog("Initializing %s" % entity)
-    return fast_approx_rand(N * D).view(N, D).mul_(scale), None
+    return fast_approx_rand(entity_count * dim).view(entity_count, dim).mul_(scale), None
 
 
 RANK_ZERO = Rank(0)
@@ -452,28 +452,28 @@ def train_and_report_stats(
     strict = False
 
     def swap_partitioned_embeddings(
-        oldP: Optional[Bucket],
-        newP: Optional[Bucket],
+        old_b: Optional[Bucket],
+        new_b: Optional[Bucket],
     ):
-        # 0. given the oldPair and newPair, construct data structures to keep
+        # 0. given the old and new buckets, construct data structures to keep
         #    track of old and new embedding (entity, part) tuples
 
         io_bytes = 0
-        log("Swapping partitioned embeddings %s %s" % (oldP, newP))
+        log("Swapping partitioned embeddings %s %s" % (old_b, new_b))
 
-        types = ([(e, Side.LHS) for e in lhs_partitioned_types] +
-                 [(e, Side.RHS) for e in rhs_partitioned_types])
-        old_parts = {(e, oldP.get_partition(side)): side
-                     for e, side in types if oldP is not None}
-        new_parts = {(e, newP.get_partition(side)): side
-                     for e, side in types if newP is not None}
+        types = ([(e, Side.LHS) for e in lhs_partitioned_types]
+                 + [(e, Side.RHS) for e in rhs_partitioned_types])
+        old_parts = {(e, old_b.get_partition(side)): side
+                     for e, side in types if old_b is not None}
+        new_parts = {(e, new_b.get_partition(side)): side
+                     for e, side in types if new_b is not None}
 
         to_checkpoint = set(old_parts) - set(new_parts)
         preserved = set(old_parts) & set(new_parts)
 
         # 1. checkpoint embeddings that will not be used in the next pair
         #
-        if oldP is not None:  # there are previous embeddings to checkpoint
+        if old_b is not None:  # there are previous embeddings to checkpoint
             log("Writing partitioned embeddings")
             for entity, part in to_checkpoint:
                 side = old_parts[(entity, part)]
@@ -491,8 +491,7 @@ def train_and_report_stats(
                 del optim_state
 
             if config.num_machines > 1:
-                lock_client.release_bucket(oldP)
-
+                lock_client.release_bucket(old_b)
 
         # 2. copy old embeddings that will be used in the next pair
         #    into a temporary dictionary
@@ -503,7 +502,7 @@ def train_and_report_stats(
             model.clear_embeddings(entity, Side.LHS)
             model.clear_embeddings(entity, Side.RHS)
 
-        if newP is None:  # there are no new embeddings to load
+        if new_b is None:  # there are no new embeddings to load
             return io_bytes
 
         # 3. load new embeddings into the model/optimizer, either from disk
@@ -511,7 +510,7 @@ def train_and_report_stats(
         #
         log("Loading entities")
         for entity, side in types:
-            part = newP.get_partition(side)
+            part = new_b.get_partition(side)
             part_key = (entity, part)
             if part_key in tmp_emb:
                 vlog("Loading (%s, %d) from preserved" % (entity, part))
@@ -519,8 +518,8 @@ def train_and_report_stats(
             else:
                 vlog("Loading (%s, %d)" % (entity, part))
 
-                force_dirty = (config.num_machines > 1 and
-                               lock_client.check_and_set_dirty(entity, part))
+                force_dirty = (config.num_machines > 1
+                               and lock_client.check_and_set_dirty(entity, part))
                 embs, optim_state = load_embeddings(
                     entity, part, strict=strict, force_dirty=force_dirty)
                 io_bytes += embs.nelement() * 4  # ignore optim state
@@ -571,9 +570,9 @@ def train_and_report_stats(
                 lock_client.new_epoch(buckets,
                                       lock_lhs=len(lhs_partitioned_types) > 0,
                                       lock_rhs=len(rhs_partitioned_types) > 0,
-                                      init_tree=config.distributed_tree_init_order
-                                                and edge_path_idx == 0
-                                                and epoch_idx == 0)
+                                      init_tree=(config.distributed_tree_init_order
+                                                 and edge_path_idx == 0
+                                                 and epoch_idx == 0))
             td.barrier(group=barrier_group)
 
         # Single-machine case: partition_count keeps track of how
@@ -581,35 +580,35 @@ def train_and_report_stats(
         # pre-fetching only.
         partition_count = 0
         remaining = len(buckets)
-        curP = None
+        cur_b = None
         while remaining > 0:
-            oldP = curP
+            old_b = cur_b
             io_time = 0.
             io_bytes = 0
             if config.num_machines > 1:
-                curP, remaining = lock_client.acquire_pair(rank, maybe_old_bucket=oldP)
-                curP = Bucket(*curP) if curP is not None else None
+                cur_b, remaining = lock_client.acquire_pair(rank, maybe_old_bucket=old_b)
+                cur_b = Bucket(*cur_b) if cur_b is not None else None
                 print('still in queue: %d' % remaining, file=sys.stderr)
-                if curP is None:
-                    if oldP is not None:
+                if cur_b is None:
+                    if old_b is not None:
                         # if you couldn't get a new pair, release the lock
                         # to prevent a deadlock!
                         tic = time.time()
-                        io_bytes += swap_partitioned_embeddings(oldP, None)
+                        io_bytes += swap_partitioned_embeddings(old_b, None)
                         io_time += time.time() - tic
                     time.sleep(1)  # don't hammer td
                     continue
             else:
-                curP = buckets.pop(0)
+                cur_b = buckets.pop(0)
                 remaining -= 1
 
             def log_status(msg, always=False):
-                F = log if always else vlog
-                F("%s: %s" % (curP, msg))
+                f = log if always else vlog
+                f("%s: %s" % (cur_b, msg))
 
             tic = time.time()
 
-            io_bytes += swap_partitioned_embeddings(oldP, curP)
+            io_bytes += swap_partitioned_embeddings(old_b, cur_b)
 
             current_index = \
                 (iteration_manager.iteration_idx + 1) * total_buckets - remaining
@@ -630,8 +629,8 @@ def train_and_report_stats(
 
             log_status("Loading edges")
             lhs, rhs, rel = edge_reader.read(
-                curP.lhs, curP.rhs, edge_chunk_idx, config.num_edge_chunks)
-            N = rel.size(0)
+                cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
+            num_edges = rel.size(0)
             # this might be off in the case of tensorlist
             io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
 
@@ -639,16 +638,16 @@ def train_and_report_stats(
             # Fix a seed to get the same permutation every time; have it
             # depend on all and only what affects the set of edges.
             g = torch.Generator()
-            g.manual_seed(hash((edge_path_idx, edge_chunk_idx, curP.lhs, curP.rhs)))
+            g.manual_seed(hash((edge_path_idx, edge_chunk_idx, cur_b.lhs, cur_b.rhs)))
 
-            num_eval_edges = int(N * config.eval_fraction)
+            num_eval_edges = int(num_edges * config.eval_fraction)
             if num_eval_edges > 0:
-                edge_perm = torch.randperm(N, generator=g)
+                edge_perm = torch.randperm(num_edges, generator=g)
                 eval_edge_perm = edge_perm[-num_eval_edges:]
-                N -= num_eval_edges
-                edge_perm = edge_perm[torch.randperm(N)]
+                num_edges -= num_eval_edges
+                edge_perm = edge_perm[torch.randperm(num_edges)]
             else:
-                edge_perm = torch.randperm(N)
+                edge_perm = torch.randperm(num_edges)
 
             # HOGWILD evaluation before training
             eval_stats_before: Optional[EvalStats] = None
@@ -657,7 +656,7 @@ def train_and_report_stats(
                 eval_stats_before = distribute_action_among_workers(
                     pool, config,
                     Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
-                log("stats before %s: %s" % (curP, eval_stats_before))
+                log("stats before %s: %s" % (cur_b, eval_stats_before))
 
             io_time += time.time() - tic
             tic = time.time()
@@ -669,7 +668,8 @@ def train_and_report_stats(
                 list(optimizers.values()))
             compute_time = time.time() - tic
 
-            log_status("bucket %d / %d : Processed %d edges in %.2f s "
+            log_status(
+                "bucket %d / %d : Processed %d edges in %.2f s "
                 "( %.2g M/sec ); io: %.2f s ( %.2f MB/sec )" %
                 (total_buckets - remaining, total_buckets,
                  lhs.size(0), compute_time, lhs.size(0) / compute_time / 1e6,
@@ -684,14 +684,14 @@ def train_and_report_stats(
                 eval_stats_after = distribute_action_among_workers(
                     pool, config,
                     Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
-                log("stats after %s: %s" % (curP, eval_stats_after))
+                log("stats after %s: %s" % (cur_b, eval_stats_after))
 
             # Add train/eval metrics to queue
             yield current_index, eval_stats_before, stats, eval_stats_after
 
             partition_count += 1
 
-        swap_partitioned_embeddings(curP, None)
+        swap_partitioned_embeddings(cur_b, None)
 
         # Distributed Processing: all machines can leave the barrier now.
         if config.num_machines > 1:

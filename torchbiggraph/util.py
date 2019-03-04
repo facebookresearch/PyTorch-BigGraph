@@ -107,7 +107,7 @@ def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[Entity
 
     sorted_index, order = index.sort()
     nchunks = sorted_index[-1] + 1
-    N = sorted_index.size(0)
+    nitems = sorted_index.size(0)
     delta = sorted_index[1:] - sorted_index[:-1]
     cutpoints = delta.nonzero()
     if cutpoints.nelement() > 0:
@@ -118,16 +118,16 @@ def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[Entity
         cutpoints = torch.cat([
             cutpoints.new([0]),
             cutpoints,
-            cutpoints.new([N])])
+            cutpoints.new([nitems])])
         jumps = torch.cat([
             jumps.new([sorted_index[0]]),
             jumps,
             jumps.new([nchunks - sorted_index[-1]])])
     else:
-        cutpoints = cutpoints.new([0, N])
+        cutpoints = cutpoints.new([0, nitems])
         jumps = delta.new([sorted_index[0], nchunks - sorted_index[-1]])
 
-    sorted_tensors = [sorted_index] + [T[order] for T in others]
+    sorted_tensors = [sorted_index] + [t[order] for t in others]
 
     chunked: List[List[EntityList]] = [[] for _ in sorted_tensors]
     begin_row = 0
@@ -432,8 +432,8 @@ def compute_randomized_auc(
     num_samples: int,
 ) -> float:
     pos_, neg_ = pos_.view(-1), neg_.view(-1)
-    diff = pos_[torch.randint(len(pos_), (num_samples,))] \
-           > neg_[torch.randint(len(neg_), (num_samples,))]
+    diff = (pos_[torch.randint(len(pos_), (num_samples,))]
+            > neg_[torch.randint(len(neg_), (num_samples,))])
     return float(diff.float().mean())
 
 

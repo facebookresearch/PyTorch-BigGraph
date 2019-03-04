@@ -80,9 +80,9 @@ class LockServer(Server):
             # capturing a non-None value, thus alias it to a new variable, which
             # will get a non-Optional type.
             old_bucket = maybe_old_bucket  # The linter isn't too smart around closures...
-            ordered_buckets = sorted(self.buckets, key=lambda x:
-                                   -((x.lhs == old_bucket.lhs) * 2 +
-                                     (x.rhs == old_bucket.rhs)))
+            ordered_buckets = sorted(
+                self.buckets, key=lambda x: - (2 * (x.lhs == old_bucket.lhs)
+                                               + (x.rhs == old_bucket.rhs)))
         else:
             ordered_buckets = self.buckets
 

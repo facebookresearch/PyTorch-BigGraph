@@ -27,7 +27,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
     comparable to standard benchmarks.
     """
 
-    def __init__(self, config: ConfigSchema, filter_paths : List[str]):
+    def __init__(self, config: ConfigSchema, filter_paths: List[str]):
         if len(config.relations) != 1 or len(config.entities) != 1:
             raise RuntimeError("Filtered ranking evaluation should only be used "
                                "with dynamic relations and one entity type.")
@@ -47,8 +47,8 @@ class FilteredRankingEvaluator(RankingEvaluator):
             e_reader = EdgeReader(path)
             # Assume unpartitioned.
             lhs, rhs, rel = e_reader.read(Partition(0), Partition(0))
-            N = lhs.size(0)
-            for i in range(N):
+            num_edges = lhs.size(0)
+            for i in range(num_edges):
                 # Assume non-featurized.
                 cur_lhs = lhs[i].collapse(is_featurized=False).item()
                 cur_rel = rel[i].item()

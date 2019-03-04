@@ -71,7 +71,7 @@ class RankingEvaluator(AbstractEvaluator[EvalStats]):
         batch_rhs: Union[torch.FloatTensor, TensorList],
         batch_rel: Union[int, torch.LongTensor],
     ) -> EvalStats:
-        B = batch_lhs.size(0)
+        batch_size = batch_lhs.size(0)
 
         # lhs_margin[i,j] is the score of (neg_lhs[i,j], rel[i], rhs[i]) minus the
         # score of (lhs[i], rel[i], rhs[i]). Thus it is >= 0 when the i-th positive
@@ -83,8 +83,8 @@ class RankingEvaluator(AbstractEvaluator[EvalStats]):
         lrank = margins[0].ge(0).float().sum(1) + 1
         rrank = margins[1].ge(0).float().sum(1) + 1
 
-        auc = .5 * compute_randomized_auc(scores[0], scores[2], B)\
-              + .5 * compute_randomized_auc(scores[1], scores[3], B)
+        auc = .5 * compute_randomized_auc(scores[0], scores[2], batch_size) \
+            + .5 * compute_randomized_auc(scores[1], scores[3], batch_size)
 
         return EvalStats(
             pos_rank=(lrank.float().sum().item() + rrank.float().sum().item()) / 2,
@@ -93,8 +93,8 @@ class RankingEvaluator(AbstractEvaluator[EvalStats]):
             r1=(lrank.le(1).float() + rrank.le(1).float()).sum().item() / 2,
             r10=(lrank.le(10).float() + rrank.le(10).float()).sum().item() / 2,
             r50=(lrank.le(50).float() + rrank.le(50).float()).sum().item() / 2,
-            auc=auc * B,  # at the end the auc will be averaged over count
-            count=B)
+            auc=auc * batch_size,  # at the end the auc will be averaged over count
+            count=batch_size)
 
     def sum_stats(self, stats: Iterable[EvalStats]) -> EvalStats:
         """Helper method to do the sum on the right type."""
@@ -133,32 +133,32 @@ def eval_many_batches(
 ) -> StatsType:
     all_stats = []
 
-    # FIXME: it's not really safe to do partial batches if numBatchNegs != 0
+    # FIXME: it's not really safe to do partial batches if num_batch_negs != 0
     # because partial batches will produce incorrect results, and if the
     # dataset per thread is very small then every batch may be partial. I don't
     # know if a perfect solution for this that doesn't introduce other biases...
 
     if model.num_dynamic_rels > 0:
-        offset, N = 0, rel.size(0)
-        while offset < N:
-            B = min(N - offset, config.batch_size)
+        offset, num_edges = 0, rel.size(0)
+        while offset < num_edges:
+            batch_size = min(num_edges - offset, config.batch_size)
             all_stats.append(eval_one_batch(
                 model,
-                lhs[offset:offset + B],
-                rhs[offset:offset + B],
-                rel[offset:offset + B],
+                lhs[offset:offset + batch_size],
+                rhs[offset:offset + batch_size],
+                rel[offset:offset + batch_size],
                 evaluator))
-            offset += B
+            offset += batch_size
     else:
         _, lhs_chunked, rhs_chunked = chunk_by_index(rel, lhs, rhs)
-        B = config.batch_size
+        batch_size = config.batch_size
         for rel_type, (lhs_rel, rhs_rel) in enumerate(zip(lhs_chunked, rhs_chunked)):
             if lhs_rel.nelement() == 0:
                 continue
 
-            for offset in range(0, lhs_rel.size(0), B):
-                batch_lhs = lhs_rel[offset:offset + B]
-                batch_rhs = rhs_rel[offset:offset + B]
+            for offset in range(0, lhs_rel.size(0), batch_size):
+                batch_lhs = lhs_rel[offset:offset + batch_size]
+                batch_rhs = rhs_rel[offset:offset + batch_size]
                 all_stats.append(
                     eval_one_batch(model, batch_lhs, batch_rhs, rel_type, evaluator))
 
@@ -243,17 +243,16 @@ def do_eval_and_report_stats(
                     model.set_embeddings(e, embs, Side.RHS)
             last_lhs, last_rhs = bucket.lhs, bucket.rhs
 
-
             # log("%s: Loading edges" % (bucket,))
             lhs, rhs, rel = edge_reader.read(bucket.lhs, bucket.rhs)
-            N = rel.size(0)
+            num_edges = rel.size(0)
 
             load_time = time.time() - tic
             tic = time.time()
             # log("%s: Launching and waiting for workers" % (bucket,))
             all_bucket_stats = pool.starmap(eval_one_thread, [
                 (Rank(i), config, model, lhs[s], rhs[s], rel[s], evaluator)
-                for i, s in enumerate(split_almost_equally(N, num_parts=config.workers))
+                for i, s in enumerate(split_almost_equally(num_edges, num_parts=config.workers))
             ])
 
             compute_time = time.time() - tic
