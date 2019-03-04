@@ -9,34 +9,36 @@
 import gzip
 import os
 import tarfile
+import shutil
 import urllib.request
+from typing import Callable, Optional
 
 from tqdm import tqdm
 
 
-def extract_gzip(gzip_path, remove_finished=False):
-    print('Extracting {}'.format(gzip_path))
+def extract_gzip(gzip_path: str, remove_finished: bool = False) -> str:
+    print('Extracting %s' % gzip_path)
     fpath, ext = os.path.splitext(gzip_path)
     if ext != ".gz":
         raise RuntimeError("Not a gzipped file")
 
-    with open(fpath, 'wb') as out_f, gzip.GzipFile(gzip_path) as zip_f:
-        out_f.write(zip_f.read())
+    with open(fpath, "wb") as out_bf, gzip.GzipFile(gzip_path) as zip_f:
+        shutil.copyfileobj(zip_f, out_bf)
     if remove_finished:
         os.unlink(gzip_path)
 
     return fpath
 
 
-def extract_tar(fpath):
+def extract_tar(fpath: str) -> None:
     # extract file
     root = os.path.dirname(fpath)
     with tarfile.open(fpath, "r:gz") as tar:
         tar.extractall(path=root)
 
 
-def gen_bar_updater(pbar):
-    def bar_update(count, block_size, total_size):
+def gen_bar_updater(pbar: tqdm) -> Callable[[int, int, int], None]:
+    def bar_update(count: int, block_size: int, total_size: int) -> None:
         if pbar.total is None and total_size:
             pbar.total = total_size
         progress_bytes = count * block_size
@@ -45,7 +47,7 @@ def gen_bar_updater(pbar):
     return bar_update
 
 
-def download_url(url, root, filename=None):
+def download_url(url: str, root: str, filename: Optional[str] = None) -> str:
     """Download a file from a url and place it in root.
     Args:
         url (str): URL to download file from

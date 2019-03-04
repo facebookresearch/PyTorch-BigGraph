@@ -61,22 +61,21 @@ def main():
     convert_input_data(
         args.config,
         edge_paths,
-        isDynamic=1,
-        srcCol=0,
-        destCol=2,
-        relationCol=1,
+        lhs_col=0,
+        rhs_col=2,
+        rel_col=1,
     )
 
     config = parse_config(args.config, overrides)
 
-    trainPath = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
-    train_config = attr.evolve(config, edge_paths=trainPath)
+    train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
+    train_config = attr.evolve(config, edge_paths=train_path)
 
     train(train_config)
 
-    evalPath = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
+    eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
-    eval_config = attr.evolve(config, edge_paths=evalPath, relations=relations)
+    eval_config = attr.evolve(config, edge_paths=eval_path, relations=relations)
     if args.filtered:
         filter_paths = [
             convert_path(os.path.join(data_dir, FILENAMES['test'])),

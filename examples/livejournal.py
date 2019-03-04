@@ -35,14 +35,14 @@ def convert_path(fname):
 
 
 def random_split_file(fpath):
-    print('Shuffling and spliting train/test file. This may take a while.')
+    print('Shuffling and splitting train/test file. This may take a while.')
     root = os.path.dirname(fpath)
     train_file = os.path.join(root, FILENAMES['train'])
     test_file = os.path.join(root, FILENAMES['test'])
 
     print('Reading data from file: ', fpath)
-    with open(fpath, 'r') as f:
-        lines = f.readlines()
+    with open(fpath, "rt") as in_tf:
+        lines = in_tf.readlines()
 
     # The first few lines are comments
     lines = lines[4:]
@@ -50,12 +50,14 @@ def random_split_file(fpath):
     random.shuffle(lines)
     split_len = int(len(lines) * TRAIN_FRACTION)
 
-    print('Spliting to train and test file.')
-    with open(train_file, 'w') as fo_train:
-        fo_train.write(''.join(lines[:split_len]))
+    print('Splitting to train and test files')
+    with open(train_file, "wt") as out_tf_train:
+        for line in lines[:split_len]:
+            out_tf_train.write(line)
 
-    with open(test_file, 'w') as fo_test:
-        fo_test.write(''.join(lines[split_len:]))
+    with open(test_file, "wt") as out_tf_test:
+        for line in lines[split_len:]:
+            out_tf_test.write(line)
 
 
 def main():
@@ -88,20 +90,19 @@ def main():
     convert_input_data(
         args.config,
         edge_paths,
-        isDynamic=0,
-        srcCol=0,
-        destCol=1,
-        relationCol=None,
+        lhs_col=0,
+        rhs_col=1,
+        rel_col=None,
     )
     config = parse_config(args.config, overrides)
 
-    trainPath = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
-    train_config = attr.evolve(config, edge_paths=trainPath)
+    train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
+    train_config = attr.evolve(config, edge_paths=train_path)
 
     train(train_config)
 
-    evalPath = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
-    eval_config = attr.evolve(config, edge_paths=evalPath)
+    eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
+    eval_config = attr.evolve(config, edge_paths=eval_path)
 
     do_eval(eval_config)
 

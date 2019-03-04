@@ -7,288 +7,298 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import io
+import json
 import os
 import os.path
+import random
+from typing import Counter, DefaultDict, Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
-import torch
 
 from torchbiggraph.config import \
-    ConfigSchema, EntitySchema, RelationSchema, parse_config_base
+    ConfigSchema, EntitySchema, RelationSchema, get_config_dict_from_module
 from torchbiggraph.converters.dictionary import Dictionary
 
 
-def build_entity_dict(
-    rdict,
-    entities,
-    relations,
-    edge_paths,
-    isDynamic,
-    srcCol,
-    destCol,
-    relationCol,
-    entityMinCount,
-):
+def collect_relation_types(
+    relation_configs: List[RelationSchema],
+    edge_paths: List[str],
+    dynamic_relations: bool,
+    rel_col: Optional[int],
+    relation_type_min_count: int,
+) -> Dictionary:
 
-    print('Building dict for entites.')
-    entity_dict = {}
-    # initialize entity dict
-    for entity, entity_config in entities.items():
-        print(entity, entity_config)
-        freq = entityMinCount
-        npart = entity_config.num_partitions
-        entity_dict[entity] = Dictionary(freq, 'ENTITY', entity, npart)
-
-    # read entities in files to build entity dict
-    for edgepath in edge_paths:
-        print(edgepath)
-        if isDynamic:
-            cols = [srcCol, destCol]
-            entity_list = list(entity_dict.keys())
-            assert len(entity_list) == 1
-            entity = entity_list[0]
-            entity_dict[entity].add_from_file(edgepath, cols)
-        else:
-            with open(edgepath, 'r') as f:
-                for line in f.readlines():
-                    parts = line.strip().split()
-                    src = parts[srcCol]
-                    dest = parts[destCol]
-                    if relationCol is not None:
-                        rel = parts[relationCol]
-                        rel_id = rdict.getId(rel)
-                        assert rel_id > -1, "Could not find relation in config"
-                    else:
-                        rel_id = 0
-
-                    src_type = relations[rel_id].lhs
-                    dest_type = relations[rel_id].rhs
-
-                    entity_dict[src_type].add(src)
-                    entity_dict[dest_type].add(dest)
-
-    # filter and shuffle entity dict
-    for entity, _ in entities.items():
-        entity_dict[entity].filter_and_shuffle()
-        print('%s dict size : %d' % (entity, entity_dict[entity].size()))
-
-    return entity_dict
-
-
-def build_relation_dict(
-    relations,
-    edge_paths,
-    isDynamic,
-    relationCol,
-    relationMinCount,
-):
-
-    print('Building dict for relation.')
-    rdict = Dictionary(relationMinCount, 'RELATION', 'RELATION', 1)
-
-    if isDynamic:
-        assert relationCol is not None, \
-            "Need to set relationCol in dynamic mode."
+    if dynamic_relations:
+        if rel_col is None:
+            raise RuntimeError("Need to specify rel_col in dynamic mode.")
+        print("Looking up relation types in the edge files...")
+        counter: Counter[str] = Counter()
         for edgepath in edge_paths:
-            rdict.add_from_file(edgepath, [relationCol])
-        rdict.filter_and_shuffle()
+            with open(edgepath, "rt") as tf:
+                for line in tf:
+                    counter[line.split()[rel_col]] += 1
+        print("- Found %d relation types" % len(counter))
+        if relation_type_min_count > 0:
+            print("- Removing the ones with fewer than %d occurrences..."
+                  % relation_type_min_count)
+            counter = Counter({k: c for k, c in counter.items()
+                               if c >= relation_type_min_count})
+            print("- Left with %d relation types" % len(counter))
+        print("- Shuffling them...")
+        names = list(counter.keys())
+        random.shuffle(names)
 
     else:
-        # construct the relation dict from relation config
-        rel_names = [relation.name for relation in relations]
-        rdict.build_from_list(rel_names)
+        names = [rconfig.name for rconfig in relation_configs]
+        print("Using the %d relation types given in the config" % len(names))
 
-    print('relation dict size : %d' % rdict.size())
-    return rdict
+    return Dictionary(names)
 
 
-def generate_entity_size_file(entities, entity_path, entity_dict):
-    # save entity file
-    for entity, entity_config in entities.items():
-        npart = entity_config.num_partitions
-        part_size = entity_dict[entity].part_size()
+def collect_entities_by_type(
+    relation_types: Dictionary,
+    entity_configs: Dict[str, EntitySchema],
+    relation_configs: List[RelationSchema],
+    edge_paths: List[str],
+    dynamic_relations: bool,
+    lhs_col: int,
+    rhs_col: int,
+    rel_col: Optional[int],
+    entity_min_count: int,
+) -> Dict[str, Dictionary]:
 
-        for i in range(npart):
+    counters: Dict[str, Counter[str]] = {}
+    for entity_name in entity_configs.keys():
+        counters[entity_name] = Counter()
+
+    print("Searching for the entities in the edge files...")
+    for edgepath in edge_paths:
+        with open(edgepath, "rt") as tf:
+            for line in tf:
+                words = line.split()
+
+                if dynamic_relations or rel_col is None:
+                    rel_id = 0
+                else:
+                    rel = words[rel_col]
+                    try:
+                        rel_id = relation_types.get_id(rel)
+                    except KeyError:
+                        raise RuntimeError("Could not find relation type in config")
+
+                counters[relation_configs[rel_id].lhs][words[lhs_col]] += 1
+                counters[relation_configs[rel_id].rhs][words[rhs_col]] += 1
+
+    entities_by_type: Dict[str, List[Dictionary]] = {}
+    for entity_name, counter in counters.items():
+        print("Entity type %s:" % entity_name)
+        print("- Found %d entities" % len(counter))
+        if entity_min_count > 0:
+            print("- Removing the ones with fewer than %d occurrences..."
+                  % entity_min_count)
+            counter = Counter({k: c for k, c in counter.items()
+                               if c >= entity_min_count})
+            print("- Left with %d entities" % len(counter))
+        print("- Shuffling them...")
+        names = list(counter.keys())
+        random.shuffle(names)
+        entities_by_type[entity_name] = Dictionary(
+            names, num_parts=entity_configs[entity_name].num_partitions)
+
+    return entities_by_type
+
+
+def generate_entity_path_files(
+    entity_path: str,
+    entities_by_type: Dict[str, Dictionary],
+    relation_types: Dictionary,
+    dynamic_relations: bool,
+) -> None:
+
+    print("Preparing entity path %s:" % entity_path)
+    for entity_name, entities in entities_by_type.items():
+        for part in range(entities.num_parts):
+            print("- Writing count of entity type %s and partition %d"
+                  % (entity_name, part))
             with open(os.path.join(
-                entity_path, "entity_count_%s_%d.txt" % (entity, i)
+                entity_path, "entity_count_%s_%d.txt" % (entity_name, part)
             ), "wt") as tf:
-                tf.write("%d" % part_size)
+                tf.write("%d" % entities.part_size(part))
 
-    return
+    if dynamic_relations:
+        print("- Writing count of dynamic relations")
+        with open(os.path.join(entity_path, "dynamic_rel_count.txt"), "wt") as tf:
+            tf.write("%d" % relation_types.size())
 
 
-def convert_and_partition_data(
-    edict,
-    rdict,
-    fname,
-    relations,
-    isDynamic,
-    srcCol,
-    destCol,
-    relationCol
-):
+def generate_edge_path_files(
+    edge_file_in: str,
+    entities_by_type: Dict[str, Dictionary],
+    relation_types: Dictionary,
+    relation_configs: List[RelationSchema],
+    dynamic_relations: bool,
+    lhs_col: int,
+    rhs_col: int,
+    rel_col: Optional[int],
+) -> None:
 
-    basename, _ = os.path.splitext(fname)
-    out_dir = basename + '_partitioned'
+    basename, _ = os.path.splitext(edge_file_in)
+    edge_path_out = basename + '_partitioned'
 
-    print('Reading edges from %s , writing processed edges to %s' % (fname, out_dir))
-    os.makedirs(out_dir, exist_ok=True)
+    print("Preparing edge path %s, out of the edges found in %s"
+          % (edge_path_out, edge_file_in))
+    os.makedirs(edge_path_out, exist_ok=True)
 
-    lhs_part = max(edict[rel.lhs].npart for rel in relations)
-    rhs_part = max(edict[rel.rhs].npart for rel in relations)
+    num_lhs_parts = max(entities_by_type[rconfig.lhs].num_parts
+                        for rconfig in relation_configs)
+    num_rhs_parts = max(entities_by_type[rconfig.rhs].num_parts
+                        for rconfig in relation_configs)
 
-    print('Partitioning edges into (%d, %d) parts.' % (lhs_part, rhs_part))
+    print("- Edges will be partitioned in %d x %d buckets."
+          % (num_lhs_parts, num_rhs_parts))
 
-    # initialize buckets, which contains lhs, rhs, rel edges
-    # in different partitions
-    buckets = {}
-    for i in range(lhs_part):
-        for j in range(rhs_part):
-            buckets[i, j] = [[], [], []]
-
-    cnt = 0
+    buckets: DefaultDict[Tuple[int, int], List[Tuple[int, int, int]]] = \
+        DefaultDict(list)
+    processed = 0
     skipped = 0
 
-    with io.open(fname, 'r') as f:
-        for line in f:
-            words = line.strip().split()
-            if relationCol is None:
-                # only has one relation
-                e_rel = 0
+    with open(edge_file_in, "rt") as tf:
+        for line in tf:
+            words = line.split()
+            if rel_col is None:
+                rel_id = 0
             else:
-                rel_name = words[relationCol]
-                e_rel = rdict.getId(rel_name)
+                try:
+                    rel_id = relation_types.get_id(words[rel_col])
+                except KeyError:
+                    # Ignore edges whose relation type is not known.
+                    skipped += 1
+                    continue
 
-            # filter examples which contains relation that's not in dictionary
-            if e_rel < 0:
+            if dynamic_relations:
+                lhs_type = relation_configs[0].lhs
+                rhs_type = relation_configs[0].rhs
+            else:
+                lhs_type = relation_configs[rel_id].lhs
+                rhs_type = relation_configs[rel_id].rhs
+
+            try:
+                lhs_part, lhs_offset = \
+                    entities_by_type[lhs_type].get_partition(words[lhs_col])
+                rhs_part, rhs_offset = \
+                    entities_by_type[rhs_type].get_partition(words[rhs_col])
+            except KeyError:
+                # Ignore edges whose entities are not known.
                 skipped += 1
                 continue
 
-            # detect lhs and rhs entitiy type from relation config
-            if isDynamic:
-                entity_list = list(edict.keys())
-                assert len(entity_list) == 1
-                lhs_ent = entity_list[0]
-                rhs_ent = lhs_ent
-            else:
-                lhs_ent = relations[e_rel].lhs
-                rhs_ent = relations[e_rel].rhs
+            buckets[lhs_part, rhs_part].append((lhs_offset, rhs_offset, rel_id))
 
-            e_lhs = edict[lhs_ent].getId(words[srcCol])
-            e_rhs = edict[rhs_ent].getId(words[destCol])
+            processed = processed + 1
+            if processed % 100000 == 0:
+                print("- Processed %d edges so far..." % processed)
 
-            # filter examples which contains entity that's not in dictionary
-            if e_lhs < 0 or e_rhs < 0:
-                skipped += 1
-                continue
+    print("- Processed %d edges in total" % processed)
+    if skipped > 0:
+        print("- Skipped %d edges because their relation type or entities were "
+              "unknown (either not given in the config or filtered out as too "
+              "rare)." % skipped)
 
-            # map the example to corresponding partitions
-
-            l_part, l_offset = edict[lhs_ent].get_partition(e_lhs)
-            r_part, r_offset = edict[rhs_ent].get_partition(e_rhs)
-
-            buckets[l_part, r_part][0].append(l_offset)
-            buckets[l_part, r_part][1].append(r_offset)
-            buckets[l_part, r_part][2].append(e_rel)
-
-            cnt = cnt + 1
-            if cnt % 100000 == 0:
-                print('Load ', cnt, ' examples.')
-
-    print('Total number of examples : %d\tskipped: %d.' % (cnt, skipped))
-
-    for i in range(lhs_part):
-        for j in range(rhs_part):
-            p_lhs = buckets[i, j][0]
-            p_rhs = buckets[i, j][1]
-            p_rel = buckets[i, j][2]
-
-            print('Partition (%d, %d) contains %d edges.' % (i, j, len(p_lhs)))
-            out_f = os.path.join(out_dir, "edges_%d_%d.h5" % (i, j))
-            print("Saving edges to %s" % out_f)
-            with h5py.File(out_f, "w") as hf:
+    for i in range(num_lhs_parts):
+        for j in range(num_rhs_parts):
+            print("- Writing bucket (%d, %d), containing %d edges..."
+                  % (i, j, len(buckets[i, j])))
+            edges = np.asarray(buckets[i, j])
+            with h5py.File(os.path.join(
+                edge_path_out, "edges_%d_%d.h5" % (i, j)
+            ), "w") as hf:
                 hf.attrs["format_version"] = 1
-                hf.create_dataset("lhs", data=np.asarray(p_lhs))
-                hf.create_dataset("rhs", data=np.asarray(p_rhs))
-                hf.create_dataset("rel", data=np.asarray(p_rel))
+                hf.create_dataset("lhs", data=edges[:, 0])
+                hf.create_dataset("rhs", data=edges[:, 1])
+                hf.create_dataset("rel", data=edges[:, 2])
 
 
 def convert_input_data(
-    config,
-    edge_paths,
-    isDynamic=0,
-    srcCol=0,
-    destCol=1,
-    relationCol=None,
-    entityMinCount=1,
-    relationMinCount=1,
+    config: str,
+    edge_paths: List[str],
+    lhs_col: int,
+    rhs_col: int,
+    rel_col: Optional[int] = None,
+    entity_min_count: int = 1,
+    relation_type_min_count: int = 1,
 ):
 
-    entities, relations, entity_path = validate_config(config)
+    entity_configs, relation_configs, entity_path, dynamic_relations = \
+        validate_config(config)
 
     os.makedirs(entity_path, exist_ok=True)
 
-    rdict = build_relation_dict(
-        relations,
+    relation_types = collect_relation_types(
+        relation_configs,
         edge_paths,
-        isDynamic,
-        relationCol,
-        relationMinCount
+        dynamic_relations,
+        rel_col,
+        relation_type_min_count,
     )
 
-    edict = build_entity_dict(
-        rdict,
-        entities,
-        relations,
+    entities_by_type = collect_entities_by_type(
+        relation_types,
+        entity_configs,
+        relation_configs,
         edge_paths,
-        isDynamic,
-        srcCol,
-        destCol,
-        relationCol,
-        entityMinCount
+        dynamic_relations,
+        lhs_col,
+        rhs_col,
+        rel_col,
+        entity_min_count,
     )
 
-    if isDynamic:
-        with open(os.path.join(entity_path, "dynamic_rel_count.txt"), "wt") as tf:
-            tf.write("%d" % rdict.size())
+    dump = {
+        "relations": relation_types.get_list(),
+        "entities": {k: v.get_list() for k, v in entities_by_type.items()},
+    }
+    with open("names.json", "wt") as tf:
+        json.dump(dump, tf, indent=4)
 
-    edict_params = {k : v.get_params() for k, v in edict.items()}
-    rdict_params = rdict.get_params()
-    torch.save(
-        (edict_params, rdict_params),
-        os.path.join(entity_path, 'dict.pt')
+    generate_entity_path_files(
+        entity_path,
+        entities_by_type,
+        relation_types,
+        dynamic_relations,
     )
 
-    generate_entity_size_file(entities, entity_path, edict)
-
-    for edgepath in edge_paths:
-        convert_and_partition_data(
-            edict,
-            rdict,
-            edgepath,
-            relations,
-            isDynamic,
-            srcCol,
-            destCol,
-            relationCol
+    for edge_path in edge_paths:
+        generate_edge_path_files(
+            edge_path,
+            entities_by_type,
+            relation_types,
+            relation_configs,
+            dynamic_relations,
+            lhs_col,
+            rhs_col,
+            rel_col,
         )
 
 
-def validate_config(config):
-    user_config = parse_config_base(config)
+def validate_config(
+    config: str,
+) -> Tuple[Dict[str, EntitySchema], List[RelationSchema], str, bool]:
+    user_config = get_config_dict_from_module(config)
 
     # validate entites and relations config
     entities_config = user_config.get("entities")
     relations_config = user_config.get("relations")
     entity_path = user_config.get("entity_path")
+    dynamic_relations = user_config.get("dynamic_relations", False)
     if not isinstance(entities_config, dict):
         raise TypeError("Config entities is not of type dict")
     if not isinstance(relations_config, list):
         raise TypeError("Config relations is not of type list")
     if not isinstance(entity_path, str):
         raise TypeError("Config entity_path is not of type str")
+    if not isinstance(dynamic_relations, bool):
+        raise TypeError("Config dynamic_relations is not of type bool")
 
     entities = {}
     relations = []
@@ -297,7 +307,7 @@ def validate_config(config):
     for relation in relations_config:
         relations.append(RelationSchema.from_dict(relation))
 
-    return entities, relations, entity_path
+    return entities, relations, entity_path, dynamic_relations
 
 
 def main():
@@ -310,30 +320,27 @@ def main():
     parser.add_argument('config', help='Path to config file')
 
     parser.add_argument('edge_paths', nargs='*', help='Input file paths')
-    parser.add_argument('-r', '--relationCol', type=int,
-                        help='Column index for relation entity')
-    parser.add_argument('-s', '--srcCol', type=int, required=True,
+    parser.add_argument('-l', '--lhs-col', type=int, required=True,
                         help='Column index for source entity')
-    parser.add_argument('-d', '--destCol', type=int, required=True,
+    parser.add_argument('-r', '--rhs-col', type=int, required=True,
                         help='Column index for target entity')
-    parser.add_argument('--isDynamic', default=0,
-                        help='whether to use dynamic mode')
-    parser.add_argument('-rc', '--relationMinCount', default=1,
-                        help='Min count for relation')
-    parser.add_argument('-ec', '--entityMinCount', default=1,
-                        help='Min count for entity')
+    parser.add_argument('--rel-col', type=int,
+                        help='Column index for relation entity')
+    parser.add_argument('--relation-type-min-count', type=int, default=1,
+                        help='Min count for relation types')
+    parser.add_argument('--entity-min-count', type=int, default=1,
+                        help='Min count for entities')
 
     opt = parser.parse_args()
 
     convert_input_data(
         opt.config,
         opt.edge_paths,
-        opt.isDynamic,
-        opt.srcCol,
-        opt.destCol,
-        opt.relationCol,
-        opt.entityMinCount,
-        opt.relationMinCount
+        opt.lhs_col,
+        opt.rhs_col,
+        opt.rel_col,
+        opt.entity_min_count,
+        opt.relation_type_min_count,
     )
 
 

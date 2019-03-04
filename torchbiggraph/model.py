@@ -842,24 +842,6 @@ class MultiRelationEmbedder(nn.Module):
         else:
             return emb.weight
 
-    def get_relation_parameters(self):
-        if self.num_dynamic_rels > 0:
-            rels_lhs = next(self.lhs_operators[0].parameters())
-            rels_rhs = next(self.rhs_operators[0].parameters())
-            return rels_lhs, rels_rhs
-        else:
-            rels = []
-            for operator in self.rhs_operators:
-                if len(list(operator.parameters())) == 0:
-                    rels.append(None)
-                    continue
-                rels.append(
-                    torch.cat([
-                        parameter.view(-1, self.dim)
-                        for parameter in operator.parameters()
-                    ], dim=0).squeeze()
-                )
-
     def adjust_embs(
         self,
         embs: torch.FloatTensor,

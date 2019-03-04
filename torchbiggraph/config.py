@@ -10,7 +10,7 @@ import argparse
 import importlib.util
 from enum import Enum
 from itertools import chain
-from typing import ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 import attr
 
@@ -335,44 +335,51 @@ class ConfigSchema(Schema):
     )
 
 
-def parse_config_base(config, overrides=None):
-    spec = importlib.util.spec_from_file_location("config_module", config)
+def get_config_dict_from_module(config_filename: str) -> Any:
+    spec = importlib.util.spec_from_file_location("config_module", config_filename)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    user_config = module.get_torchbiggraph_config()
-    assert user_config is not None, "your config file didn't return anything"
-    if overrides is not None:
-        for override in overrides:
+    config_dict = module.get_torchbiggraph_config()
+    if config_dict is None:
+        raise RuntimeError("Config module %s didn't return anything" % config_filename)
+    return config_dict
+
+
+# TODO make this a non-inplace operation
+def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
+    for override in overrides:
+        try:
+            key, value = override.split('=')
+            param_type = attr.fields_dict(ConfigSchema)[key].type or str
+            # this is a bit of a hack; we should do something better
+            # but this is convenient for specifying lists of strings
+            # e.g. edge_paths
             try:
-                key, value = override.split('=')
-                param_type = attr.fields_dict(ConfigSchema)[key].type or str
-                # this is a bit of a hack; we should do something better
-                # but this is convenient for specifying lists of strings
-                # e.g. edge_paths
-                try:
-                    param_type = unpack_optional(param_type)
-                except TypeError:
-                    pass
-                if isinstance(param_type, type) and issubclass(param_type, list):
-                    value = value.split(",")
-                # Convert numbers (caution: ignore bools, which are ints)
-                if isinstance(param_type, type) \
-                        and issubclass(param_type, (int, float)) \
-                        and not issubclass(param_type, bool):
-                    value = param_type(value)
-                user_config[key] = value
-            except Exception as e:
-                assert False, "Can't parse override: {} . {}".format(override, e)
-    return user_config
+                param_type = unpack_optional(param_type)
+            except TypeError:
+                pass
+            if isinstance(param_type, type) and issubclass(param_type, list):
+                value = value.split(",")
+            # Convert numbers (caution: ignore bools, which are ints)
+            if isinstance(param_type, type) \
+                    and issubclass(param_type, (int, float)) \
+                    and not issubclass(param_type, bool):
+                value = param_type(value)
+            config_dict[key] = value
+        except Exception as err:
+            raise RuntimeError("Can't parse override: %s" % override) from err
+    return config_dict
 
 
-def parse_config(config, overrides=None):
-    user_config = parse_config_base(config, overrides)
-    full_config = ConfigSchema.from_dict(user_config)
+def parse_config(config_filename: str, overrides: Optional[List[str]] = None) -> ConfigSchema:
+    config_dict = get_config_dict_from_module(config_filename)
+    if overrides is not None:
+        config_dict = override_config_dict(config_dict, overrides)
+    config = ConfigSchema.from_dict(config_dict)
     # Late import to avoid circular dependency.
     from . import util
-    util._verbosity_level = full_config.verbose
-    return full_config
+    util._verbosity_level = config.verbose
+    return config
 
 
 def main():

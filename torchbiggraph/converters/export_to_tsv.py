@@ -7,101 +7,75 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import json
+from typing import Dict, Iterable, List, TextIO
+
 import torch
 
-from torchbiggraph.config import ConfigSchema
-from torchbiggraph.converters.dictionary import Dictionary
 from torchbiggraph.fileio import CheckpointManager
 from torchbiggraph.model import make_model
 
 
-def write(outf, word, emb):
-    outf.write("%s\t%s\n" % (word, "\t".join(str.format("%.9f") % x for x in emb)))
+def write(outf: TextIO, word: str, emb: Iterable[float]) -> None:
+    outf.write("%s\t%s\n" % (word, "\t".join("%.9f" % x for x in emb)))
 
 
-def make_dict(params):
-    if params is None:
-        return None
+def make_tsv(checkpoint: str, dictfile: str, outfile: str) -> None:
+    print("Loading relation types and entities...")
+    with open(dictfile, "rt") as tf:
+        dump = json.load(tf)
+    relation_types: List[str] = dump["relations"]
+    entities_by_type: Dict[str, List[str]] = dump["entities"]
 
-    return Dictionary(
-        params["freq"],
-        params["dict_type"],
-        params["entity_type"],
-        params["npart"],
-        params["ix_to_word"]
-    )
-
-
-def make_tsv(checkpoint, dictfile, outfile):
-    print('Load entity and relation dictionary.')
-    edict_params, rdict_params = torch.load(dictfile)
-    edict = {}
-    for entity, params in edict_params.items():
-        edict[entity] = make_dict(params)
-
-    rdict = make_dict(rdict_params)
-
-    print('Load model check point.')
+    print("Loading model check point...")
     checkpoint_manager = CheckpointManager(checkpoint)
     config = checkpoint_manager.read_config()
     state_dict, _ = checkpoint_manager.read_model()
     model = make_model(config)
     if state_dict is not None:
-        print('Init model from state dict.')
         model.load_state_dict(state_dict, strict=False)
 
-    print('Done init model.')
-    data = model.get_relation_parameters()
+    with open(outfile, "wt") as out_tf:
+        for entity_name, entity in config.entities.items():
+            entities = entities_by_type[entity_name]
+            part_begin = 0
+            for part in range(entity.num_partitions):
+                print("Writing embeddings for entity type %s partition %d..."
+                      % (entity_name, part))
+                embs, _ = checkpoint_manager.read(entity_name, part)
 
-    entities = config.entities.keys()
-    embeddings = {}
-    for entity in entities:
-        parts = range(config.entities[entity].num_partitions)
-        size = edict[entity].size()
-        embeddings[entity] = torch.FloatTensor(size, config.dimension)
-        idx = 0
-        for part in parts:
-            print('Load embeddings for entity %s, part %d.' % (entity, part))
-            embs, _ = checkpoint_manager.read(entity, part)
-            # remove dummy embeddings due to partition
-            sz = min(len(embs), size - idx)
-            embs = embs[:sz]
+                if model.global_embs is not None:
+                    embs += model.global_embs[model.EMB_PREFIX + entity_name]
 
-            if config.global_emb:
-                print("Applying the global embedding...")
-                # FIXME: it's pretty hacky to hardcode this ...
-                global_emb = state_dict['global_embs.emb_%s' % entity]
-                embs += global_emb
+                for ix in range(len(embs)):
+                    write(out_tf, entities[part_begin + ix], embs[ix])
+                    if (ix + 1) % 5000 == 0:
+                        print("- Processed %d entities so far..." % (ix + 1))
+                print("- Processed %d entities in total" % len(embs))
 
-            embeddings[entity][idx:idx + sz] = embs
-            idx = idx + sz
+                part_begin = part_begin + len(embs)
 
-    print('Writing to output file..')
-    with open(outfile, 'w') as outf:
-        for entity in entities:
-            embs = embeddings[entity]
-            dt = edict[entity]
-            assert dt.size() == len(embs)
-            for ix, word in dt.ix_to_word.items():
-                write(outf, word, embs[ix])
-
+        # TODO Provide a better output format for relation parameters.
+        print("Writing relation parameters...")
         if model.num_dynamic_rels > 0:
-            rels_lhs, rels_rhs = data
-            for ix, rel in rdict.ix_to_word.items():
-                write(outf, rel, rels_lhs[ix])
+            rels_lhs = next(model.lhs_operators[0].parameters())
+            for ix, rel in enumerate(relation_types):
+                write(out_tf, rel, rels_lhs[ix])
 
-            for ix, rel in rdict.ix_to_word.items():
-                write(outf, rel + "_reverse_relation", rels_rhs[ix])
+            rels_rhs = next(model.rhs_operators[0].parameters())
+            for ix, rel in enumerate(relation_types):
+                write(out_tf, rel + "_reverse_relation", rels_rhs[ix])
         else:
-            assert len(model.relations) == len(data)
-            for i in range(len(data)):
-                write(outf, model.relations[i].name, data[i])
+            for ix, operator in enumerate(model.rhs_operators):
+                write(out_tf, model.relations[ix].name, torch.cat([
+                    parameter.flatten() for parameter in operator.parameters()
+                ], dim=0))
 
-    print('Done converting to file %s.' % outfile)
+    print("Done exporting data to %s" % outfile)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Convert Data for Filament2')
+    parser = argparse.ArgumentParser(description='Convert Data for PBG')
     parser.add_argument('--checkpoint')
     parser.add_argument('--dict', required=True)
     parser.add_argument('--out', required=True)
