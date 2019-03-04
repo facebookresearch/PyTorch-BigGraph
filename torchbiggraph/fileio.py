@@ -233,7 +233,7 @@ def load_optimizer_state_dict(hf: h5py.File) -> Optional[OptimizerStateDict]:
 class OneWayMapping:
 
     def __init__(self, src: str, dst: str, fields: List[str]) -> None:
-        self.src = re.compile(src.format(**{f: r"(?P<%s>[^.]+)" % f for f in fields}))
+        self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
         self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
 
     def map(self, name: str) -> str:
@@ -281,7 +281,7 @@ def save_model_state_dict(hf: h5py.File, state_dict: ModuleStateDict) -> None:
         dataset.attrs[STATE_DICT_KEY_ATTR] = private_key
 
 
-def load_model_state_dict(hf: h5py.File) -> ModuleStateDict:
+def load_model_state_dict(hf: h5py.File) -> Optional[ModuleStateDict]:
     if MODEL_STATE_DICT_GROUP not in hf:
         return None
     g = hf[MODEL_STATE_DICT_GROUP]
@@ -362,7 +362,7 @@ def load_entity_partition(
 
 def load_model(
     path: str,
-) -> Tuple[ModuleStateDict, Optional[OptimizerStateDict]]:
+) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
     vlog("Loading from %s" % path)
     try:
         with h5py.File(path, "r") as hf:

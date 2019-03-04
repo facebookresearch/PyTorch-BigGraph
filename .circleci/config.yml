@@ -100,10 +100,12 @@ jobs:
           name: Test all the things!
           command: |
             . ~/venv/bin/activate
+            python3 tests/fileio_tests.py
             python3 tests/functional_tests.py
             python3 tests/model_tests.py
             python3 tests/schema_tests.py
             python3 tests/stats_tests.py
+            python3 tests/train_tests.py
             python3 tests/util_tests.py
 
 workflows:
