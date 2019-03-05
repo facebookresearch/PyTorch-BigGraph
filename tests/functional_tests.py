@@ -15,8 +15,6 @@ from unittest import TestCase, main
 import attr
 import h5py
 import numpy as np
-import torch
-from torch.distributions.multinomial import Multinomial
 
 from torchbiggraph.config import EntitySchema, RelationSchema, ConfigSchema
 from torchbiggraph.train import train
@@ -57,13 +55,13 @@ def generate_dataset(
     entity_path = TemporaryDirectory()
     relation_paths = [TemporaryDirectory() for _ in fractions]
 
-    embeddings: Dict[str, Tuple[torch.FloatTensor]] = {}
+    embeddings: Dict[str, Tuple[np.ndarray]] = {}
     for entity_name, entity in config.entities.items():
-        embeddings[entity_name] = torch.split(
-            torch.randn(num_entities, config.dimension),
-            Multinomial(
-                num_entities, torch.ones(entity.num_partitions)
-            ).sample().long().tolist(),
+        embeddings[entity_name] = np.split(
+            np.random.randn(num_entities, config.dimension),
+            np.cumsum(np.random.multinomial(
+                num_entities, [1 / entity.num_partitions] * entity.num_partitions,
+            )[:-1]),
         )
         for partition, embedding in enumerate(embeddings[entity_name]):
             with open(os.path.join(
@@ -78,22 +76,20 @@ def generate_dataset(
 
     for lhs_partition in range(num_lhs_partitions):
         for rhs_partition in range(num_rhs_partitions):
-            edges = torch.empty(0, 3, dtype=torch.long)
+            dtype = [("lhs", np.int64), ("rhs", np.int64), ("rel", np.int64)]
+            edges = np.empty((0,), dtype=dtype)
             for rel_idx, relation in enumerate(config.relations):
-                scores = torch.einsum(
+                scores = np.einsum(
                     'ld,rd->lr',
                     embeddings[relation.lhs][lhs_partition],
                     embeddings[relation.rhs][rhs_partition],
                 )
-                these_edges = torch.nonzero(scores > 0)
-                edges = torch.cat([
-                    edges,
-                    torch.cat([
-                        these_edges,
-                        torch.full((len(these_edges), 1), rel_idx, dtype=torch.long),
-                    ], dim=1),
-                ], dim=0)
-            edges = edges[torch.randperm(len(edges))]
+                num_these_edges = np.count_nonzero(scores > 0)
+                these_edges = np.empty(num_these_edges, dtype=dtype)
+                these_edges["lhs"], these_edges["rhs"] = np.nonzero(scores > 0)
+                these_edges["rel"] = rel_idx
+                edges = np.append(edges, these_edges)
+            edges = edges[np.random.permutation(len(edges))]
             start_idx = 0
             for fraction, path in zip(fractions, relation_paths):
                 end_idx = start_idx + int(fraction * len(edges))
@@ -101,9 +97,10 @@ def generate_dataset(
                     path.name, "edges_%d_%d.h5" % (lhs_partition, rhs_partition)
                 ), "x") as hf:
                     hf.attrs["format_version"] = 1
-                    hf["lhs"] = edges[start_idx:end_idx, 0]
-                    hf["rhs"] = edges[start_idx:end_idx, 1]
-                    hf["rel"] = edges[start_idx:end_idx, 2]
+                    these_edges = edges[start_idx:end_idx]
+                    hf["lhs"] = these_edges["lhs"]
+                    hf["rhs"] = these_edges["rhs"]
+                    hf["rel"] = these_edges["rel"]
                 start_idx = end_idx
 
     return Dataset(entity_path, relation_paths)
@@ -130,7 +127,7 @@ def init_embeddings(
             ), "x") as hf:
                 hf.attrs["format_version"] = 1
                 hf.create_dataset("embeddings",
-                                  data=torch.randn(entity_count, config.dimension).numpy())
+                                  data=np.random.randn(entity_count, config.dimension))
     with h5py.File(os.path.join(target, "model.v%d.h5" % version), "x") as hf:
         hf.attrs["format_version"] = 1
 
