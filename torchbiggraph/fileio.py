@@ -42,7 +42,7 @@ def maybe_old_entity_path(path: str) -> bool:
 def maybe_old_edge_path(path: str) -> bool:
     # We used to have 1-based indexing.
     return (os.path.exists(os.path.join(path, "edges_1_1.h5"))
-            and not os.path.exists(os.path.join("edges_0_0.h5")))
+            and not os.path.exists(os.path.join(path, "edges_0_0.h5")))
 
 
 def maybe_old_checkpoint_path(path: str) -> bool:

@@ -85,11 +85,11 @@ def generate_dataset(
                      ("rel", np.int64)]
             edges = np.empty((0,), dtype=dtype)
             for rel_idx, relation in enumerate(config.relations):
-                scores = np.einsum(
-                    'ld,rd->lr',
-                    embeddings[relation.lhs][lhs_partition],
-                    embeddings[relation.rhs][rhs_partition],
-                )
+                lhs_partitioned = config.entities[relation.lhs].num_partitions > 1
+                rhs_partitioned = config.entities[relation.rhs].num_partitions > 1
+                lhs_embs = embeddings[relation.lhs][lhs_partition if lhs_partitioned else 0]
+                rhs_embs = embeddings[relation.rhs][rhs_partition if rhs_partitioned else 0]
+                scores = np.einsum('ld,rd->lr', lhs_embs, rhs_embs)
                 num_these_edges = np.count_nonzero(scores > 0)
                 these_edges = np.empty(num_these_edges, dtype=dtype)
                 these_edges["lhs"], these_edges["rhs"] = np.nonzero(scores > 0)
@@ -287,6 +287,40 @@ class TestFunctional(TestCase):
             dimension=10,
             relations=[r1, r2],
             entities={"e1": e1, "e2": e2},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.4, 0.2]
+        )
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        eval_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[1].name],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        train(train_config, rank=0)
+        do_eval(eval_config)
+        self.assertCheckpointWritten(train_config, version=1)
+
+    def test_partitioned(self):
+        e1 = EntitySchema(num_partitions=1)
+        e2 = EntitySchema(num_partitions=2)
+        e3 = EntitySchema(num_partitions=3)
+        r1 = RelationSchema(name="r1", lhs="e1", rhs="e3")
+        r2 = RelationSchema(name="r2", lhs="e2", rhs="e3")
+        r3 = RelationSchema(name="r3", lhs="e2", rhs="e1")
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[r1, r2, r3],
+            entities={"e1": e1, "e2": e2, "e3": e3},
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,

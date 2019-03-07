@@ -11,8 +11,8 @@ import os.path
 import random
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, Iterable, List, NamedTuple, NewType, Optional, \
-    Set, Tuple, TypeVar
+from typing import Any, DefaultDict, Dict, Iterable, List, NamedTuple, \
+    NewType, Optional, Set, Tuple, TypeVar
 
 import torch
 import torch.multiprocessing as mp
@@ -204,27 +204,36 @@ def create_pool(num_workers: int) -> mp.Pool:
 
 def get_partitioned_types(
     config: ConfigSchema,
-) -> Tuple[int, int, Set[EntityName], Set[EntityName]]:
-    # Currently, we only allow a single value of num_partitions other than 1.
-    # Eventually, we will allow arbitrary nested num_partitions.
-    max_parts = max(e.num_partitions for e in config.entities.values())
-    for e in config.entities.values():
-        assert e.num_partitions == 1 or e.num_partitions == max_parts, (
-            "Currently num_partitions must be either 1 or a single value across "
-            "all entities.")
+    side: Side,
+) -> Tuple[int, Set[EntityName]]:
+    """Return the number of partitions on a given side and the partitioned entity types
 
-    # Figure out how many lhs and rhs partitions we need
-    nparts_rhs, nparts_lhs = 1, 1
-    lhs_partitioned_types, rhs_partitioned_types = set(), set()
-    for relation in config.relations:
-        if config.entities[relation.lhs].num_partitions != 1:
-            lhs_partitioned_types.add(EntityName(relation.lhs))
-            nparts_lhs = max_parts
-        if config.entities[relation.rhs].num_partitions != 1:
-            rhs_partitioned_types.add(EntityName(relation.rhs))
-            nparts_rhs = max_parts
+    Each of the entity types that appear on the given side (LHS or RHS) of a relation
+    type is split into some number of partitions. The ones that are split into one
+    partition are called "unpartitioned" and behave as if all of their entities
+    belonged to all buckets. The other ones are the "properly" partitioned ones.
+    Currently, they must all be partitioned into the same number of partitions. This
+    function returns that number and the names of the properly partitioned entity
+    types.
 
-    return nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types
+    """
+    entity_names_by_num_parts: DefaultDict[int, Set[EntityName]] = DefaultDict(set)
+    for relation_config in config.relations:
+        entity_name = side.pick(relation_config.lhs, relation_config.rhs)
+        entity_config = config.entities[entity_name]
+        entity_names_by_num_parts[entity_config.num_partitions].add(entity_name)
+
+    if 1 in entity_names_by_num_parts:
+        del entity_names_by_num_parts[1]
+
+    if len(entity_names_by_num_parts) == 0:
+        return 1, set()
+    if len(entity_names_by_num_parts) > 1:
+        raise RuntimeError("Currently num_partitions must be a single "
+                           "value across all partitioned entities.")
+
+    (num_partitions, partitioned_entity_names), = entity_names_by_num_parts.items()
+    return num_partitions, partitioned_entity_names
 
 
 def create_ordered_buckets(

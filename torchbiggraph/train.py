@@ -399,8 +399,8 @@ def train_and_report_stats(
         return torch.nn.Parameter(embs), optim_state
 
     # Figure out how many lhs and rhs partitions we need
-    (nparts_lhs, nparts_rhs,
-     lhs_partitioned_types, rhs_partitioned_types) = get_partitioned_types(config)
+    nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
+    nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
     vlog("nparts %d %d types %s %s" %
          (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
 
@@ -425,13 +425,8 @@ def train_and_report_stats(
         optimizers[None].load_state_dict(optim_state)
 
     vlog("Loading unpartitioned entities...")
-    max_parts = max(e.num_partitions for e in config.entities.values())
     for entity, econfig in config.entities.items():
-        num_parts = econfig.num_partitions
-        assert num_parts == 1 or num_parts == max_parts, (
-            "Currently num_partitions must be either 1 or a single value across "
-            "all entities.")
-        if num_parts == 1:
+        if econfig.num_partitions == 1:
             embs, optim_state = load_embeddings(entity, Partition(0))
             model.set_embeddings(entity, embs, Side.LHS)
             model.set_embeddings(entity, embs, Side.RHS)

@@ -200,8 +200,8 @@ def do_eval_and_report_stats(
         assert embs.is_shared()
         return torch.nn.Parameter(embs)
 
-    (nparts_lhs, nparts_rhs,
-     lhs_partitioned_types, rhs_partitioned_types) = get_partitioned_types(config)
+    nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
+    nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
 
     pool = create_pool(config.workers)
 
