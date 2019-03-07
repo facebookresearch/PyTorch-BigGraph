@@ -258,6 +258,11 @@ class ConfigSchema(Schema):
         default=1e-2,
         metadata={'help': "The learning rate for the optimizer."},
     )
+    relation_lr: Optional[float] = attr.ib(
+        default=None,
+        metadata={'help': "If set, the learning rate for the optimizer"
+                          "for relations. Otherwise, `lr' is used."},
+    )
     eval_fraction: float = attr.ib(
         default=0.05,
         metadata={'help': "The fraction of edges withheld from training and "

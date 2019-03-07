@@ -139,7 +139,6 @@ def perform_action_one_thread(
 ) -> Union[TrainStats, EvalStats]:
     """ This is the main loop executed by each HOGWILD worker thread.
     """
-
     lhs = lhs[my_edges]
     rhs = rhs[my_edges]
     rel = rel[my_edges]
@@ -348,7 +347,11 @@ def train_and_report_stats(
         elif is_emb:
             optimizer = RowAdagrad(params, lr=config.lr)
         else:
-            optimizer = Adagrad(params, lr=config.lr)
+            if config.relation_lr is not None:
+                lr = config.relation_lr
+            else:
+                lr = config.lr
+            optimizer = Adagrad(params, lr=lr)
         optimizer.share_memory()
         return optimizer
 
