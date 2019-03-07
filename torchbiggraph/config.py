@@ -297,7 +297,7 @@ class ConfigSchema(Schema):
         default=2,
         metadata={'help': "The number of seconds by which to delay the start "
                           "of all \"Hogwild!\" processes except the first "
-                          "one."},
+                          "one, on the first epoch"},
     )
     dynamic_relations: bool = attr.ib(
         default=False,

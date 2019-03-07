@@ -131,6 +131,7 @@ def perform_action_one_thread(
     config: ConfigSchema,
     action: Action,
     model: MultiRelationEmbedder,
+    epoch_idx: int,
     lhs: EntityList,
     rhs: EntityList,
     rel: torch.LongTensor,
@@ -149,7 +150,7 @@ def perform_action_one_thread(
     if action is Action.TRAIN:
         if optimizers is None:
             raise ValueError("Need optimizers for training")
-        if rank > 0:
+        if rank > 0 and epoch_idx == 0:
             time.sleep(config.hogwild_delay)
         stats = train_many_batches(config, model, optimizers, lhs, rhs, rel)
     elif action is Action.EVAL:
@@ -173,6 +174,7 @@ def distribute_action_among_workers(
     config: ConfigSchema,
     action: Action,
     model: MultiRelationEmbedder,
+    epoch_idx: int,
     lhs: EntityList,
     rhs: EntityList,
     rel: torch.LongTensor,
@@ -180,7 +182,7 @@ def distribute_action_among_workers(
     optimizers: Optional[List[Optimizer]] = None
 ) -> Union[TrainStats, EvalStats]:
     all_stats = pool.starmap(perform_action_one_thread, [
-        (Rank(i), config, action, model, lhs, rhs, rel, edge_perm[s], optimizers)
+        (Rank(i), config, action, model, epoch_idx, lhs, rhs, rel, edge_perm[s], optimizers)
         for i, s in enumerate(split_almost_equally(len(edge_perm), num_parts=config.workers))
     ])
 
@@ -653,7 +655,7 @@ def train_and_report_stats(
                 log_status("Waiting for workers to perform evaluation")
                 eval_stats_before = distribute_action_among_workers(
                     pool, config,
-                    Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
+                    Action.EVAL, model, epoch_idx, lhs, rhs, rel, eval_edge_perm)
                 log("stats before %s: %s" % (cur_b, eval_stats_before))
 
             io_time += time.time() - tic
@@ -662,7 +664,7 @@ def train_and_report_stats(
             log_status("Waiting for workers to perform training")
             stats = distribute_action_among_workers(
                 pool, config,
-                Action.TRAIN, model, lhs, rhs, rel, edge_perm,
+                Action.TRAIN, model, epoch_idx, lhs, rhs, rel, edge_perm,
                 list(optimizers.values()))
             compute_time = time.time() - tic
 
@@ -681,7 +683,7 @@ def train_and_report_stats(
                 log_status("Waiting for workers to perform evaluation")
                 eval_stats_after = distribute_action_among_workers(
                     pool, config,
-                    Action.EVAL, model, lhs, rhs, rel, eval_edge_perm)
+                    Action.EVAL, model, epoch_idx, lhs, rhs, rel, eval_edge_perm)
                 log("stats after %s: %s" % (cur_b, eval_stats_after))
 
             # Add train/eval metrics to queue
