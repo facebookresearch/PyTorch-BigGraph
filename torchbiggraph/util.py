@@ -105,6 +105,9 @@ def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[Entity
         else:
             return x[begin:end]
 
+    if len(index) == 0:
+        return [[] for _ in range(len(others) + 1)]
+
     sorted_index, order = index.sort()
     nchunks = sorted_index[-1] + 1
     nitems = sorted_index.size(0)

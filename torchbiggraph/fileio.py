@@ -85,17 +85,25 @@ class EdgeReader:
                     "update them.")
             elif hf.attrs[FORMAT_VERSION_ATTR] != FORMAT_VERSION:
                 raise RuntimeError("Version mismatch in edge file %s" % file_path)
-            lhs = hf['lhs']
-            rhs = hf['rhs']
-            rel = hf['rel']
+            lhs_ds = hf['lhs']
+            rhs_ds = hf['rhs']
+            rel_ds = hf['rel']
 
-            num_edges = rel.len()
+            num_edges = rel_ds.len()
             begin = int(chunk_idx * num_edges / num_chunks)
             end = int((chunk_idx + 1) * num_edges / num_chunks)
+            chunk_size = end - begin
 
-            lhs = torch.from_numpy(lhs[begin:end])
-            rhs = torch.from_numpy(rhs[begin:end])
-            rel = torch.from_numpy(rel[begin:end])
+            lhs = torch.empty(chunk_size, dtype=torch.long)
+            rhs = torch.empty(chunk_size, dtype=torch.long)
+            rel = torch.empty(chunk_size, dtype=torch.long)
+
+            # Needed because https://github.com/h5py/h5py/issues/870.
+            if chunk_size > 0:
+                lhs_ds.read_direct(lhs.numpy(), source_sel=np.s_[begin:end])
+                rhs_ds.read_direct(rhs.numpy(), source_sel=np.s_[begin:end])
+                rel_ds.read_direct(rel.numpy(), source_sel=np.s_[begin:end])
+
             lhsd = self.read_dynamic(hf, 'lhsd', begin, end)
             rhsd = self.read_dynamic(hf, 'rhsd', begin, end)
 
@@ -110,22 +118,25 @@ class EdgeReader:
         begin: int,
         end: int,
     ) -> TensorList:
-        offsets_field = '%s_offsets' % key
-        data_field = '%s_data' % key
-        if offsets_field in hf and data_field in hf:
-            offsets = torch.from_numpy(hf[offsets_field][begin:end + 1]).long()
-            data = torch.from_numpy(hf[data_field][offsets[0]:offsets[-1]]).long()
-
-            # careful! as of Pytorch 0.4, offsets[0] is a 0d tensor view, so
-            # offsets -= offsets[0] will give the wrong result
-            offsets -= offsets[0].item()
-
-            return TensorList(offsets, data)
-        else:
+        try:
+            offsets_ds = hf['%s_offsets' % key]
+            data_ds = hf['%s_data' % key]
+        except LookupError:
             # Empty tensor_list representation
             return TensorList(
-                torch.zeros(end - begin + 1).long(), torch.Tensor([])
-            )
+                offsets=torch.tensor(0, dtype=torch.long).expand(end - begin + 1),
+                data=torch.tensor([], dtype=torch.long))
+
+        offsets = torch.empty(end - begin + 1, dtype=torch.long)
+        offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
+        data = torch.empty(offsets[-1] - offsets[0], dtype=torch.long)
+        # Needed because https://github.com/h5py/h5py/issues/870.
+        if offsets[-1] - offsets[0] > 0:
+            data_ds.read_direct(data.numpy(), source_sel=np.s_[offsets[0]:offsets[-1]])
+
+        offsets -= offsets[0]
+
+        return TensorList(offsets, data)
 
 
 NP_VOID_DTYPE = np.dtype("V1")
@@ -165,7 +176,9 @@ class DatasetIO(io.RawIOBase):
     def readinto(self, buffer: bytearray) -> int:
         array = np.frombuffer(buffer, dtype=NP_VOID_DTYPE)
         size = min(len(buffer), self.dataset.size - self.pos)
-        self.dataset.read_direct(array, np.s_[self.pos:self.pos + size], np.s_[:size])
+        # Needed because https://github.com/h5py/h5py/issues/870.
+        if size > 0:
+            self.dataset.read_direct(array, np.s_[self.pos:self.pos + size], np.s_[:size])
         self.pos += size
         return size
 
@@ -207,7 +220,9 @@ def load_embeddings(hf: h5py.File) -> torch.FloatTensor:
     dataset: h5py.Dataset = hf[EMBEDDING_DATASET]
     storage = torch.FloatStorage._new_shared(dataset.size)
     embeddings = torch.FloatTensor(storage).view(dataset.shape)
-    dataset.read_direct(embeddings.numpy())
+    # Needed because https://github.com/h5py/h5py/issues/870.
+    if dataset.size > 0:
+        dataset.read_direct(embeddings.numpy())
     return embeddings
 
 

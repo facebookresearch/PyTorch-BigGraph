@@ -69,6 +69,10 @@ def generate_dataset(
             ), "xt") as tf:
                 tf.write("%d" % len(embedding))
 
+    any_lhs_featurized = any(
+        config.entities[relation.lhs].featurized for relation in config.relations)
+    any_rhs_featurized = any(
+        config.entities[relation.rhs].featurized for relation in config.relations)
     num_lhs_partitions = \
         broadcast_nums(len(embeddings[relation.lhs]) for relation in config.relations)
     num_rhs_partitions = \
@@ -76,7 +80,9 @@ def generate_dataset(
 
     for lhs_partition in range(num_lhs_partitions):
         for rhs_partition in range(num_rhs_partitions):
-            dtype = [("lhs", np.int64), ("rhs", np.int64), ("rel", np.int64)]
+            dtype = [("lhs", np.int64), ("lhs_feat", np.bool_),
+                     ("rhs", np.int64), ("rhs_feat", np.bool_),
+                     ("rel", np.int64)]
             edges = np.empty((0,), dtype=dtype)
             for rel_idx, relation in enumerate(config.relations):
                 scores = np.einsum(
@@ -88,6 +94,8 @@ def generate_dataset(
                 these_edges = np.empty(num_these_edges, dtype=dtype)
                 these_edges["lhs"], these_edges["rhs"] = np.nonzero(scores > 0)
                 these_edges["rel"] = rel_idx
+                these_edges["lhs_feat"] = config.entities[relation.lhs].featurized
+                these_edges["rhs_feat"] = config.entities[relation.rhs].featurized
                 edges = np.append(edges, these_edges)
             edges = edges[np.random.permutation(len(edges))]
             start_idx = 0
@@ -98,6 +106,20 @@ def generate_dataset(
                 ), "x") as hf:
                     hf.attrs["format_version"] = 1
                     these_edges = edges[start_idx:end_idx]
+                    if any_lhs_featurized:
+                        hf["lhsd_data"] = these_edges["lhs"][these_edges["lhs_feat"]]
+                        hf["lhsd_offsets"] = np.concatenate((
+                            np.array([0], dtype=np.int64),
+                            np.cumsum(these_edges["lhs_feat"], dtype=np.int64)))
+                        # Poison the non-featurized data.
+                        these_edges["lhs"][these_edges["lhs_feat"]] = -1
+                    if any_rhs_featurized:
+                        hf["rhsd_data"] = these_edges["rhs"][these_edges["rhs_feat"]]
+                        hf["rhsd_offsets"] = np.concatenate((
+                            np.array([0], dtype=np.int64),
+                            np.cumsum(these_edges["rhs_feat"], dtype=np.int64)))
+                        # Poison the non-featurized data.
+                        these_edges["rhs"][these_edges["rhs_feat"]] = -1
                     hf["lhs"] = these_edges["lhs"]
                     hf["rhs"] = these_edges["rhs"]
                     hf["rel"] = these_edges["rel"]
@@ -254,6 +276,38 @@ class TestFunctional(TestCase):
         # Just make sure no exceptions are raised and nothing crashes.
         init_embeddings(train_config.init_path, train_config)
         train(train_config, rank=0)
+        self.assertCheckpointWritten(train_config, version=1)
+
+    def test_featurized(self):
+        e1 = EntitySchema(num_partitions=1, featurized=True)
+        e2 = EntitySchema(num_partitions=1)
+        r1 = RelationSchema(name="r1", lhs="e1", rhs="e2")
+        r2 = RelationSchema(name="r2", lhs="e2", rhs="e1")
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[r1, r2],
+            entities={"e1": e1, "e2": e2},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.4, 0.2]
+        )
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        eval_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[1].name],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        train(train_config, rank=0)
+        do_eval(eval_config)
         self.assertCheckpointWritten(train_config, version=1)
 
 

@@ -54,6 +54,8 @@ class Stats:
         """Return these stats with all metrics, except count, averaged.
 
         """
+        if self.count == 0:
+            return self
         # TODO Remove noqa when flake8 will understand kw_only added in attrs-18.2.0.
         return type(self)(  # noqa
             count=self.count,
