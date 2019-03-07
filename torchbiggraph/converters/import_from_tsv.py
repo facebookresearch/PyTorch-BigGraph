@@ -258,7 +258,7 @@ def convert_input_data(
         "relations": relation_types.get_list(),
         "entities": {k: v.get_list() for k, v in entities_by_type.items()},
     }
-    with open(os.path.join(entity_path, "names.json"), "wt") as tf:
+    with open(os.path.join(entity_path, "dictionary.json"), "wt") as tf:
         json.dump(dump, tf, indent=4)
 
     generate_entity_path_files(
