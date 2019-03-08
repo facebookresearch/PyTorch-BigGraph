@@ -575,10 +575,6 @@ def train_and_report_stats(
                                                  and epoch_idx == 0))
             td.barrier(group=barrier_group)
 
-        # Single-machine case: partition_count keeps track of how
-        # many partitions have been processed so far. This is used in
-        # pre-fetching only.
-        partition_count = 0
         remaining = len(buckets)
         cur_b = None
         while remaining > 0:
@@ -613,13 +609,13 @@ def train_and_report_stats(
             current_index = \
                 (iteration_manager.iteration_idx + 1) * total_buckets - remaining
 
-            if partition_count < total_buckets - 1 and background_io:
+            if remaining > 0 and background_io:
                 assert config.num_machines == 1
                 # Ensure the previous bucket finished writing to disk.
                 checkpoint_manager.wait_for_marker(current_index - 1)
 
                 log_status("Prefetching")
-                next_partition = buckets[partition_count + 1]
+                next_partition = buckets[0]
                 for entity in lhs_partitioned_types:
                     checkpoint_manager.prefetch(entity, next_partition.lhs)
                 for entity in rhs_partitioned_types:
@@ -688,8 +684,6 @@ def train_and_report_stats(
 
             # Add train/eval metrics to queue
             yield current_index, eval_stats_before, stats, eval_stats_after
-
-            partition_count += 1
 
         swap_partitioned_embeddings(cur_b, None)
 
