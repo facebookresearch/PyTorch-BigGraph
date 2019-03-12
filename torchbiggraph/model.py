@@ -1108,10 +1108,7 @@ class MultiRelationEmbedder(nn.Module):
              lhs_neg_scores, rhs_neg_scores)
 
 
-def make_model(
-    config: ConfigSchema,
-    num_dynamic_rels: int = 0,
-) -> MultiRelationEmbedder:
+def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
     if config.dynamic_relations:
         if len(config.relations) != 1:
             raise RuntimeError(

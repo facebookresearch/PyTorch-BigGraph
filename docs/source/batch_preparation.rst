@@ -1,3 +1,5 @@
+.. _batch-preparation:
+
 Batch preparation
 =================
 
@@ -56,15 +58,3 @@ samples a relation type, with probability proportional to the number of edges
 of that type that are left in the pool. It then takes the first ``batch_size`` relations of
 that type (or fewer, if not enough of them are left), removes them from the pool and
 performs training on them.
-
-.. _distributed-training:
-
-Distributed mode
-================
-
-Talk about what invocations need to be done (``num_machines`` trainers plus, in
-case, ``num_partition_servers`` partition servers)
-
-Talk about what processes they each spawn, how they communicate (using ``torch.distributed``, or queues, or the filesystem, ...)
-
-Talk about the different groups of processes (lockserver, barriers, partition and parameter servers, ...)

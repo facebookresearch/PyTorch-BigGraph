@@ -120,11 +120,11 @@ class RelationSchema(Schema):
     )
     all_negs: bool = attr.ib(
         default=False,
-        metadata={'help': "If enabled, the negatives for (s, r, d) will "
-                          "consist of (s, r, d') for all entities d' of the "
-                          "same type and in the same partitition as d, and, "
-                          "symmetrically, of (s', r, d) for all entities s' of "
-                          "the same type and in the same partition as s."},
+        metadata={'help': "If enabled, the negatives for (x, r, y) will "
+                          "consist of (x, r, y') for all entities y' of the "
+                          "same type and in the same partition as y, and, "
+                          "symmetrically, of (x', r, y) for all entities x' of "
+                          "the same type and in the same partition as x."},
     )
 
 
@@ -189,8 +189,8 @@ class ConfigSchema(Schema):
     margin: Optional[float] = attr.ib(
         default=0.1,
         metadata={'help': "When using ranking loss, this value controls the "
-                          "minimum distance there must be between positive and "
-                          "negative scores in order to incur in no loss."},
+                          "minimum separation between positive and negative "
+                          "scores, below which a (linear) loss is incured."},
     )
 
     # data config
@@ -201,7 +201,8 @@ class ConfigSchema(Schema):
     )
     edge_paths: List[str] = attr.ib(
         metadata={'help': "A list of paths to directories containing "
-                          "(partitioned) edgelists."},
+                          "(partitioned) edgelists. Typically a single path is "
+                          "provided."},
     )
     checkpoint_path: str = attr.ib(
         metadata={'help': "The path to the directory where checkpoints (and "
@@ -212,7 +213,7 @@ class ConfigSchema(Schema):
         default=None,
         metadata={'help': "If set, it must be a path to a directory that "
                           "contains initial values for the embeddings of all "
-                          "the entities."},
+                          "the entities of some types."},
     )
 
     # training config
@@ -247,12 +248,12 @@ class ConfigSchema(Schema):
     num_batch_negs: int = attr.ib(
         default=50,
         metadata={'help': "The number of negatives sampled from the batch, per "
-                          "positive."},
+                          "positive edge."},
     )
     num_uniform_negs: int = attr.ib(
         default=50,
-        metadata={'help': "The number of uniformly-sampled negatives per "
-                          "positive."},
+        metadata={'help': "The number of negatives uniformly sampled from the "
+                          "currently active partition, per positive edge."},
     )
     lr: float = attr.ib(
         default=1e-2,
@@ -271,16 +272,16 @@ class ConfigSchema(Schema):
     eval_num_batch_negs: int = attr.ib(
         default=1000,
         metadata={'help': "The value that overrides the number of negatives "
-                          "per positive sampled from the batch during the "
+                          "per positive edge sampled from the batch during the "
                           "evaluation steps that occur before and after each "
                           "training step."},
     )
     eval_num_uniform_negs: int = attr.ib(
         default=1000,
         metadata={'help': "The value that overrides the number of "
-                          "uniformly-sampled negatives per positive during the "
-                          "evaluation steps that occur before and after each "
-                          "training step."},
+                          "uniformly-sampled negatives per positive edge "
+                          "during the evaluation steps that occur before and "
+                          "after each training step."},
     )
 
     # expert options

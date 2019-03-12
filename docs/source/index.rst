@@ -12,10 +12,13 @@ Welcome to torchbiggraph's documentation!
 
    data_model
    scoring
+   input_output
    batch_preparation
+   distributed_training
    loss_optimization
    evaluation
    featurized_entities
+   configuration_file
 
 
 Indices and tables
