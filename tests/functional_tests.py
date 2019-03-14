@@ -158,19 +158,62 @@ def init_embeddings(
 
 class TestFunctional(TestCase):
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.checkpoint_path = TemporaryDirectory()
         self.addCleanup(self.checkpoint_path.cleanup)
 
-    def assertCheckpointWritten(self, config: ConfigSchema, *, version: int):
+    def assertHasMetadata(self, hf: h5py.File, config: ConfigSchema) -> None:
+        self.assertEqual(hf.attrs["format_version"], 1)
+        self.assertEqual(json.loads(hf.attrs["config/json"]), config.to_dict())
+        self.assertCountEqual(
+            [key.partition("/")[-1]
+             for key in hf.attrs.keys()
+             if key.startswith("iteration/")],
+            ["num_epochs", "epoch_idx",
+             "num_edge_paths", "edge_path_idx", "edge_path",
+             "num_edge_chunks", "edge_chunk_idx"])
+
+    def assertIsModelParameter(self, dataset: h5py.Dataset) -> None:
+        # In fact it could also be a group...
+        if not isinstance(dataset, h5py.Dataset):
+            return
+        self.assertIn("state_dict_key", dataset.attrs)
+        self.assertTrue(np.isfinite(dataset[...]).all())
+
+    def assertIsModelParameters(self, group: h5py.Group) -> None:
+        self.assertIsInstance(group, h5py.Group)
+        group.visititems(lambda _, d: self.assertIsModelParameter(d))
+
+    def assertIsOptimStateDict(self, dataset: h5py.Dataset) -> None:
+        self.assertIsInstance(dataset, h5py.Dataset)
+        self.assertEqual(dataset.dtype, np.dtype("V1"))
+        self.assertEqual(len(dataset.shape), 1)
+
+    def assertIsEmbeddings(
+        self,
+        dataset: h5py.Dataset,
+        entity_count: int,
+        dimension: int,
+    ) -> None:
+        self.assertIsInstance(dataset, h5py.Dataset)
+        self.assertEqual(dataset.dtype, np.float32)
+        self.assertEqual(dataset.shape, (entity_count, dimension))
+        self.assertTrue(np.all(np.isfinite(dataset[...])))
+        self.assertTrue(np.all(np.linalg.norm(dataset[...], axis=-1) != 0))
+
+    def assertCheckpointWritten(self, config: ConfigSchema, *, version: int) -> None:
         with open(os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt") as tf:
             self.assertEqual(version, int(tf.read().strip()))
 
         with open(os.path.join(config.checkpoint_path, "config.json"), "rt") as tf:
             self.assertEqual(json.load(tf), config.to_dict())
 
-        self.assertTrue(os.path.exists(os.path.join(
-            config.checkpoint_path, "model.v%d.h5" % version)))
+        with h5py.File(os.path.join(
+            config.checkpoint_path, "model.v%d.h5" % version
+        ), "r") as hf:
+            self.assertHasMetadata(hf, config)
+            self.assertIsModelParameters(hf["model"])
+            self.assertIsOptimStateDict(hf["optimizer/state_dict"])
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
@@ -183,10 +226,10 @@ class TestFunctional(TestCase):
                     config.checkpoint_path,
                     "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
                 ), "r") as hf:
-                    embeddings_dataset = hf["embeddings"]
-                    self.assertEqual(embeddings_dataset.dtype, np.float32)
-                    self.assertEqual(embeddings_dataset.shape,
-                                     (entity_count, config.dimension))
+                    self.assertHasMetadata(hf, config)
+                    self.assertIsEmbeddings(
+                        hf["embeddings"], entity_count, config.dimension)
+                    self.assertIsOptimStateDict(hf["optimizer/state_dict"])
 
     def test_default(self):
         entity_name = "e"
