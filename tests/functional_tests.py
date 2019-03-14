@@ -8,6 +8,7 @@
 
 import json
 import os.path
+from multiprocessing import Process
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, NamedTuple, Tuple
 from unittest import TestCase, main
@@ -16,7 +17,8 @@ import attr
 import h5py
 import numpy as np
 
-from torchbiggraph.config import EntitySchema, RelationSchema, ConfigSchema
+from torchbiggraph.config import Operator, EntitySchema, RelationSchema, ConfigSchema
+from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.train import train
 from torchbiggraph.eval import do_eval
 
@@ -342,6 +344,120 @@ class TestFunctional(TestCase):
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
         do_eval(eval_config)
+        self.assertCheckpointWritten(train_config, version=1)
+
+    def test_distributed(self):
+        sync_path = TemporaryDirectory()
+        self.addCleanup(sync_path.cleanup)
+        entity_name = "e"
+        relation_config = RelationSchema(
+            name="r",
+            lhs=entity_name,
+            rhs=entity_name,
+            operator=Operator.LINEAR,  # To exercise the parameter server.
+        )
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[relation_config],
+            entities={entity_name: EntitySchema(num_partitions=4)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+            num_machines=2,
+            distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.4]
+        )
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        trainer0 = Process(target=train, args=(train_config,), kwargs={"rank": 0})
+        trainer1 = Process(target=train, args=(train_config,), kwargs={"rank": 1})
+        trainer0.start()
+        trainer1.start()
+        trainer0.join()
+        trainer1.join()
+        self.assertEqual(trainer0.exitcode, 0)
+        self.assertEqual(trainer1.exitcode, 0)
+        self.assertCheckpointWritten(train_config, version=1)
+
+    def test_distributed_with_partition_servers(self):
+        sync_path = TemporaryDirectory()
+        self.addCleanup(sync_path.cleanup)
+        entity_name = "e"
+        relation_config = RelationSchema(
+            name="r", lhs=entity_name, rhs=entity_name)
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[relation_config],
+            entities={entity_name: EntitySchema(num_partitions=2)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+            num_machines=1,
+            num_partition_servers=1,
+            distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.4]
+        )
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        trainer = Process(target=train, args=(train_config,), kwargs={"rank": 0})
+        partition_server = Process(
+            target=run_partition_server, args=(train_config,), kwargs={"rank": 0})
+        trainer.start()
+        partition_server.start()
+        trainer.join()
+        partition_server.terminate()  # Cannot be shut down gracefully.
+        partition_server.join()
+        self.assertEqual(trainer.exitcode, 0)
+        self.assertCheckpointWritten(train_config, version=1)
+
+    def test_dynamic_relations(self):
+        relation_config = RelationSchema(name="r", lhs="el", rhs="er")
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[],  # filled in later
+            entities={
+                "el": EntitySchema(num_partitions=1),
+                "er": EntitySchema(num_partitions=1),
+            },
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+            dynamic_relations=True,
+        )
+        gen_config = attr.evolve(
+            base_config,
+            relations=[relation_config] * 10,
+        )
+        dataset = generate_dataset(
+            base_config, num_entities=100, fractions=[0.04]
+        )
+        self.addCleanup(dataset.cleanup)
+        with open(os.path.join(
+            dataset.entity_path.name, "dynamic_rel_count.txt"
+        ), "xt") as f:
+            f.write("%d" % len(gen_config.relations))
+        train_config = attr.evolve(
+            base_config,
+            relations=[relation_config],
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        train(train_config, rank=0)
         self.assertCheckpointWritten(train_config, version=1)
 
 

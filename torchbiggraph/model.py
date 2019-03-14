@@ -772,7 +772,6 @@ class MultiRelationEmbedder(nn.Module):
         self.num_dynamic_rels: int = num_dynamic_rels
         if num_dynamic_rels > 0:
             assert len(relations) == 1
-            assert len(entities) == 1
         self.lhs_operators: nn.ModuleList = nn.ModuleList()
         self.rhs_operators: nn.ModuleList = nn.ModuleList()
         for r in relations:
