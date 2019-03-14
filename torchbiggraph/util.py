@@ -15,6 +15,7 @@ from typing import Any, DefaultDict, Dict, Iterable, List, NamedTuple, \
     NewType, Optional, Set, Tuple, TypeVar
 
 import torch
+import torch.distributed as td
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
 
@@ -456,7 +457,7 @@ def init_process_group(
     rank: Rank,
     groups: List[List[int]],
     backend: str = "gloo",
-) -> List['torch.distributed.ProcessGroup']:
+) -> List['td.ProcessGroup']:
     # With the THD backend there were no timeouts so high variance in
     # execution time between trainers was not a problem. With the new c10d
     # implementation we do have to take timeouts into account. To simulate
@@ -465,14 +466,14 @@ def init_process_group(
     log("init_process_group start")
     if init_method is None:
         raise RuntimeError("distributed_init_method must be set when num_machines > 1")
-    torch.distributed.init_process_group(backend,
-                                         init_method=init_method,
-                                         world_size=world_size,
-                                         rank=rank,
-                                         timeout=timeout)
+    td.init_process_group(backend,
+                          init_method=init_method,
+                          world_size=world_size,
+                          rank=rank,
+                          timeout=timeout)
     log("init_process_group creating groups")
     group_objs = []
     for group in groups:
-        group_objs.append(torch.distributed.new_group(group, timeout=timeout))
+        group_objs.append(td.new_group(group, timeout=timeout))
     log("init_process_group done")
     return group_objs

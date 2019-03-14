@@ -11,6 +11,7 @@ import time
 import traceback
 
 import torch
+import torch.distributed as td
 import torch.multiprocessing as mp
 
 from .util import log, init_process_group
@@ -69,7 +70,7 @@ class ParameterServer:
         while True:
             # 1. receive the command
             cmd_buffer = torch.LongTensor(6).fill_(-1)
-            rank = torch.distributed.recv(cmd_buffer)
+            rank = td.recv(cmd_buffer)
             cmd = cmd_buffer[0]
 
             if cmd == STORE_CMD:
@@ -97,7 +98,7 @@ class ParameterServer:
                         # after sending the join cmd,
                         # each client waits on this ack to know everyone is done
                         # and it's safe to exit
-                        torch.distributed.send(torch.Tensor(1).fill_(0), dst=r)
+                        td.send(torch.Tensor(1).fill_(0), dst=r)
                     break
             else:
                 raise RuntimeError("Command is unknown value %d from rank %d."
@@ -106,7 +107,7 @@ class ParameterServer:
     def _recv_key(self, rank, keylen):
         """Receive a string tensor key from a client node."""
         key_buffer = torch.CharTensor(keylen).fill_(0)
-        torch.distributed.recv(key_buffer, src=rank)
+        td.recv(key_buffer, src=rank)
         return _tostring(key_buffer)
 
     def handle_store(self, rank, key, ndim, accum, overwrite, ttype):
@@ -116,7 +117,7 @@ class ParameterServer:
             size = self.parameters[key].size()
         else:
             size = torch.LongTensor(ndim)
-            torch.distributed.recv(size, src=rank)
+            td.recv(size, src=rank)
             size = size.tolist()
         tensor_type = _tensor_types[ttype]
         if not accum and overwrite and key in self.parameters:
@@ -124,7 +125,7 @@ class ParameterServer:
             del self.parameters[key]
         data = tensor_type(*size)
 
-        torch.distributed.recv(data, src=rank)
+        td.recv(data, src=rank)
 
         if accum:
             self.parameters[key] += data
@@ -135,17 +136,16 @@ class ParameterServer:
 
         if key not in self.parameters:
             assert send_size, "Key %s not found" % key
-            torch.distributed.send(torch.LongTensor([-1, -1]), rank)
+            td.send(torch.LongTensor([-1, -1]), rank)
             return
 
         data = self.parameters[key]
         if send_size:
             type_idx = _tensor_type_idx[data.type()]
-            torch.distributed.send(
-                torch.LongTensor([data.ndimension(), type_idx]), rank)
-            torch.distributed.send(torch.LongTensor(list(data.size())), rank)
+            td.send(torch.LongTensor([data.ndimension(), type_idx]), rank)
+            td.send(torch.LongTensor(list(data.size())), rank)
 
-        torch.distributed.send(data, dst=rank)
+        td.send(data, dst=rank)
 
 
 class ParameterServerClient:
@@ -164,34 +164,33 @@ class ParameterServerClient:
                                     int(accum),
                                     int(overwrite),
                                     _tensor_type_idx[src.type()]])
-        torch.distributed.send(cmd_rpc, self.server_rank)
-        torch.distributed.send(_fromstring(key), self.server_rank)
+        td.send(cmd_rpc, self.server_rank)
+        td.send(_fromstring(key), self.server_rank)
         if not accum:
-            torch.distributed.send(torch.LongTensor(list(src.size())),
-                                   self.server_rank)
-        torch.distributed.send(src, self.server_rank)
+            td.send(torch.LongTensor(list(src.size())), self.server_rank)
+        td.send(src, self.server_rank)
 
     def get(self, key, dst=None, shared=False):
         """Get a tensor from the server.
         """
         cmd_rpc = torch.LongTensor([GET_CMD, len(key), dst is None, 0, 0, 0])
-        torch.distributed.send(cmd_rpc, self.server_rank)
-        torch.distributed.send(_fromstring(key), self.server_rank)
+        td.send(cmd_rpc, self.server_rank)
+        td.send(_fromstring(key), self.server_rank)
         if dst is None:
             meta = torch.LongTensor(2).fill_(-1)
-            torch.distributed.recv(meta, src=self.server_rank)
+            td.recv(meta, src=self.server_rank)
             ndim, ttype = meta
             if ndim.item() == -1:
                 return None
             size = torch.LongTensor(ndim.item()).fill_(-1)
-            torch.distributed.recv(size, src=self.server_rank)
+            td.recv(size, src=self.server_rank)
             tensor_type = _tensor_types[ttype.item()]
             if shared:
                 dst_storage = tensor_type().storage_type()._new_shared(size.prod())
                 dst = tensor_type(dst_storage).view(*size.tolist())
             else:
                 dst = tensor_type(*size.tolist())
-        torch.distributed.recv(dst, src=self.server_rank)
+        td.recv(dst, src=self.server_rank)
         return dst
 
     def swap(self, key, src, dst=None, accum=False, overwrite=False):
@@ -208,13 +207,12 @@ class ParameterServerClient:
                                     int(accum),
                                     int(overwrite),
                                     _tensor_type_idx[src.type()]])
-        torch.distributed.send(cmd_rpc, self.server_rank)
-        torch.distributed.send(_fromstring(key), self.server_rank)
+        td.send(cmd_rpc, self.server_rank)
+        td.send(_fromstring(key), self.server_rank)
         if not accum:
-            torch.distributed.send(torch.LongTensor(list(src.size())),
-                                   self.server_rank)
-        torch.distributed.send(src, self.server_rank)
-        torch.distributed.recv(dst, src=self.server_rank)
+            td.send(torch.LongTensor(list(src.size())), self.server_rank)
+        td.send(src, self.server_rank)
+        td.recv(dst, src=self.server_rank)
         # log("Swapped %d bytes to %d in %g s" %
         #     (src.nelement(), self.server_rank, time.time() - tic))
 
@@ -224,9 +222,9 @@ class ParameterServerClient:
         """
 
         cmd_rpc = torch.LongTensor([JOIN_CMD, 0, 0, 0, 0, 0])
-        torch.distributed.send(cmd_rpc, self.server_rank)
+        td.send(cmd_rpc, self.server_rank)
         ack = torch.Tensor(1)
-        torch.distributed.recv(ack, src=self.server_rank)
+        td.recv(ack, src=self.server_rank)
 
 
 class GradientParameterServerClient:
