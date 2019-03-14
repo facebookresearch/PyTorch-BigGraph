@@ -137,11 +137,17 @@ class LockServer(Server):
 
 class LockClient(Client):
 
-    def __init__(self, server_rank):
+    def __init__(self, server_rank: Rank) -> None:
         super(LockClient, self).__init__(LockServer, server_rank)
 
 
-def _start_lock_server(init_method, world_size, num_clients, server_rank, groups):
+def _start_lock_server(
+    server_rank: Rank,
+    num_clients: int,
+    init_method: Optional[str],
+    world_size: int,
+    groups: List[List[Rank]],
+) -> None:
     log("_start_lock_server: init_process_group begin")
     init_process_group(init_method=init_method,
                        world_size=world_size,
@@ -151,14 +157,21 @@ def _start_lock_server(init_method, world_size, num_clients, server_rank, groups
     s.start()
 
 
-def setup_lock_server(is_server_node, server_rank, world_size, num_clients, init_method, groups):
+def setup_lock_server(
+    is_server_node: bool,
+    server_rank: Rank,
+    num_clients: int,
+    init_method: Optional[str],
+    world_size: int,
+    groups: List[List[Rank]],
+) -> LockClient:
 
     if is_server_node:
         # set up the parameter server on rank 0, but as a separate node
         # with MPI rank provided
-        p_server = mp.Process(target=_start_lock_server,
-                              args=(init_method, world_size, num_clients, server_rank, groups)
-                              )
+        p_server = mp.Process(
+            target=_start_lock_server,
+            args=(server_rank, num_clients, init_method, world_size, groups))
         p_server.daemon = True
         p_server.start()
 

@@ -9,10 +9,11 @@
 import os
 import os.path
 import random
+from collections import defaultdict
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, DefaultDict, Dict, Iterable, List, NamedTuple, \
-    NewType, Optional, Set, Tuple, TypeVar
+from typing import Any, Dict, Iterable, List, NamedTuple, NewType, Optional, \
+    Set, Tuple, TypeVar
 
 import torch
 import torch.distributed as td
@@ -218,7 +219,7 @@ def get_partitioned_types(
     types.
 
     """
-    entity_names_by_num_parts: DefaultDict[int, Set[EntityName]] = DefaultDict(set)
+    entity_names_by_num_parts: Dict[int, Set[EntityName]] = defaultdict(set)
     for relation_config in config.relations:
         entity_name = side.pick(relation_config.lhs, relation_config.rhs)
         entity_config = config.entities[entity_name]
@@ -455,7 +456,7 @@ def init_process_group(
     init_method: Optional[str],
     world_size: int,
     rank: Rank,
-    groups: List[List[int]],
+    groups: List[List[Rank]],
     backend: str = "gloo",
 ) -> List['td.ProcessGroup']:
     # With the THD backend there were no timeouts so high variance in

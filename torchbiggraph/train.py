@@ -303,9 +303,9 @@ def train_and_report_stats(
         lock_client = setup_lock_server(
             is_server_node=(rank == 0),
             server_rank=3 * config.num_machines,
-            world_size=world_size,
             num_clients=config.num_machines,
             init_method=init_method,
+            world_size=world_size,
             groups=[barrier_group_ranks])
 
         log("Setup param server...")
@@ -316,16 +316,16 @@ def train_and_report_stats(
             all_server_ranks=[config.num_machines + x
                               for x in range(config.num_machines)],
             num_clients=config.num_machines,
-            world_size=world_size,
             init_method=init_method,
+            world_size=world_size,
             groups=[barrier_group_ranks])
 
         num_partition_servers = config.num_partition_servers
         if config.num_partition_servers == -1:
             setup_parameter_server(server_rank=config.num_machines * 3 + 1 + rank,
                                    num_clients=config.num_machines,
-                                   world_size=world_size,
                                    init_method=init_method,
+                                   world_size=world_size,
                                    groups=[barrier_group_ranks])
             num_partition_servers = config.num_machines
 
@@ -385,7 +385,7 @@ def train_and_report_stats(
         part: Partition,
         strict: bool = False,
         force_dirty: bool = False,
-    ) -> Tuple[torch.FloatTensor, OptimizerStateDict]:
+    ) -> Tuple[torch.nn.Parameter, Optional[OptimizerStateDict]]:
         if strict:
             embs, optim_state = checkpoint_manager.read(entity, part,
                                                         force_dirty=force_dirty)

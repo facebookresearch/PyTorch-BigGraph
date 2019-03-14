@@ -427,7 +427,7 @@ def instantiate_operator(
     side: Side,
     num_dynamic_rels: int,
     dim: int,
-) -> AbstractOperator:
+) -> Union[AbstractOperator, AbstractDynamicOperator]:
     if num_dynamic_rels > 0:
         try:
             dynamic_operator_class = DYNAMIC_OPERATORS[operator]

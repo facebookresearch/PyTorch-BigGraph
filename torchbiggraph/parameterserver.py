@@ -9,12 +9,13 @@
 import queue
 import time
 import traceback
+from typing import Dict, List, Optional
 
 import torch
 import torch.distributed as td
 import torch.multiprocessing as mp
 
-from .util import log, init_process_group
+from .util import log, init_process_group, Rank
 
 
 ################################################################################
@@ -23,11 +24,11 @@ from .util import log, init_process_group
 
 
 # FIXME! This will be slow af
-def _tostring(t):
+def _tostring(t: torch.CharTensor) -> str:
     return "".join(chr(x) for x in t)
 
 
-def _fromstring(s):
+def _fromstring(s: str) -> torch.CharTensor:
     return torch.CharTensor([ord(x) for x in s])
 
 
@@ -61,11 +62,11 @@ class ParameterServer:
     That would simplify this code a lot.
     """
 
-    def __init__(self, num_clients):
+    def __init__(self, num_clients: int) -> None:
         self.num_clients = num_clients
-        self.parameters = {}
+        self.parameters: Dict[str, torch.Tensor] = {}
 
-    def start(self):
+    def start(self) -> None:
         join_count = 0
         while True:
             # 1. receive the command
@@ -104,14 +105,22 @@ class ParameterServer:
                 raise RuntimeError("Command is unknown value %d from rank %d."
                                    % (cmd, rank))
 
-    def _recv_key(self, rank, keylen):
+    @staticmethod
+    def _recv_key(rank: int, keylen: int) -> str:
         """Receive a string tensor key from a client node."""
         key_buffer = torch.CharTensor(keylen).fill_(0)
         td.recv(key_buffer, src=rank)
         return _tostring(key_buffer)
 
-    def handle_store(self, rank, key, ndim, accum, overwrite, ttype):
-
+    def handle_store(
+        self,
+        rank: int,
+        key: str,
+        ndim: int,
+        accum: int,
+        overwrite: int,
+        ttype: int,
+    ) -> None:
         if ndim == -1:
             assert key in self.parameters
             size = self.parameters[key].size()
@@ -132,8 +141,7 @@ class ParameterServer:
         elif (key not in self.parameters) or overwrite:
             self.parameters[key] = data
 
-    def handle_get(self, rank, key, send_size):
-
+    def handle_get(self, rank: int, key: str, send_size: int) -> None:
         if key not in self.parameters:
             assert send_size, "Key %s not found" % key
             td.send(torch.LongTensor([-1, -1]), rank)
@@ -152,10 +160,16 @@ class ParameterServerClient:
     """Client for ParameterServer.
     Supports store, accumulate, swap, swap-accumulate, and get operations."""
 
-    def __init__(self, server_rank):
+    def __init__(self, server_rank: int) -> None:
         self.server_rank = server_rank
 
-    def store(self, key, src, accum=False, overwrite=True):
+    def store(
+        self,
+        key: str,
+        src: torch.Tensor,
+        accum: bool = False,
+        overwrite: bool = True,
+    ) -> None:
         """Store or accumulate a tensor on the server.
         """
         cmd_rpc = torch.LongTensor([STORE_CMD,
@@ -170,7 +184,12 @@ class ParameterServerClient:
             td.send(torch.LongTensor(list(src.size())), self.server_rank)
         td.send(src, self.server_rank)
 
-    def get(self, key, dst=None, shared=False):
+    def get(
+        self,
+        key: str,
+        dst: Optional[torch.Tensor] = None,
+        shared: bool = False,
+    ) -> Optional[torch.Tensor]:
         """Get a tensor from the server.
         """
         cmd_rpc = torch.LongTensor([GET_CMD, len(key), dst is None, 0, 0, 0])
@@ -193,7 +212,14 @@ class ParameterServerClient:
         td.recv(dst, src=self.server_rank)
         return dst
 
-    def swap(self, key, src, dst=None, accum=False, overwrite=False):
+    def swap(
+        self,
+        key: str,
+        src: torch.Tensor,
+        dst: Optional[torch.Tensor] = None,
+        accum: bool = False,
+        overwrite: bool = False,
+    ) -> None:
         """Store or accumulate a tensor on the server,
         and then get its current value.
         """
@@ -216,7 +242,7 @@ class ParameterServerClient:
         # log("Swapped %d bytes to %d in %g s" %
         #     (src.nelement(), self.server_rank, time.time() - tic))
 
-    def join(self):
+    def join(self) -> None:
         """All clients should call join at the end, which will allow the server
         to exit.
         """
@@ -233,11 +259,11 @@ class GradientParameterServerClient:
     and the current version
     """
 
-    def __init__(self, server_rank):
+    def __init__(self, server_rank: Rank) -> None:
         self._client = ParameterServerClient(server_rank)
-        self._cache = {}
+        self._cache: Dict[str, torch.Tensor] = {}
 
-    def push(self, key, tensor):
+    def push(self, key: str, tensor: torch.Tensor) -> None:
         # if they tensor is cached, accumulate the difference.
         # otherwise, send the tensor to the server.
         if key in self._cache:
@@ -250,7 +276,7 @@ class GradientParameterServerClient:
             # every clients just uses that one
             self._client.store(key, self._cache[key], overwrite=False)
 
-    def pull(self, key, dst):
+    def pull(self, key: str, dst: torch.Tensor) -> torch.Tensor:
         self._client.get(key, dst)
         if key in self._cache:
             self._cache[key].copy_(dst)
@@ -258,7 +284,7 @@ class GradientParameterServerClient:
             self._cache[key] = dst.clone()
         return dst
 
-    def update(self, key, tensor):
+    def update(self, key: str, tensor: torch.Tensor) -> None:
         if key in self._cache:
             diff = tensor - self._cache[key]
             self._client.swap(key, diff, self._cache[key], accum=True)
@@ -271,7 +297,7 @@ class GradientParameterServerClient:
                               overwrite=False)
             tensor.copy_(self._cache[key])
 
-    def join(self):
+    def join(self) -> None:
         self._client.join()
 
 ################################################################################
@@ -282,17 +308,24 @@ class GradientParameterServerClient:
 MIN_BYTES_TO_SHARD = 1e7  # only shard parameters above 10MB
 
 
-def _client_thread_loop(process_group_params,
-                        client_rank,
-                        all_server_ranks,
-                        q,
-                        errq,
-                        max_bandwidth=1e8,
-                        min_sleep_time=0.01):
+def _client_thread_loop(
+    client_rank: Rank,
+    all_server_ranks: List[Rank],
+    q: mp.Queue,
+    errq: mp.Queue,
+    init_method: Optional[str],
+    world_size: int,
+    groups: List[List[Rank]],
+    max_bandwidth: float = 1e8,
+    min_sleep_time: float = 0.01,
+) -> None:
     try:
-
-        init_process_group(rank=client_rank,
-                           **process_group_params)
+        init_process_group(
+            rank=client_rank,
+            init_method=init_method,
+            world_size=world_size,
+            groups=groups,
+        )
 
         params = {}
         clients = [GradientParameterServerClient(server_rank) for
@@ -354,78 +387,82 @@ class GradientParameterServerClientThread:
     gradients, in a loop.
     """
 
-    def __init__(self, process_group_params, client_rank, all_server_ranks):
+    def __init__(
+        self,
+        client_rank: int,
+        all_server_ranks: List[int],
+        init_method: Optional[str],
+        world_size: int,
+        groups: List[List[int]],
+    ) -> None:
         self.q = mp.Queue()
         self.errq = mp.Queue()
         self.p = mp.Process(
             target=_client_thread_loop,
-            args=(process_group_params, client_rank, all_server_ranks, self.q, self.errq)
+            args=(client_rank, all_server_ranks, self.q, self.errq, init_method, world_size, groups)
         )
         self.p.daemon = True
         self.p.start()
 
-    def set_param(self, k, v):
+    def set_param(self, k: str, v: torch.Tensor) -> None:
         self.check()
         self.q.put(('params', (k, v)))
 
-    def check(self):
+    def check(self) -> None:
         if not self.errq.empty():
             raise self.errq.get()
 
-    def join(self):
+    def join(self) -> None:
         self.check()
         self.q.put(('join', None))
         self.check()
         self.p.join()
 
 
-def _start_parameter_server(process_group_params, rank, num_clients):
-    init_process_group(rank=rank,
-                       **process_group_params)
-
+def _start_parameter_server(
+    rank: Rank,
+    num_clients: int,
+    init_method: Optional[str],
+    world_size: int,
+    groups: List[List[Rank]],
+) -> None:
+    init_process_group(init_method, world_size, rank, groups)
     ps = ParameterServer(num_clients)
     ps.start()
 
 
-def setup_parameter_server(server_rank,
-                           num_clients,
-                           world_size=None,
-                           init_method=None,
-                           groups=None):
-    process_group_params = {
-        'world_size': world_size,
-        'init_method': init_method,
-        'groups': groups
-    }
-
+def setup_parameter_server(
+    server_rank: Rank,
+    num_clients: int,
+    init_method: Optional[str],
+    world_size: int,
+    groups: List[List[Rank]],
+) -> None:
     # set up the parameter server on rank 0, but as a separate node
     # with MPI rank num_machines
-    p_server = mp.Process(target=_start_parameter_server,
-                          args=(process_group_params, server_rank, num_clients)
-                          )
+    p_server = mp.Process(
+        target=_start_parameter_server,
+        args=(server_rank, num_clients, init_method, world_size, groups))
     p_server.daemon = True
     p_server.start()
 
 
-def setup_parameter_server_thread(client_rank,
-                                  server_rank,
-                                  all_server_ranks,
-                                  num_clients,
-                                  world_size=None,
-                                  init_method=None,
-                                  groups=None):
-
-    process_group_params = {
-        'world_size': world_size,
-        'init_method': init_method,
-        'groups': groups
-    }
-
+def setup_parameter_server_thread(
+    client_rank: Rank,
+    server_rank: Rank,
+    all_server_ranks: List[Rank],
+    num_clients: int,
+    init_method: Optional[str],
+    world_size: int,
+    groups: List[List[Rank]],
+) -> GradientParameterServerClientThread:
     setup_parameter_server(server_rank,
                            num_clients,
-                           **process_group_params)
+                           init_method,
+                           world_size,
+                           groups)
 
     client = GradientParameterServerClientThread(
-        process_group_params, client_rank, all_server_ranks)
+        client_rank, all_server_ranks, init_method, world_size, groups)
 
     return client
