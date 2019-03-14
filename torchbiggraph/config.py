@@ -186,7 +186,7 @@ class ConfigSchema(Schema):
         metadata={'help': "How the scores of positive edges and their "
                           "corresponding negatives are evaluated."},
     )
-    margin: Optional[float] = attr.ib(
+    margin: float = attr.ib(
         default=0.1,
         metadata={'help': "When using ranking loss, this value controls the "
                           "minimum separation between positive and negative "

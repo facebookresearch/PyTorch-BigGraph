@@ -111,8 +111,8 @@ class EdgeReader:
                     EntityList(rhs, rhsd),
                     rel)
 
+    @staticmethod
     def read_dynamic(
-        self,
         hf: h5py.File,
         key: str,
         begin: int,
@@ -417,7 +417,7 @@ class PartitionClient:
         entity: EntityName,
         part: Partition,
         embs: torch.FloatTensor,
-        optim_state: OptimizerStateDict,
+        optim_state: Optional[OptimizerStateDict],
     ) -> None:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
@@ -677,7 +677,9 @@ class CheckpointManager:
         metadata = self.collect_metadata()
         save_model(file_path, model_state, optim_state, metadata)
 
-    def read_model(self) -> Tuple[ModuleStateDict, Optional[OptimizerStateDict]]:
+    def read_model(
+        self,
+    ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         version = self._version(False)
         file_path = os.path.join(self.path, "model.v%d.h5" % version)
         return load_model(file_path)

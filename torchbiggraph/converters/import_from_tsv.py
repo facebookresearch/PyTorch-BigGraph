@@ -90,7 +90,7 @@ def collect_entities_by_type(
                 counters[relation_configs[rel_id].lhs][words[lhs_col]] += 1
                 counters[relation_configs[rel_id].rhs][words[rhs_col]] += 1
 
-    entities_by_type: Dict[str, List[Dictionary]] = {}
+    entities_by_type: Dict[str, Dictionary] = {}
     for entity_name, counter in counters.items():
         print("Entity type %s:" % entity_name)
         print("- Found %d entities" % len(counter))

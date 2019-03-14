@@ -279,7 +279,7 @@ def do_eval_and_report_stats(
 
         yield edge_path_idx, None, mean_edge_path_stats
 
-    mean_stats = evaluator.sum_stats(all_edge_path_stats).average()
+    mean_stats = evaluator.sum_stats(all_stats).average()
     log("")
     log("Stats: %s" % mean_stats)
     log("")

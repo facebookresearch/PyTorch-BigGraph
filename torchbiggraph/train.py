@@ -77,7 +77,7 @@ def train_one_batch(
 
     loss.backward()
     for optimizer in optimizers:
-        optimizer.step()
+        optimizer.step(closure=None)
 
     return stats
 
@@ -183,7 +183,7 @@ def distribute_action_among_workers(
 ) -> Union[TrainStats, EvalStats]:
     all_stats = pool.starmap(perform_action_one_thread, [
         (Rank(i), config, action, model, epoch_idx, lhs, rhs, rel, edge_perm[s], optimizers)
-        for i, s in enumerate(split_almost_equally(len(edge_perm), num_parts=config.workers))
+        for i, s in enumerate(split_almost_equally(edge_perm.size(0), num_parts=config.workers))
     ])
 
     if action is action.TRAIN:
