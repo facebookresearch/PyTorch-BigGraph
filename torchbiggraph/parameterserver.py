@@ -15,7 +15,8 @@ import torch
 import torch.distributed as td
 import torch.multiprocessing as mp
 
-from .util import log, init_process_group, Rank
+from .util import log, init_process_group
+from .types import Rank, CharTensorType
 
 
 ################################################################################
@@ -24,11 +25,11 @@ from .util import log, init_process_group, Rank
 
 
 # FIXME! This will be slow af
-def _tostring(t: torch.CharTensor) -> str:
+def _tostring(t: CharTensorType) -> str:
     return "".join(chr(x) for x in t)
 
 
-def _fromstring(s: str) -> torch.CharTensor:
+def _fromstring(s: str) -> CharTensorType:
     return torch.CharTensor([ord(x) for x in s])
 
 

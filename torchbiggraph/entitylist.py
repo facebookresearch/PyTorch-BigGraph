@@ -11,6 +11,8 @@ from typing import Type, TypeVar, Union, overload
 import torch
 from torch_extensions.tensorlist.tensorlist import TensorList
 
+from .types import FloatTensorType, LongTensorType
+
 
 EntityListType = TypeVar('EntityListType', bound='EntityList')
 
@@ -27,7 +29,7 @@ class EntityList:
     @classmethod
     def new_with_tensor(
         cls: Type[EntityListType],
-        tensor: torch.FloatTensor,
+        tensor: FloatTensorType,
     ) -> EntityListType:
         # sanity check
         assert tensor.squeeze().ndimension() == 1
@@ -41,14 +43,14 @@ class EntityList:
 
     def __init__(
         self,
-        tensor: torch.FloatTensor,
+        tensor: FloatTensorType,
         tensor_list: TensorList,
     ) -> None:
-        self.tensor: torch.FloatTensor = tensor
+        self.tensor: FloatTensorType = tensor
         self.tensor_list: TensorList = tensor_list
 
     # FIXME Improve typing using Literal and @overload
-    def collapse(self, is_featurized: bool) -> Union[torch.FloatTensor, TensorList]:
+    def collapse(self, is_featurized: bool) -> Union[FloatTensorType, TensorList]:
         if is_featurized:
             return self.tensor_list
         else:
@@ -56,7 +58,7 @@ class EntityList:
 
     def __getitem__(
         self: EntityListType,
-        index: Union[int, slice, torch.LongTensor],
+        index: Union[int, slice, LongTensorType],
     ) -> EntityListType:
         if isinstance(index, torch.LongTensor) or isinstance(index, int):
             tensor_sub = self.tensor[index]

@@ -17,9 +17,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
-from .config import LossFunction, Operator, Comparator, EntitySchema, RelationSchema, ConfigSchema
+from .config import LossFunction, Operator, Comparator, EntitySchema, \
+    RelationSchema, ConfigSchema
 from .fileio import maybe_old_entity_path
-from .util import log, Side
+from .util import log
+from .types import Side, FloatTensorType, LongTensorType
 
 
 def match_shape(tensor, *expected_shape):
@@ -95,11 +97,11 @@ def match_shape(tensor, *expected_shape):
 class AbstractEmbedding(nn.Module, ABC):
 
     @abstractmethod
-    def get_all_entities(self) -> torch.FloatTensor:
+    def get_all_entities(self) -> FloatTensorType:
         pass
 
     @abstractmethod
-    def sample_entities(self, *dims: int) -> torch.FloatTensor:
+    def sample_entities(self, *dims: int) -> FloatTensorType:
         pass
 
 
@@ -110,15 +112,15 @@ class SimpleEmbedding(AbstractEmbedding):
         self.weight: nn.Parameter = weight
         self.max_norm: Optional[float] = max_norm
 
-    def forward(self, input: torch.LongTensor) -> torch.FloatTensor:
+    def forward(self, input: LongTensorType) -> FloatTensorType:
         return F.embedding(
             input, self.weight, max_norm=self.max_norm, sparse=True,
         )
 
-    def get_all_entities(self) -> torch.FloatTensor:
+    def get_all_entities(self) -> FloatTensorType:
         return self(torch.arange(self.weight.size(0)))
 
-    def sample_entities(self, *dims: int) -> torch.FloatTensor:
+    def sample_entities(self, *dims: int) -> FloatTensorType:
         return self(torch.randint(low=0, high=self.weight.size(0), size=dims))
 
 
@@ -129,7 +131,7 @@ class FeaturizedEmbedding(AbstractEmbedding):
         self.weight: nn.Parameter = weight
         self.max_norm: Optional[float] = max_norm
 
-    def forward(self, input: TensorList) -> torch.FloatTensor:
+    def forward(self, input: TensorList) -> FloatTensorType:
         if input.size(0) == 0:
             return torch.empty(0, self.weight.size(1))
         return F.embedding_bag(
@@ -137,10 +139,10 @@ class FeaturizedEmbedding(AbstractEmbedding):
             max_norm=self.max_norm, sparse=True,
         )
 
-    def get_all_entities(self) -> torch.FloatTensor:
+    def get_all_entities(self) -> FloatTensorType:
         raise NotImplementedError("Cannot list all entities for featurized entities")
 
-    def sample_entities(self, *dims: int) -> torch.FloatTensor:
+    def sample_entities(self, *dims: int) -> FloatTensorType:
         raise NotImplementedError(
             "Cannot sample entities for featurized entities.")
 
@@ -163,13 +165,13 @@ class AbstractOperator(nn.Module, ABC):
         self.dim = dim
 
     @abstractmethod
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         pass
 
 
 class IdentityOperator(AbstractOperator):
 
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         return embeddings
 
@@ -180,7 +182,7 @@ class DiagonalOperator(AbstractOperator):
         super().__init__(dim)
         self.diagonal = nn.Parameter(torch.ones(self.dim))
 
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         return self.diagonal * embeddings
 
@@ -191,7 +193,7 @@ class TranslationOperator(AbstractOperator):
         super().__init__(dim)
         self.translation = nn.Parameter(torch.zeros(self.dim))
 
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         return embeddings + self.translation
 
@@ -202,7 +204,7 @@ class LinearOperator(AbstractOperator):
         super().__init__(dim)
         self.linear_transformation = nn.Parameter(torch.eye(self.dim))
 
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
         return torch.matmul(self.linear_transformation,
@@ -216,7 +218,7 @@ class AffineOperator(AbstractOperator):
         self.linear_transformation = nn.Parameter(torch.eye(self.dim))
         self.translation = nn.Parameter(torch.zeros(self.dim))
 
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
         return (torch.matmul(self.linear_transformation,
@@ -243,7 +245,7 @@ class ComplexDiagonalOperator(AbstractOperator):
         self.real = nn.Parameter(torch.ones(self.dim // 2))
         self.imag = nn.Parameter(torch.zeros(self.dim // 2))
 
-    def forward(self, embeddings: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         real = embeddings[..., :self.dim // 2]
         imag = embeddings[..., self.dim // 2:]
@@ -286,9 +288,9 @@ class AbstractDynamicOperator(nn.Module, ABC):
     @abstractmethod
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         pass
 
 
@@ -296,9 +298,9 @@ class IdentityDynamicOperator(AbstractDynamicOperator):
 
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         return embeddings
@@ -312,9 +314,9 @@ class DiagonalDynamicOperator(AbstractDynamicOperator):
 
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         return self.diagonals[operator_idxs] * embeddings
@@ -328,9 +330,9 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
 
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         return embeddings + self.translations[operator_idxs]
@@ -345,9 +347,9 @@ class LinearDynamicOperator(AbstractDynamicOperator):
 
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         # We add a dimension so that matmul performs a matrix-vector product.
@@ -365,9 +367,9 @@ class AffineDynamicOperator(AbstractDynamicOperator):
 
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         # We add a dimension so that matmul performs a matrix-vector product.
@@ -397,9 +399,9 @@ class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
 
     def forward(
         self,
-        embeddings: torch.FloatTensor,
-        operator_idxs: torch.LongTensor,
-    ) -> torch.FloatTensor:
+        embeddings: FloatTensorType,
+        operator_idxs: LongTensorType,
+    ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         real_a = embeddings[..., :self.dim // 2]
@@ -485,18 +487,18 @@ class AbstractComparator(nn.Module, ABC):
     @abstractmethod
     def prepare(
         self,
-        embs: torch.FloatTensor,
-    ) -> torch.FloatTensor:
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
         pass
 
     @abstractmethod
     def forward(
         self,
-        lhs_pos: torch.FloatTensor,
-        rhs_pos: torch.FloatTensor,
-        lhs_neg: torch.FloatTensor,
-        rhs_neg: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
         pass
 
 
@@ -504,17 +506,17 @@ class DotComparator(AbstractComparator):
 
     def prepare(
         self,
-        embs: torch.FloatTensor,
-    ) -> torch.FloatTensor:
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
         return embs
 
     def forward(
         self,
-        lhs_pos: torch.FloatTensor,
-        rhs_pos: torch.FloatTensor,
-        lhs_neg: torch.FloatTensor,
-        rhs_neg: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
         num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
         match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
         match_shape(lhs_neg, num_chunks, -1, dim)
@@ -533,8 +535,8 @@ class CosComparator(AbstractComparator):
 
     def prepare(
         self,
-        embs: torch.FloatTensor,
-    ) -> torch.FloatTensor:
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
         # Dividing by the norm costs N * dim divisions, multiplying by the
         # reciprocal of the norm costs N divisions and N * dim multiplications.
         # The latter one is faster.
@@ -543,11 +545,11 @@ class CosComparator(AbstractComparator):
 
     def forward(
         self,
-        lhs_pos: torch.FloatTensor,
-        rhs_pos: torch.FloatTensor,
-        lhs_neg: torch.FloatTensor,
-        rhs_neg: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
         num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
         match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
         match_shape(lhs_neg, num_chunks, -1, dim)
@@ -570,17 +572,17 @@ class BiasedComparator(AbstractComparator):
 
     def prepare(
         self,
-        embs: torch.FloatTensor,
-    ) -> torch.FloatTensor:
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
         return torch.cat([embs[..., :1], self.base_comparator.prepare(embs[..., 1:])], dim=-1)
 
     def forward(
         self,
-        lhs_pos: torch.FloatTensor,
-        rhs_pos: torch.FloatTensor,
-        lhs_neg: torch.FloatTensor,
-        rhs_neg: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
         num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
         match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
         match_shape(lhs_neg, num_chunks, -1, dim)
@@ -626,9 +628,9 @@ class AbstractLoss(nn.Module, ABC):
     @abstractmethod
     def forward(
         self,
-        pos_scores: torch.FloatTensor,
-        neg_scores: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        pos_scores: FloatTensorType,
+        neg_scores: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType]:
         pass
 
 
@@ -636,9 +638,9 @@ class LogisticLoss(AbstractLoss):
 
     def forward(
         self,
-        pos_scores: torch.FloatTensor,
-        neg_scores: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        pos_scores: FloatTensorType,
+        neg_scores: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType]:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
         neg_weight = 1 / num_neg if num_neg > 0 else 0
@@ -668,9 +670,9 @@ class RankingLoss(AbstractLoss):
 
     def forward(
         self,
-        pos_scores: torch.FloatTensor,
-        neg_scores: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        pos_scores: FloatTensorType,
+        neg_scores: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType]:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
 
@@ -688,9 +690,9 @@ class SoftmaxLoss(AbstractLoss):
 
     def forward(
         self,
-        pos_scores: torch.FloatTensor,
-        neg_scores: torch.FloatTensor,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        pos_scores: FloatTensorType,
+        neg_scores: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType]:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
 
@@ -717,13 +719,13 @@ class Negatives(Enum):
     ALL = "all"
 
 
-Mask = List[Tuple[Union[int, slice, Sequence[int], torch.LongTensor], ...]]
+Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
 
 # lhs_margin, rhs_margin
-Margins = Tuple[torch.FloatTensor, torch.FloatTensor]
+Margins = Tuple[FloatTensorType, FloatTensorType]
 
 # lhs_pos, rhs_pos, lhs_neg, rhs_neg
-Scores = Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]
+Scores = Tuple[FloatTensorType, FloatTensorType, FloatTensorType, FloatTensorType]
 
 
 class MultiRelationEmbedder(nn.Module):
@@ -843,10 +845,10 @@ class MultiRelationEmbedder(nn.Module):
 
     def adjust_embs(
         self,
-        embs: torch.FloatTensor,
-        rel: Union[int, Optional[torch.LongTensor]],
+        embs: FloatTensorType,
+        rel: Union[int, Optional[LongTensorType]],
         side: Side,
-    ) -> torch.FloatTensor:
+    ) -> FloatTensorType:
 
         # 1. Apply the global embedding, if enabled
         if self.global_embs is not None:
@@ -877,15 +879,15 @@ class MultiRelationEmbedder(nn.Module):
 
     def prepare_negatives(
         self,
-        pos_input: Union[torch.LongTensor, TensorList],
-        pos_embs: torch.FloatTensor,
+        pos_input: Union[LongTensorType, TensorList],
+        pos_embs: FloatTensorType,
         module: AbstractEmbedding,
         type_: Negatives,
         num_uniform_neg: int,
         *,
-        rel: Union[int, Optional[torch.LongTensor]],
+        rel: Union[int, Optional[LongTensorType]],
         side: Side,
-    ) -> Tuple[torch.FloatTensor, Mask]:
+    ) -> Tuple[FloatTensorType, Mask]:
         """Given some chunked positives, set up chunks of negatives.
 
         This function operates on one side (left-hand or right-hand) at a time.
@@ -976,10 +978,10 @@ class MultiRelationEmbedder(nn.Module):
 
     def forward(
         self,
-        lhs: Union[torch.LongTensor, TensorList],
-        rhs: Union[torch.LongTensor, TensorList],
-        rel: Union[int, torch.LongTensor],
-    ) -> Tuple[torch.FloatTensor, Margins, Scores]:
+        lhs: Union[LongTensorType, TensorList],
+        rhs: Union[LongTensorType, TensorList],
+        rel: Union[int, LongTensorType],
+    ) -> Tuple[FloatTensorType, Margins, Scores]:
         num_pos = match_shape(lhs, -1)
         match_shape(rhs, num_pos)
 

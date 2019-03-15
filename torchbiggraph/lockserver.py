@@ -12,7 +12,8 @@ from typing import Dict, List, Optional, Set, Tuple
 import torch.multiprocessing as mp
 from torch_extensions.rpc.rpc import Client, Server
 
-from .util import log, init_process_group, Side, Bucket, Partition, EntityName, Rank
+from .util import log, init_process_group
+from .types import Side, Bucket, Partition, EntityName, Rank
 
 
 class LockServer(Server):

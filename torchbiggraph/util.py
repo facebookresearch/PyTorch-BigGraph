@@ -11,9 +11,7 @@ import os.path
 import random
 from collections import defaultdict
 from datetime import datetime, timedelta
-from enum import Enum
-from typing import Any, Dict, Iterable, List, NamedTuple, NewType, Optional, \
-    Set, Tuple, TypeVar
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import torch
 import torch.distributed as td
@@ -22,40 +20,7 @@ from torch.optim import Optimizer
 
 from .config import BucketOrder, ConfigSchema
 from .entitylist import EntityList
-
-
-T = TypeVar("T")
-
-
-class Side(Enum):
-    LHS = 0
-    RHS = 1
-
-    def pick(self, lhs: T, rhs: T) -> T:
-        if self is Side.LHS:
-            return lhs
-        elif self is Side.RHS:
-            return rhs
-        else:
-            raise NotImplementedError("Unknown side: %s" % self)
-
-
-EntityName = NewType("EntityName", str)
-Rank = NewType("Rank", int)
-Partition = NewType("Partition", int)
-ModuleStateDict = NewType("ModuleStateDict", Dict[str, torch.Tensor])
-OptimizerStateDict = NewType("OptimizerStateDict", Dict[str, Any])
-
-
-class Bucket(NamedTuple):
-    lhs: Partition
-    rhs: Partition
-
-    def get_partition(self, side: Side) -> Partition:
-        return side.pick(self.lhs, self.rhs)
-
-    def __str__(self):
-        return "( %d , %d )" % (self.lhs, self.rhs)
+from .types import Side, EntityName, Bucket, Partition, Rank, FloatTensorType
 
 
 def log(msg: str) -> None:
@@ -145,7 +110,7 @@ def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[Entity
     return chunked
 
 
-def fast_approx_rand(numel: int) -> torch.FloatTensor:
+def fast_approx_rand(numel: int) -> FloatTensorType:
     if numel < 1_000_003:
         return torch.randn(numel).share_memory_()
     # construct the tensor storage in shared mem so we don't have to copy it
@@ -441,8 +406,8 @@ def create_buckets_ordered_by_layer(
 # NOTE: AUC is the probability that a randomly chosen positive example
 # has a higher score than a randomly chosen negative example
 def compute_randomized_auc(
-    pos_: torch.FloatTensor,
-    neg_: torch.FloatTensor,
+    pos_: FloatTensorType,
+    neg_: FloatTensorType,
     num_samples: int,
 ) -> float:
     pos_, neg_ = pos_.view(-1), neg_.view(-1)

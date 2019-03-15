@@ -22,9 +22,11 @@ from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder, \
     Margins, Scores
 from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
-    compute_randomized_auc, Side, Rank, create_buckets_ordered_lexicographically, \
-    Bucket, EntityName, Partition, split_almost_equally
+    compute_randomized_auc, create_buckets_ordered_lexicographically, \
+    split_almost_equally
 from .stats import Stats, stats
+from .types import Side, Rank, Bucket, EntityName, Partition, FloatTensorType, \
+    LongTensorType
 
 
 StatsType = TypeVar("StatsType", bound=Stats)
@@ -37,9 +39,9 @@ class AbstractEvaluator(Generic[StatsType]):
         self,
         scores: Scores,
         margins: Margins,
-        batch_lhs: Union[torch.FloatTensor, TensorList],
-        batch_rhs: Union[torch.FloatTensor, TensorList],
-        batch_rel: Union[int, torch.LongTensor],
+        batch_lhs: Union[FloatTensorType, TensorList],
+        batch_rhs: Union[FloatTensorType, TensorList],
+        batch_rel: Union[int, LongTensorType],
     ) -> StatsType:
         pass
 
@@ -67,9 +69,9 @@ class RankingEvaluator(AbstractEvaluator[EvalStats]):
         self,
         scores: Scores,
         margins: Margins,
-        batch_lhs: Union[torch.FloatTensor, TensorList],
-        batch_rhs: Union[torch.FloatTensor, TensorList],
-        batch_rel: Union[int, torch.LongTensor],
+        batch_lhs: Union[FloatTensorType, TensorList],
+        batch_rhs: Union[FloatTensorType, TensorList],
+        batch_rel: Union[int, LongTensorType],
     ) -> EvalStats:
         batch_size = batch_lhs.size(0)
 
@@ -109,7 +111,7 @@ def eval_one_batch(
     batch_lhs: EntityList,
     batch_rhs: EntityList,
     # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
-    batch_rel: Union[int, torch.LongTensor],
+    batch_rel: Union[int, LongTensorType],
     evaluator: AbstractEvaluator[StatsType] = DEFAULT_EVALUATOR,
 ) -> StatsType:
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
@@ -128,7 +130,7 @@ def eval_many_batches(
     model: MultiRelationEmbedder,
     lhs: EntityList,
     rhs: EntityList,
-    rel: torch.LongTensor,
+    rel: LongTensorType,
     evaluator: AbstractEvaluator[StatsType] = DEFAULT_EVALUATOR,
 ) -> StatsType:
     all_stats = []
@@ -171,7 +173,7 @@ def eval_one_thread(
     model: MultiRelationEmbedder,
     lhs: EntityList,
     rhs: EntityList,
-    rel: torch.LongTensor,
+    rel: LongTensorType,
     evaluator: AbstractEvaluator[StatsType],
 ) -> StatsType:
     """ This is the eval loop executed by each HOGWILD thread.

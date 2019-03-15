@@ -29,8 +29,9 @@ from torch_extensions.rpc.rpc import (
 
 from .config import ConfigSchema
 from .entitylist import EntityList
-from .util import log, vlog, create_pool, EntityName, Partition, Rank, \
-    OptimizerStateDict, ModuleStateDict
+from .util import log, vlog, create_pool
+from .types import EntityName, Partition, Rank, OptimizerStateDict, ModuleStateDict, \
+    FloatTensorType, LongTensorType
 
 
 def maybe_old_entity_path(path: str) -> bool:
@@ -75,7 +76,7 @@ class EdgeReader:
         rhs_p: Partition,
         chunk_idx: int = 0,
         num_chunks: int = 1,
-    ) -> Tuple[EntityList, EntityList, torch.LongTensor]:
+    ) -> Tuple[EntityList, EntityList, LongTensorType]:
         file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhs_p, rhs_p))
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as hf:
@@ -212,11 +213,11 @@ MODEL_STATE_DICT_GROUP = "model"
 OPTIMIZER_STATE_DICT_DATASET = "optimizer/state_dict"
 
 
-def save_embeddings(hf: h5py.File, embeddings: torch.FloatTensor) -> None:
+def save_embeddings(hf: h5py.File, embeddings: FloatTensorType) -> None:
     hf.create_dataset(EMBEDDING_DATASET, data=embeddings.numpy())
 
 
-def load_embeddings(hf: h5py.File) -> torch.FloatTensor:
+def load_embeddings(hf: h5py.File) -> FloatTensorType:
     dataset: h5py.Dataset = hf[EMBEDDING_DATASET]
     storage = torch.FloatStorage._new_shared(dataset.size)
     embeddings = torch.FloatTensor(storage).view(dataset.shape)
@@ -323,7 +324,7 @@ def load_model_state_dict(hf: h5py.File) -> Optional[ModuleStateDict]:
 
 def save_entity_partition(
     path: str,
-    embs: torch.FloatTensor,
+    embs: FloatTensorType,
     optim_state: Optional[OptimizerStateDict],
     metadata: Dict[str, Any],
 ) -> None:
@@ -357,7 +358,7 @@ def save_model(
 
 def load_entity_partition(
     path: str,
-) -> Tuple[torch.FloatTensor, Optional[OptimizerStateDict]]:
+) -> Tuple[FloatTensorType, Optional[OptimizerStateDict]]:
     vlog("Loading from %s" % path)
     try:
         with h5py.File(path, "r") as hf:
@@ -416,7 +417,7 @@ class PartitionClient:
         self,
         entity: EntityName,
         part: Partition,
-        embs: torch.FloatTensor,
+        embs: FloatTensorType,
         optim_state: Optional[OptimizerStateDict],
     ) -> None:
         client = self._clients[part % len(self._clients)]
@@ -428,7 +429,7 @@ class PartitionClient:
         self,
         entity: EntityName,
         part: Partition,
-    ) -> Tuple[torch.FloatTensor, OptimizerStateDict]:
+    ) -> Tuple[FloatTensorType, OptimizerStateDict]:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
         embs = client.get(key + "__embs", shared=True)
@@ -532,7 +533,7 @@ class CheckpointManager:
             self.pool: mp.Pool = create_pool(1)
             # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
             self.outstanding: OrderedDict = OrderedDict()
-            self.prefetched: Dict[str, Tuple[torch.FloatTensor, Optional[OptimizerStateDict]]] = {}
+            self.prefetched: Dict[str, Tuple[FloatTensorType, Optional[OptimizerStateDict]]] = {}
 
         self.partition_client: Optional[PartitionClient] = None
         if partition_server_ranks is not None and len(partition_server_ranks) > 0:
@@ -592,7 +593,7 @@ class CheckpointManager:
         self,
         entity: EntityName,
         part: Partition,
-        embs: torch.FloatTensor,
+        embs: FloatTensorType,
         optim_state: Optional[OptimizerStateDict],
     ) -> None:
         self.dirty.add((entity, part))
@@ -621,7 +622,7 @@ class CheckpointManager:
         part: Partition,
         *,
         force_dirty: bool = False,
-    ) -> Tuple[torch.FloatTensor, Optional[OptimizerStateDict]]:
+    ) -> Tuple[FloatTensorType, Optional[OptimizerStateDict]]:
         # if counter > 1, we are inside a pass. Otherwise, we are doing
         # evals or just finished an epoch so ".new" files do not exist.
         if force_dirty:
@@ -642,7 +643,7 @@ class CheckpointManager:
         part: Partition,
         *,
         force_dirty: bool = False,
-    ) -> Tuple[Optional[torch.FloatTensor], Optional[OptimizerStateDict]]:
+    ) -> Tuple[Optional[FloatTensorType], Optional[OptimizerStateDict]]:
         try:
             return self.read(entity, part, force_dirty=force_dirty)
         except FileNotFoundError:

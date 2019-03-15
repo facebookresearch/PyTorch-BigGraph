@@ -17,6 +17,7 @@ from torchbiggraph.eval import RankingEvaluator, EvalStats
 from torchbiggraph.fileio import EdgeReader
 from torchbiggraph.model import Margins, Scores
 from torchbiggraph.util import log, Partition
+from torchbiggraph.types import FloatTensorType, LongTensorType
 
 
 class FilteredRankingEvaluator(RankingEvaluator):
@@ -64,9 +65,9 @@ class FilteredRankingEvaluator(RankingEvaluator):
         self,
         scores: Scores,
         margins: Margins,
-        batch_lhs: Union[torch.FloatTensor, TensorList],
-        batch_rhs: Union[torch.FloatTensor, TensorList],
-        batch_rel: Union[int, torch.LongTensor],
+        batch_lhs: Union[FloatTensorType, TensorList],
+        batch_rhs: Union[FloatTensorType, TensorList],
+        batch_rel: Union[int, LongTensorType],
     ) -> EvalStats:
         # Assume dynamic relations.
         assert isinstance(batch_rel, torch.LongTensor)

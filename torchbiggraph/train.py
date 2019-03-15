@@ -32,10 +32,11 @@ from .parameterserver import setup_parameter_server_thread, \
     setup_parameter_server
 from .row_adagrad import RowAdagrad
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
-    create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, Side, \
-    init_process_group, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
-    OptimizerStateDict, split_almost_equally, round_up_to_nearest_multiple
+    create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, \
+    init_process_group, split_almost_equally, round_up_to_nearest_multiple
 from .stats import Stats, stats
+from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
+    OptimizerStateDict, FloatTensorType, LongTensorType
 
 
 class Action(Enum):
@@ -56,7 +57,7 @@ def train_one_batch(
     batch_lhs: EntityList,
     batch_rhs: EntityList,
     # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
-    batch_rel: Union[int, torch.LongTensor],
+    batch_rel: Union[int, LongTensorType],
 ) -> TrainStats:
     batch_size = batch_lhs.size(0)
     batch_lhs = batch_lhs.collapse(model.is_featurized(batch_rel, Side.LHS))
@@ -88,7 +89,7 @@ def train_many_batches(
     optimizers: List[Optimizer],
     lhs: EntityList,
     rhs: EntityList,
-    rel: torch.LongTensor,
+    rel: LongTensorType,
 ) -> TrainStats:
     all_stats = []
     if model.num_dynamic_rels > 0:
@@ -134,8 +135,8 @@ def perform_action_one_thread(
     epoch_idx: int,
     lhs: EntityList,
     rhs: EntityList,
-    rel: torch.LongTensor,
-    my_edges: torch.LongTensor,
+    rel: LongTensorType,
+    my_edges: LongTensorType,
     optimizers: Optional[List[Optimizer]] = None,
 ) -> Union[TrainStats, EvalStats]:
     """ This is the main loop executed by each HOGWILD worker thread.
@@ -177,8 +178,8 @@ def distribute_action_among_workers(
     epoch_idx: int,
     lhs: EntityList,
     rhs: EntityList,
-    rel: torch.LongTensor,
-    edge_perm: torch.LongTensor,
+    rel: LongTensorType,
+    edge_perm: LongTensorType,
     optimizers: Optional[List[Optimizer]] = None
 ) -> Union[TrainStats, EvalStats]:
     all_stats = pool.starmap(perform_action_one_thread, [
@@ -199,7 +200,7 @@ def init_embs(
     entity_count: int,
     dim: int,
     scale: float,
-) -> Tuple[torch.FloatTensor, None]:
+) -> Tuple[FloatTensorType, None]:
     """Initialize embeddings of size entity_count x dim.
     """
     # FIXME: Use multi-threaded instead of fast_approx_rand
