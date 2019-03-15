@@ -47,8 +47,8 @@ class TestDatasetIO(TestCase):
                 self.assertEqual(self.load_from(hf, "foo"), data)
 
     def test_tensors(self):
-        data_foo = torch.zeros(100, dtype=torch.int8)
-        data_bar = torch.ones(10, 10, dtype=torch.float32)
+        data_foo = torch.zeros((100,), dtype=torch.int8)
+        data_bar = torch.ones((10, 10))
         # FIXME h5py-2.9 accepts just File(bf), allowing an un-Named TemporaryFile.
         with tempfile.NamedTemporaryFile() as bf:
             with h5py.File(bf.name, "w") as hf:

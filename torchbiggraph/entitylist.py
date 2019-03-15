@@ -36,8 +36,8 @@ class EntityList:
 
         tensor = tensor.squeeze()
         tensor_list = TensorList(
-            torch.zeros(tensor.nelement() + 1).long(),
-            torch.Tensor([])
+            torch.zeros((), dtype=torch.long).expand(tensor.nelement() + 1),
+            torch.empty((0,), dtype=torch.long),
         )
         return cls(tensor, tensor_list)
 

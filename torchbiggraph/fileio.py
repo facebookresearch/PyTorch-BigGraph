@@ -95,9 +95,9 @@ class EdgeReader:
             end = int((chunk_idx + 1) * num_edges / num_chunks)
             chunk_size = end - begin
 
-            lhs = torch.empty(chunk_size, dtype=torch.long)
-            rhs = torch.empty(chunk_size, dtype=torch.long)
-            rel = torch.empty(chunk_size, dtype=torch.long)
+            lhs = torch.empty((chunk_size,), dtype=torch.long)
+            rhs = torch.empty((chunk_size,), dtype=torch.long)
+            rel = torch.empty((chunk_size,), dtype=torch.long)
 
             # Needed because https://github.com/h5py/h5py/issues/870.
             if chunk_size > 0:
@@ -125,15 +125,17 @@ class EdgeReader:
         except LookupError:
             # Empty tensor_list representation
             return TensorList(
-                offsets=torch.tensor(0, dtype=torch.long).expand(end - begin + 1),
-                data=torch.tensor([], dtype=torch.long))
+                offsets=torch.zeros((), dtype=torch.long).expand(end - begin + 1),
+                data=torch.empty((0,), dtype=torch.long))
 
-        offsets = torch.empty(end - begin + 1, dtype=torch.long)
+        offsets = torch.empty((end - begin + 1,), dtype=torch.long)
         offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
-        data = torch.empty(offsets[-1] - offsets[0], dtype=torch.long)
+        data_begin = offsets[0].item()
+        data_end = offsets[-1].item()
+        data = torch.empty((data_end - data_begin,), dtype=torch.long)
         # Needed because https://github.com/h5py/h5py/issues/870.
-        if offsets[-1] - offsets[0] > 0:
-            data_ds.read_direct(data.numpy(), source_sel=np.s_[offsets[0]:offsets[-1]])
+        if data_end - data_begin > 0:
+            data_ds.read_direct(data.numpy(), source_sel=np.s_[data_begin:data_end])
 
         offsets -= offsets[0]
 

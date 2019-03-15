@@ -107,8 +107,8 @@ def train_many_batches(
         # group the edges by relation, and only do batches of a single
         # relation type
         _, lhs_chunked, rhs_chunked = chunk_by_index(rel, lhs, rhs)
-        edge_count_by_relation = torch.LongTensor([e.nelement() for e in lhs_chunked])
-        offset_by_relation = torch.LongTensor([0 for e in lhs_chunked])
+        edge_count_by_relation = torch.tensor([e.nelement() for e in lhs_chunked], dtype=torch.long)
+        offset_by_relation = torch.tensor([0 for e in lhs_chunked], dtype=torch.long)
 
         while edge_count_by_relation.sum() > 0:
             # pick which relation to do proportional to number of edges of that type

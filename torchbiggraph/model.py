@@ -118,7 +118,7 @@ class SimpleEmbedding(AbstractEmbedding):
         )
 
     def get_all_entities(self) -> FloatTensorType:
-        return self(torch.arange(self.weight.size(0)))
+        return self(torch.arange(self.weight.size(0), dtype=torch.long))
 
     def sample_entities(self, *dims: int) -> FloatTensorType:
         return self(torch.randint(low=0, high=self.weight.size(0), size=dims))
@@ -133,7 +133,7 @@ class FeaturizedEmbedding(AbstractEmbedding):
 
     def forward(self, input: TensorList) -> FloatTensorType:
         if input.size(0) == 0:
-            return torch.empty(0, self.weight.size(1))
+            return torch.empty((0, self.weight.size(1)))
         return F.embedding_bag(
             input.data.long(), self.weight, input.offsets[:-1],
             max_norm=self.max_norm, sparse=True,
@@ -180,7 +180,7 @@ class DiagonalOperator(AbstractOperator):
 
     def __init__(self, dim: int):
         super().__init__(dim)
-        self.diagonal = nn.Parameter(torch.ones(self.dim))
+        self.diagonal = nn.Parameter(torch.ones((self.dim,)))
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
@@ -191,7 +191,7 @@ class TranslationOperator(AbstractOperator):
 
     def __init__(self, dim: int):
         super().__init__(dim)
-        self.translation = nn.Parameter(torch.zeros(self.dim))
+        self.translation = nn.Parameter(torch.zeros((self.dim,)))
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
@@ -216,7 +216,7 @@ class AffineOperator(AbstractOperator):
     def __init__(self, dim: int):
         super().__init__(dim)
         self.linear_transformation = nn.Parameter(torch.eye(self.dim))
-        self.translation = nn.Parameter(torch.zeros(self.dim))
+        self.translation = nn.Parameter(torch.zeros((self.dim,)))
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
@@ -242,14 +242,14 @@ class ComplexDiagonalOperator(AbstractOperator):
         if dim % 2 != 0:
             raise ValueError("Need even dimension as 1st half is real "
                              "and 2nd half is imaginary coordinates")
-        self.real = nn.Parameter(torch.ones(self.dim // 2))
-        self.imag = nn.Parameter(torch.zeros(self.dim // 2))
+        self.real = nn.Parameter(torch.ones((self.dim // 2,)))
+        self.imag = nn.Parameter(torch.zeros((self.dim // 2,)))
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         real = embeddings[..., :self.dim // 2]
         imag = embeddings[..., self.dim // 2:]
-        prod = torch.empty(*embeddings.size())
+        prod = torch.empty_like(embeddings)
         prod[..., :self.dim // 2] = real * self.real - imag * self.imag
         prod[..., self.dim // 2:] = real * self.imag + imag * self.real
         return prod
@@ -310,7 +310,7 @@ class DiagonalDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
-        self.diagonals = nn.Parameter(torch.ones(self.num_operations, self.dim))
+        self.diagonals = nn.Parameter(torch.ones((self.num_operations, self.dim)))
 
     def forward(
         self,
@@ -326,7 +326,7 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
-        self.translations = nn.Parameter(torch.zeros(self.num_operations, self.dim))
+        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
 
     def forward(
         self,
@@ -363,7 +363,7 @@ class AffineDynamicOperator(AbstractDynamicOperator):
         super().__init__(dim, num_operations)
         self.linear_transformations = nn.Parameter(
             torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
-        self.translations = nn.Parameter(torch.zeros(self.num_operations, self.dim))
+        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
 
     def forward(
         self,
@@ -394,8 +394,8 @@ class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
         if dim % 2 != 0:
             raise ValueError("Need even dimension as 1st half is real "
                              "and 2nd half is imaginary coordinates")
-        self.real = nn.Parameter(torch.ones(self.num_operations, self.dim // 2))
-        self.imag = nn.Parameter(torch.zeros(self.num_operations, self.dim // 2))
+        self.real = nn.Parameter(torch.ones((self.num_operations, self.dim // 2)))
+        self.imag = nn.Parameter(torch.zeros((self.num_operations, self.dim // 2)))
 
     def forward(
         self,
@@ -408,7 +408,7 @@ class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
         imag_a = embeddings[..., self.dim // 2:]
         real_b = self.real[operator_idxs]
         imag_b = self.imag[operator_idxs]
-        prod = torch.empty(*embeddings.size())
+        prod = torch.empty_like(embeddings)
         prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
         prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
         return prod
@@ -647,17 +647,17 @@ class LogisticLoss(AbstractLoss):
 
         pos_loss = F.binary_cross_entropy_with_logits(
             pos_scores,
-            torch.tensor(1.).expand(num_pos),
+            torch.ones(()).expand(num_pos),
             reduction='sum',
         )
         neg_loss = F.binary_cross_entropy_with_logits(
             neg_scores,
-            torch.tensor(0.).expand(num_pos, num_neg),
+            torch.zeros(()).expand(num_pos, num_neg),
             reduction='sum',
         )
 
         loss = pos_loss + neg_weight * neg_loss
-        margin = torch.tensor(0.).expand(num_pos, num_neg)
+        margin = torch.zeros(()).expand(num_pos, num_neg)
 
         return loss, margin
 
@@ -678,7 +678,8 @@ class RankingLoss(AbstractLoss):
 
         # FIXME Workaround for https://github.com/pytorch/pytorch/issues/15223.
         if num_pos == 0 or num_neg == 0:
-            return torch.tensor(0., requires_grad=True), torch.empty(num_pos, num_neg)
+            return (torch.zeros((), requires_grad=True),
+                    torch.empty((num_pos, num_neg)))
 
         margin = neg_scores - pos_scores.unsqueeze(1) + self.margin
         loss = margin.clamp(min=0).sum()
@@ -699,15 +700,16 @@ class SoftmaxLoss(AbstractLoss):
         # FIXME Workaround for https://github.com/pytorch/pytorch/issues/15870
         # and https://github.com/pytorch/pytorch/issues/15223.
         if num_pos == 0 or num_neg == 0:
-            return torch.tensor(0., requires_grad=True), torch.empty(num_pos, num_neg)
+            return (torch.zeros((), requires_grad=True),
+                    torch.empty((num_pos, num_neg)))
 
         scores = torch.cat([pos_scores.unsqueeze(1), neg_scores], dim=1)
         loss = F.cross_entropy(
             scores,
-            torch.tensor(0).expand(num_pos),
+            torch.zeros((), dtype=torch.long).expand(num_pos),
             reduction='sum',
         )
-        margin = torch.tensor(0.).expand(num_pos, num_neg)
+        margin = torch.zeros(()).expand(num_pos, num_neg)
 
         return loss, margin
 
@@ -814,7 +816,7 @@ class MultiRelationEmbedder(nn.Module):
             self.global_embs: Optional[nn.ParameterDict] = nn.ParameterDict()
             for entity in entities.keys():
                 self.global_embs[self.EMB_PREFIX + entity] = \
-                    nn.Parameter(torch.zeros(dim))
+                    nn.Parameter(torch.zeros((dim,)))
         else:
             self.global_embs: Optional[nn.ParameterDict] = None
 
@@ -911,7 +913,7 @@ class MultiRelationEmbedder(nn.Module):
 
         ignore_mask: Mask = []
         if type_ is Negatives.NONE:
-            neg_embs = torch.empty(num_chunks, 0, dim)
+            neg_embs = torch.empty((num_chunks, 0, dim))
         elif type_ is Negatives.UNIFORM:
             neg_embs = module.sample_entities(
                 num_chunks, num_uniform_neg)
@@ -929,7 +931,7 @@ class MultiRelationEmbedder(nn.Module):
                         self.adjust_embs(uniform_neg_embs, rel=rel, side=side)
                     ], dim=1)
 
-            chunk_indices = torch.arange(chunk_size)
+            chunk_indices = torch.arange(chunk_size, dtype=torch.long)
             last_chunk_indices = chunk_indices[:last_chunk_size]
             # Ignore scores between positive pairs.
             ignore_mask.append(
@@ -956,7 +958,7 @@ class MultiRelationEmbedder(nn.Module):
                 log("WARNING: Adding uniform negatives makes no sense "
                     "when already using all negatives")
 
-            chunk_indices = torch.arange(chunk_size)
+            chunk_indices = torch.arange(chunk_size, dtype=torch.long)
             last_chunk_indices = chunk_indices[:last_chunk_size]
             # Ignore scores between positive pairs: since the i-th such pair has
             # the pos_input[i] entity on this side, ignore_mask[i, pos_input[i]]
@@ -964,7 +966,7 @@ class MultiRelationEmbedder(nn.Module):
             # the rows may be wrapped into multiple chunks (the last of which
             # may be smaller).
             ignore_mask.append((
-                torch.arange(num_chunks - 1).unsqueeze(1),
+                torch.arange(num_chunks - 1, dtype=torch.long).unsqueeze(1),
                 chunk_indices.unsqueeze(0),
                 pos_input[:-last_chunk_size].view(num_chunks - 1, chunk_size),
             ))
@@ -1049,7 +1051,7 @@ class MultiRelationEmbedder(nn.Module):
 
         num_chunks = (num_pos - 1) // chunk_size + 1  # ceil(num_pos / chunk_size)
         if num_pos < num_chunks * chunk_size:
-            padding = torch.tensor(0.).expand(num_chunks * chunk_size - num_pos, self.dim)
+            padding = torch.zeros(()).expand(num_chunks * chunk_size - num_pos, self.dim)
             lhs_pos = torch.cat([lhs_pos, padding], dim=0)
             rhs_pos = torch.cat([rhs_pos, padding], dim=0)
             if self.num_dynamic_rels > 0:
@@ -1080,9 +1082,9 @@ class MultiRelationEmbedder(nn.Module):
                 rhs, rhs_pos, rhs_module, negative_sampling_method,
                 self.num_uniform_negs, rel=None, side=Side.RHS)
             lhs_pos_scores, lhs_neg_scores, _ = self.comparator(
-                lhs_pos, rhs_r_pos, lhs_neg, torch.empty(num_chunks, 0, self.dim))
+                lhs_pos, rhs_r_pos, lhs_neg, torch.empty((num_chunks, 0, self.dim)))
             rhs_pos_scores, _, rhs_neg_scores = self.comparator(
-                lhs_r_pos, rhs_pos, torch.empty(num_chunks, 0, self.dim), rhs_neg)
+                lhs_r_pos, rhs_pos, torch.empty((num_chunks, 0, self.dim)), rhs_neg)
 
         # The masks tell us which negative scores (i.e., scores for non-existing
         # edges) must be ignored because they come from pairs we don't actually

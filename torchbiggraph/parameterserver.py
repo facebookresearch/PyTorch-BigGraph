@@ -24,13 +24,13 @@ from .types import Rank, CharTensorType
 ################################################################################
 
 
-# FIXME! This will be slow af
+# FIXME! This will be slow
 def _tostring(t: CharTensorType) -> str:
     return "".join(chr(x) for x in t)
 
 
 def _fromstring(s: str) -> CharTensorType:
-    return torch.CharTensor([ord(x) for x in s])
+    return torch.tensor([ord(x) for x in s], dtype=torch.int8)
 
 
 STORE_CMD = 1
@@ -71,7 +71,7 @@ class ParameterServer:
         join_count = 0
         while True:
             # 1. receive the command
-            cmd_buffer = torch.LongTensor(6).fill_(-1)
+            cmd_buffer = torch.full((6,), -1, dtype=torch.long)
             rank = td.recv(cmd_buffer)
             cmd = cmd_buffer[0]
 
@@ -100,7 +100,7 @@ class ParameterServer:
                         # after sending the join cmd,
                         # each client waits on this ack to know everyone is done
                         # and it's safe to exit
-                        td.send(torch.Tensor(1).fill_(0), dst=r)
+                        td.send(torch.zeros((1,)), dst=r)
                     break
             else:
                 raise RuntimeError("Command is unknown value %d from rank %d."
@@ -109,7 +109,7 @@ class ParameterServer:
     @staticmethod
     def _recv_key(rank: int, keylen: int) -> str:
         """Receive a string tensor key from a client node."""
-        key_buffer = torch.CharTensor(keylen).fill_(0)
+        key_buffer = torch.zeros((keylen,), dtype=torch.int8)
         td.recv(key_buffer, src=rank)
         return _tostring(key_buffer)
 
@@ -126,7 +126,7 @@ class ParameterServer:
             assert key in self.parameters
             size = self.parameters[key].size()
         else:
-            size = torch.LongTensor(ndim)
+            size = torch.empty((ndim,), dtype=torch.long)
             td.recv(size, src=rank)
             size = size.tolist()
         tensor_type = _tensor_types[ttype]
@@ -145,14 +145,15 @@ class ParameterServer:
     def handle_get(self, rank: int, key: str, send_size: int) -> None:
         if key not in self.parameters:
             assert send_size, "Key %s not found" % key
-            td.send(torch.LongTensor([-1, -1]), rank)
+            td.send(torch.tensor([-1, -1], dtype=torch.long), rank)
             return
 
         data = self.parameters[key]
         if send_size:
             type_idx = _tensor_type_idx[data.type()]
-            td.send(torch.LongTensor([data.ndimension(), type_idx]), rank)
-            td.send(torch.LongTensor(list(data.size())), rank)
+            td.send(torch.tensor([data.ndimension(), type_idx], dtype=torch.long),
+                    rank)
+            td.send(torch.tensor(list(data.size()), dtype=torch.long), rank)
 
         td.send(data, dst=rank)
 
@@ -173,16 +174,17 @@ class ParameterServerClient:
     ) -> None:
         """Store or accumulate a tensor on the server.
         """
-        cmd_rpc = torch.LongTensor([STORE_CMD,
-                                    len(key),
-                                    -1 if accum else src.ndimension(),
-                                    int(accum),
-                                    int(overwrite),
-                                    _tensor_type_idx[src.type()]])
+        cmd_rpc = torch.tensor([STORE_CMD,
+                                len(key),
+                                -1 if accum else src.ndimension(),
+                                int(accum),
+                                int(overwrite),
+                                _tensor_type_idx[src.type()]],
+                               dtype=torch.long)
         td.send(cmd_rpc, self.server_rank)
         td.send(_fromstring(key), self.server_rank)
         if not accum:
-            td.send(torch.LongTensor(list(src.size())), self.server_rank)
+            td.send(torch.tensor(list(src.size()), dtype=torch.long), self.server_rank)
         td.send(src, self.server_rank)
 
     def get(
@@ -193,16 +195,16 @@ class ParameterServerClient:
     ) -> Optional[torch.Tensor]:
         """Get a tensor from the server.
         """
-        cmd_rpc = torch.LongTensor([GET_CMD, len(key), dst is None, 0, 0, 0])
+        cmd_rpc = torch.tensor([GET_CMD, len(key), dst is None, 0, 0, 0], dtype=torch.long)
         td.send(cmd_rpc, self.server_rank)
         td.send(_fromstring(key), self.server_rank)
         if dst is None:
-            meta = torch.LongTensor(2).fill_(-1)
+            meta = torch.full((2,), -1, dtype=torch.long)
             td.recv(meta, src=self.server_rank)
             ndim, ttype = meta
             if ndim.item() == -1:
                 return None
-            size = torch.LongTensor(ndim.item()).fill_(-1)
+            size = torch.full((ndim.item(),), -1, dtype=torch.long)
             td.recv(size, src=self.server_rank)
             tensor_type = _tensor_types[ttype.item()]
             if shared:
@@ -228,16 +230,18 @@ class ParameterServerClient:
             dst = torch.zeros_like(src)
 
         # tic = time.time()
-        cmd_rpc = torch.LongTensor([SWAP_CMD,
-                                    len(key),
-                                    -1 if accum else src.ndimension(),
-                                    int(accum),
-                                    int(overwrite),
-                                    _tensor_type_idx[src.type()]])
+        cmd_rpc = torch.tensor([SWAP_CMD,
+                                len(key),
+                                -1 if accum else src.ndimension(),
+                                int(accum),
+                                int(overwrite),
+                                _tensor_type_idx[src.type()]],
+                               dtype=torch.long)
         td.send(cmd_rpc, self.server_rank)
         td.send(_fromstring(key), self.server_rank)
         if not accum:
-            td.send(torch.LongTensor(list(src.size())), self.server_rank)
+            td.send(torch.tensor(list(src.size()), dtype=torch.long),
+                    self.server_rank)
         td.send(src, self.server_rank)
         td.recv(dst, src=self.server_rank)
         # log("Swapped %d bytes to %d in %g s" %
@@ -248,9 +252,9 @@ class ParameterServerClient:
         to exit.
         """
 
-        cmd_rpc = torch.LongTensor([JOIN_CMD, 0, 0, 0, 0, 0])
+        cmd_rpc = torch.tensor([JOIN_CMD, 0, 0, 0, 0, 0], dtype=torch.long)
         td.send(cmd_rpc, self.server_rank)
-        ack = torch.Tensor(1)
+        ack = torch.empty((1,))
         td.recv(ack, src=self.server_rank)
 
 
