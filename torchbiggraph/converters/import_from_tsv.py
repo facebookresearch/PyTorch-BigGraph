@@ -318,7 +318,6 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('config', help='Path to config file')
-
     parser.add_argument('edge_paths', nargs='*', help='Input file paths')
     parser.add_argument('-l', '--lhs-col', type=int, required=True,
                         help='Column index for source entity')

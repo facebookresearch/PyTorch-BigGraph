@@ -3,10 +3,11 @@
 Data model
 ==========
 
-The vertices of the graph are called **entities**. The edges between the
-entities are just called **edges**. The graph is directed, hence each edge
-has a source and a destination entity, which are respectively called its **left-**
-and **right-hand side** (shortened to **LHS** and **RHS**).
+PBG operates on directed multi-relation multigraphs, whose vertices are called **entities**.
+Each **edge** connects a source to a destination entity, which are respectively called its
+**left-** and **right-hand side** (shortened to **LHS** and **RHS**). Multiple edges between
+the same pair of entities are allowed. Loops, i.e., edges whose left- and right- hand sides
+are the same, are allowed as well.
 
 Each entity is of a certain **entity type** (one and only one type per entity).
 Thus, the types partition all the entities into disjoint groups. Similarly, each

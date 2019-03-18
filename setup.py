@@ -30,7 +30,6 @@ setup(
         "Operating System :: OS Independent",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3 :: Only",
@@ -43,6 +42,8 @@ setup(
         "console_scripts": [
             "torchbiggraph_config=torchbiggraph.config:main",
             "torchbiggraph_eval=torchbiggraph.eval:main",
+            "torchbiggraph_export_to_tsv=torchbiggraph.converters.export_to_tsv:main",
+            "torchbiggraph_import_from_tsv=torchbiggraph.converters.import_from_tsv:main",
             "torchbiggraph_partitionserver=torchbiggraph.partitionserver:main",
             "torchbiggraph_train=torchbiggraph.train:main",
         ],
