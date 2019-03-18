@@ -7,7 +7,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import json
+import logging
 import os.path
+import random
+import time
 from multiprocessing import Process
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, NamedTuple, Tuple
@@ -161,6 +164,10 @@ class TestFunctional(TestCase):
     def setUp(self) -> None:
         self.checkpoint_path = TemporaryDirectory()
         self.addCleanup(self.checkpoint_path.cleanup)
+
+        seed = random.getrandbits(32)
+        np.random.seed(seed)
+        logging.info("Random seed: %s", seed)
 
     def assertHasMetadata(self, hf: h5py.File, config: ConfigSchema) -> None:
         self.assertEqual(hf.attrs["format_version"], 1)
@@ -421,12 +428,20 @@ class TestFunctional(TestCase):
         # Just make sure no exceptions are raised and nothing crashes.
         trainer0 = Process(target=train, args=(train_config,), kwargs={"rank": 0})
         trainer1 = Process(target=train, args=(train_config,), kwargs={"rank": 1})
+        # FIXME In Python 3.7 use kill here.
+        self.addCleanup(trainer0.terminate)
+        self.addCleanup(trainer1.terminate)
         trainer0.start()
         trainer1.start()
-        trainer0.join()
-        trainer1.join()
-        self.assertEqual(trainer0.exitcode, 0)
-        self.assertEqual(trainer1.exitcode, 0)
+        done = [False, False]
+        while not all(done):
+            time.sleep(1)
+            if not trainer0.is_alive() and not done[0]:
+                self.assertEqual(trainer0.exitcode, 0)
+                done[0] = True
+            if not trainer1.is_alive() and not done[1]:
+                self.assertEqual(trainer1.exitcode, 0)
+                done[1] = True
         self.assertCheckpointWritten(train_config, version=1)
 
     def test_distributed_with_partition_servers(self):
@@ -438,11 +453,11 @@ class TestFunctional(TestCase):
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
-            entities={entity_name: EntitySchema(num_partitions=2)},
+            entities={entity_name: EntitySchema(num_partitions=4)},
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
-            num_machines=1,
+            num_machines=2,
             num_partition_servers=1,
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
         )
@@ -456,15 +471,33 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[0].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        trainer = Process(target=train, args=(train_config,), kwargs={"rank": 0})
+        trainer0 = Process(target=train, args=(train_config,), kwargs={"rank": 0})
+        trainer1 = Process(target=train, args=(train_config,), kwargs={"rank": 1})
         partition_server = Process(
             target=run_partition_server, args=(train_config,), kwargs={"rank": 0})
-        trainer.start()
+        # FIXME In Python 3.7 use kill here.
+        self.addCleanup(trainer0.terminate)
+        self.addCleanup(trainer1.terminate)
+        self.addCleanup(partition_server.terminate)
+        trainer0.start()
+        trainer1.start()
         partition_server.start()
-        trainer.join()
+        done = [False, False]
+        while not all(done):
+            time.sleep(1)
+            if not trainer0.is_alive() and not done[0]:
+                self.assertEqual(trainer0.exitcode, 0)
+                done[0] = True
+            if not trainer1.is_alive() and not done[1]:
+                self.assertEqual(trainer1.exitcode, 0)
+                done[1] = True
+            if not partition_server.is_alive():
+                self.fail("Partition server died with exit code %d"
+                          % partition_server.exitcode)
         partition_server.terminate()  # Cannot be shut down gracefully.
         partition_server.join()
-        self.assertEqual(trainer.exitcode, 0)
+        logging.info("Partition server died with exit code %d",
+                     partition_server.exitcode)
         self.assertCheckpointWritten(train_config, version=1)
 
     def test_dynamic_relations(self):
@@ -486,7 +519,7 @@ class TestFunctional(TestCase):
             relations=[relation_config] * 10,
         )
         dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.04]
+            base_config, num_entities=100, fractions=[0.04, 0.02]
         )
         self.addCleanup(dataset.cleanup)
         with open(os.path.join(
@@ -499,8 +532,15 @@ class TestFunctional(TestCase):
             entity_path=dataset.entity_path.name,
             edge_paths=[dataset.relation_paths[0].name],
         )
+        eval_config = attr.evolve(
+            base_config,
+            relations=[attr.evolve(relation_config, all_negs=True)],
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[1].name],
+        )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
+        do_eval(eval_config)
         self.assertCheckpointWritten(train_config, version=1)
 
 
