@@ -33,14 +33,16 @@ from torchbiggraph.model import (
 )
 
 
-def assertTensorEqual(self, actual, expected):
-    if not isinstance(actual, torch.FloatTensor):
-        self.fail("Expected FloatTensor, got %s" % type(actual))
-    if actual.size() != expected.size():
-        self.fail("Expected tensor of size %s, got %s"
-                  % (expected.size(), actual.size()))
-    if not torch.allclose(actual, expected, rtol=0.00005, atol=0.00005, equal_nan=True):
-        self.fail("Expected\n%r\ngot\n%r" % (expected, actual))
+class TensorTestCase(TestCase):
+
+    def assertTensorEqual(self, actual, expected):
+        if not isinstance(actual, torch.FloatTensor):
+            self.fail("Expected FloatTensor, got %s" % type(actual))
+        if actual.size() != expected.size():
+            self.fail("Expected tensor of size %s, got %s"
+                      % (expected.size(), actual.size()))
+        if not torch.allclose(actual, expected, rtol=0.00005, atol=0.00005, equal_nan=True):
+            self.fail("Expected\n%r\ngot\n%r" % (expected, actual))
 
 
 class TestMatchShape(TestCase):
@@ -108,7 +110,7 @@ class TestMatchShape(TestCase):
             match_shape(None)
 
 
-class TestSimpleEmbedding(TestCase):
+class TestSimpleEmbedding(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -118,11 +120,13 @@ class TestSimpleEmbedding(TestCase):
         ], requires_grad=True)
         module = SimpleEmbedding(weight=embeddings)
         result = module(torch.tensor([2, 0, 0]))
-        assertTensorEqual(self, result, torch.tensor([
-            [3., 3., 3.],
-            [1., 1., 1.],
-            [1., 1., 1.],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [3., 3., 3.],
+                [1., 1., 1.],
+                [1., 1., 1.],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad.to_dense() != 0).any())
 
@@ -133,17 +137,20 @@ class TestSimpleEmbedding(TestCase):
             [3., 3., 3.],
         ])
         module = SimpleEmbedding(weight=embeddings, max_norm=2)
-        assertTensorEqual(self, module(torch.tensor([2, 0, 0])), torch.tensor([
-            [1.1547, 1.1547, 1.1547],
-            [1.0000, 1.0000, 1.0000],
-            [1.0000, 1.0000, 1.0000],
-        ]))
+        self.assertTensorEqual(
+            module(torch.tensor([2, 0, 0])),
+            torch.tensor([
+                [1.1547, 1.1547, 1.1547],
+                [1.0000, 1.0000, 1.0000],
+                [1.0000, 1.0000, 1.0000],
+            ]))
 
     def test_empty(self):
         embeddings = torch.empty((0, 3))
         module = SimpleEmbedding(weight=embeddings)
-        assertTensorEqual(
-            self, module(torch.empty((0,), dtype=torch.long)), torch.empty((0, 3)))
+        self.assertTensorEqual(
+            module(torch.empty((0,), dtype=torch.long)),
+            torch.empty((0, 3)))
 
     def test_get_all_entities(self):
         embeddings = torch.tensor([
@@ -152,11 +159,13 @@ class TestSimpleEmbedding(TestCase):
             [3., 3., 3.],
         ])
         module = SimpleEmbedding(weight=embeddings)
-        assertTensorEqual(self, module.get_all_entities(), torch.tensor([
-            [1., 1., 1.],
-            [2., 2., 2.],
-            [3., 3., 3.],
-        ]))
+        self.assertTensorEqual(
+            module.get_all_entities(),
+            torch.tensor([
+                [1., 1., 1.],
+                [2., 2., 2.],
+                [3., 3., 3.],
+            ]))
 
     def test_get_all_entities_max_norm(self):
         embeddings = torch.tensor([
@@ -165,11 +174,13 @@ class TestSimpleEmbedding(TestCase):
             [3., 3., 3.],
         ])
         module = SimpleEmbedding(weight=embeddings, max_norm=2)
-        assertTensorEqual(self, module.get_all_entities(), torch.tensor([
-            [1.0000, 1.0000, 1.0000],
-            [1.1547, 1.1547, 1.1547],
-            [1.1547, 1.1547, 1.1547],
-        ]))
+        self.assertTensorEqual(
+            module.get_all_entities(),
+            torch.tensor([
+                [1.0000, 1.0000, 1.0000],
+                [1.1547, 1.1547, 1.1547],
+                [1.1547, 1.1547, 1.1547],
+            ]))
 
     def test_sample_entities(self):
         torch.manual_seed(42)
@@ -179,12 +190,14 @@ class TestSimpleEmbedding(TestCase):
             [3., 3., 3.],
         ])
         module = SimpleEmbedding(weight=embeddings)
-        assertTensorEqual(self, module.sample_entities(2, 2), torch.tensor([
-            [[1., 1., 1.],
-             [3., 3., 3.]],
-            [[2., 2., 2.],
-             [2., 2., 2.]],
-        ]))
+        self.assertTensorEqual(
+            module.sample_entities(2, 2),
+            torch.tensor([
+                [[1., 1., 1.],
+                 [3., 3., 3.]],
+                [[2., 2., 2.],
+                 [2., 2., 2.]],
+            ]))
 
     def test_sample_entities_max_norm(self):
         torch.manual_seed(42)
@@ -194,15 +207,17 @@ class TestSimpleEmbedding(TestCase):
             [3., 3., 3.],
         ])
         module = SimpleEmbedding(weight=embeddings, max_norm=2)
-        assertTensorEqual(self, module.sample_entities(2, 2), torch.tensor([
-            [[1.0000, 1.0000, 1.0000],
-             [1.1547, 1.1547, 1.1547]],
-            [[1.1547, 1.1547, 1.1547],
-             [1.1547, 1.1547, 1.1547]],
-        ]))
+        self.assertTensorEqual(
+            module.sample_entities(2, 2),
+            torch.tensor([
+                [[1.0000, 1.0000, 1.0000],
+                 [1.1547, 1.1547, 1.1547]],
+                [[1.1547, 1.1547, 1.1547],
+                 [1.1547, 1.1547, 1.1547]],
+            ]))
 
 
-class TestFeaturizedEmbedding(TestCase):
+class TestFeaturizedEmbedding(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -215,12 +230,14 @@ class TestFeaturizedEmbedding(TestCase):
             torch.tensor([0, 1, 3, 6, 6]),
             torch.tensor([0, 2, 1, 0, 1, 0]),
         ))
-        assertTensorEqual(self, result, torch.tensor([
-            [1.0000, 1.0000, 1.0000],
-            [2.5000, 2.5000, 2.5000],
-            [1.3333, 1.3333, 1.3333],
-            [0.0000, 0.0000, 0.0000],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [1.0000, 1.0000, 1.0000],
+                [2.5000, 2.5000, 2.5000],
+                [1.3333, 1.3333, 1.3333],
+                [0.0000, 0.0000, 0.0000],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad.to_dense() != 0).any())
 
@@ -231,23 +248,27 @@ class TestFeaturizedEmbedding(TestCase):
             [3., 3., 3.],
         ])
         module = FeaturizedEmbedding(weight=embeddings, max_norm=2)
-        assertTensorEqual(self, module(TensorList(
-            torch.tensor([0, 1, 3, 6, 6]),
-            torch.tensor([0, 2, 1, 0, 1, 0]),
-        )), torch.tensor([
-            [1.0000, 1.0000, 1.0000],
-            [1.1547, 1.1547, 1.1547],
-            [1.0516, 1.0516, 1.0516],
-            [0.0000, 0.0000, 0.0000],
-        ]))
+        self.assertTensorEqual(
+            module(TensorList(
+                torch.tensor([0, 1, 3, 6, 6]),
+                torch.tensor([0, 2, 1, 0, 1, 0]),
+            )),
+            torch.tensor([
+                [1.0000, 1.0000, 1.0000],
+                [1.1547, 1.1547, 1.1547],
+                [1.0516, 1.0516, 1.0516],
+                [0.0000, 0.0000, 0.0000],
+            ]))
 
     def test_empty(self):
         embeddings = torch.empty((0, 3))
         module = FeaturizedEmbedding(weight=embeddings)
-        assertTensorEqual(self,
-                          module(TensorList(torch.zeros((1,), dtype=torch.long),
-                                            torch.empty((0,), dtype=torch.long))),
-                          torch.empty((0, 3)))
+        self.assertTensorEqual(
+            module(TensorList(
+                torch.zeros((1,), dtype=torch.long),
+                torch.empty((0,), dtype=torch.long)
+            )),
+            torch.empty((0, 3)))
 
     def test_get_all_entities(self):
         embeddings = torch.tensor([
@@ -271,7 +292,7 @@ class TestFeaturizedEmbedding(TestCase):
             module.sample_entities(2, 2)
 
 
-class TestIdentityOperator(TestCase):
+class TestIdentityOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -282,17 +303,19 @@ class TestIdentityOperator(TestCase):
         ], requires_grad=True)
         operator = IdentityOperator(3)
         result = operator(embeddings)
-        assertTensorEqual(self, result, torch.tensor([
-            [[0.3766, 0.9734, 0.5190],
-             [0.1801, 0.1585, 0.4585]],
-            [[0.6188, 0.1917, 0.1006],
-             [0.3876, 0.7134, 0.7921]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[0.3766, 0.9734, 0.5190],
+                 [0.1801, 0.1585, 0.4585]],
+                [[0.6188, 0.1917, 0.1006],
+                 [0.3876, 0.7134, 0.7921]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
 
 
-class TestDiagonalOperator(TestCase):
+class TestDiagonalOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -305,18 +328,20 @@ class TestDiagonalOperator(TestCase):
         with torch.no_grad():
             operator.diagonal += torch.arange(3, dtype=torch.float)
         result = operator(embeddings)
-        assertTensorEqual(self, result, torch.tensor([
-            [[0.3766, 1.9468, 1.5570],
-             [0.1801, 0.3170, 1.3755]],
-            [[0.6188, 0.3834, 0.3018],
-             [0.3876, 1.4268, 2.3763]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[0.3766, 1.9468, 1.5570],
+                 [0.1801, 0.3170, 1.3755]],
+                [[0.6188, 0.3834, 0.3018],
+                 [0.3876, 1.4268, 2.3763]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.diagonal.grad != 0).any())
 
 
-class TestTranslationOperator(TestCase):
+class TestTranslationOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -329,18 +354,20 @@ class TestTranslationOperator(TestCase):
         with torch.no_grad():
             operator.translation += torch.arange(3, dtype=torch.float)
         result = operator(embeddings)
-        assertTensorEqual(self, result, torch.tensor([
-            [[0.3766, 1.9734, 2.5190],
-             [0.1801, 1.1585, 2.4585]],
-            [[0.6188, 1.1917, 2.1006],
-             [0.3876, 1.7134, 2.7921]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[0.3766, 1.9734, 2.5190],
+                 [0.1801, 1.1585, 2.4585]],
+                [[0.6188, 1.1917, 2.1006],
+                 [0.3876, 1.7134, 2.7921]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.translation.grad != 0).any())
 
 
-class TestLinearOperator(TestCase):
+class TestLinearOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -353,18 +380,20 @@ class TestLinearOperator(TestCase):
         with torch.no_grad():
             operator.linear_transformation += torch.arange(9, dtype=torch.float).view(3, 3)
         result = operator(embeddings)
-        assertTensorEqual(self, result, torch.tensor([
-            [[ 2.3880,  8.5918, 13.7444],
-             [ 1.2556,  3.6253,  6.3166]],
-            [[ 1.0117,  3.3179,  5.9601],
-             [ 2.6852,  8.6903, 14.4483]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[ 2.3880,  8.5918, 13.7444],
+                 [ 1.2556,  3.6253,  6.3166]],
+                [[ 1.0117,  3.3179,  5.9601],
+                 [ 2.6852,  8.6903, 14.4483]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.linear_transformation.grad != 0).any())
 
 
-class TestAffineOperator(TestCase):
+class TestAffineOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -378,19 +407,21 @@ class TestAffineOperator(TestCase):
             operator.linear_transformation += torch.arange(9, dtype=torch.float).view(3, 3)
             operator.translation += torch.arange(3, dtype=torch.float)
         result = operator(embeddings)
-        assertTensorEqual(self, result, torch.tensor([
-            [[ 2.3880,  9.5918, 15.7444],
-             [ 1.2556,  4.6253,  8.3166]],
-            [[ 1.0117,  4.3179,  7.9601],
-             [ 2.6852,  9.6903, 16.4483]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[ 2.3880,  9.5918, 15.7444],
+                 [ 1.2556,  4.6253,  8.3166]],
+                [[ 1.0117,  4.3179,  7.9601],
+                 [ 2.6852,  9.6903, 16.4483]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.linear_transformation.grad != 0).any())
         self.assertTrue((operator.translation.grad != 0).any())
 
 
-class TestComplexDiagonalOperator(TestCase):
+class TestComplexDiagonalOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -404,19 +435,21 @@ class TestComplexDiagonalOperator(TestCase):
             operator.real[...] = torch.tensor([0.2949, 0.0029])
             operator.imag[...] = torch.tensor([0.4070, 0.1027])
         result = operator(embeddings)
-        assertTensorEqual(self, result, torch.tensor([
-            [[-0.1002, -0.0532,  0.3063,  0.1015],
-             [-0.1335, -0.0604,  0.2085,  0.0180]],
-            [[ 0.1415, -0.0341,  0.2815,  0.0207],
-             [-0.2081, -0.0948,  0.3913,  0.0760]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[-0.1002, -0.0532,  0.3063,  0.1015],
+                 [-0.1335, -0.0604,  0.2085,  0.0180]],
+                [[ 0.1415, -0.0341,  0.2815,  0.0207],
+                 [-0.2081, -0.0948,  0.3913,  0.0760]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.real.grad != 0).any())
         self.assertTrue((operator.imag.grad != 0).any())
 
 
-class TestIdentityDynamicOperator(TestCase):
+class TestIdentityDynamicOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -427,17 +460,19 @@ class TestIdentityDynamicOperator(TestCase):
         ], requires_grad=True)
         operator = IdentityDynamicOperator(3, 5)
         result = operator(embeddings, torch.tensor([[0, 4], [2, 0]]))
-        assertTensorEqual(self, result, torch.tensor([
-            [[0.3766, 0.9734, 0.5190],
-             [0.1801, 0.1585, 0.4585]],
-            [[0.6188, 0.1917, 0.1006],
-             [0.3876, 0.7134, 0.7921]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[0.3766, 0.9734, 0.5190],
+                 [0.1801, 0.1585, 0.4585]],
+                [[0.6188, 0.1917, 0.1006],
+                 [0.3876, 0.7134, 0.7921]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
 
 
-class TestDiagonalDynamicOperator(TestCase):
+class TestDiagonalDynamicOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -450,18 +485,20 @@ class TestDiagonalDynamicOperator(TestCase):
         with torch.no_grad():
             operator.diagonals += torch.arange(15, dtype=torch.float).view(5, 3)
         result = operator(embeddings, torch.tensor([[0, 4], [2, 0]]))
-        assertTensorEqual(self, result, torch.tensor([
-            [[0.3766, 1.9468, 1.5570],
-             [2.3413, 2.2190, 6.8775]],
-            [[4.3316, 1.5336, 0.9054],
-             [0.3876, 1.4268, 2.3763]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[0.3766, 1.9468, 1.5570],
+                 [2.3413, 2.2190, 6.8775]],
+                [[4.3316, 1.5336, 0.9054],
+                 [0.3876, 1.4268, 2.3763]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.diagonals.grad != 0).any())
 
 
-class TestTranslationDynamicOperator(TestCase):
+class TestTranslationDynamicOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -474,18 +511,20 @@ class TestTranslationDynamicOperator(TestCase):
         with torch.no_grad():
             operator.translations += torch.arange(15, dtype=torch.float).view(5, 3)
         result = operator(embeddings, torch.tensor([[0, 4], [2, 0]]))
-        assertTensorEqual(self, result, torch.tensor([
-            [[ 0.3766,  1.9734,  2.5190],
-             [12.1801, 13.1585, 14.4585]],
-            [[ 6.6188,  7.1917,  8.1006],
-             [ 0.3876,  1.7134,  2.7921]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[ 0.3766,  1.9734,  2.5190],
+                 [12.1801, 13.1585, 14.4585]],
+                [[ 6.6188,  7.1917,  8.1006],
+                 [ 0.3876,  1.7134,  2.7921]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.translations.grad != 0).any())
 
 
-class TestLinearDynamicOperator(TestCase):
+class TestLinearDynamicOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -498,18 +537,20 @@ class TestLinearDynamicOperator(TestCase):
         with torch.no_grad():
             operator.linear_transformations += torch.arange(45, dtype=torch.float).view(5, 3, 3)
         result = operator(embeddings, torch.tensor([[0, 4], [2, 0]]))
-        assertTensorEqual(self, result, torch.tensor([
-            [[ 2.3880,  8.5918, 13.7444],
-             [29.9512, 32.3209, 35.0122]],
-            [[17.4115, 19.7177, 22.3599],
-             [ 2.6852,  8.6903, 14.4483]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[ 2.3880,  8.5918, 13.7444],
+                 [29.9512, 32.3209, 35.0122]],
+                [[17.4115, 19.7177, 22.3599],
+                 [ 2.6852,  8.6903, 14.4483]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.linear_transformations.grad != 0).any())
 
 
-class TestAffineDynamicOperator(TestCase):
+class TestAffineDynamicOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -523,19 +564,21 @@ class TestAffineDynamicOperator(TestCase):
             operator.linear_transformations += torch.arange(45, dtype=torch.float).view(5, 3, 3)
             operator.translations += torch.arange(15, dtype=torch.float).view(5, 3)
         result = operator(embeddings, torch.tensor([[0, 4], [2, 0]]))
-        assertTensorEqual(self, result, torch.tensor([
-            [[ 2.3880,  9.5918, 15.7444],
-             [41.9512, 45.3209, 49.0122]],
-            [[23.4115, 26.7177, 30.3599],
-             [ 2.6852,  9.6903, 16.4483]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[ 2.3880,  9.5918, 15.7444],
+                 [41.9512, 45.3209, 49.0122]],
+                [[23.4115, 26.7177, 30.3599],
+                 [ 2.6852,  9.6903, 16.4483]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.linear_transformations.grad != 0).any())
         self.assertTrue((operator.translations.grad != 0).any())
 
 
-class TestComplexDiagonalDynamicOperator(TestCase):
+class TestComplexDiagonalDynamicOperator(TensorTestCase):
 
     def test_forward(self):
         embeddings = torch.tensor([
@@ -561,19 +604,21 @@ class TestComplexDiagonalDynamicOperator(TestCase):
                 [0.9878, 0.2182],
             ])
         result = operator(embeddings, torch.tensor([[0, 4], [2, 0]]))
-        assertTensorEqual(self, result, torch.tensor([
-            [[-0.1002, -0.0532,  0.3063,  0.1015],
-             [-0.3845,  0.0201,  0.3521,  0.5935]],
-            [[ 0.1582,  0.1196,  0.3376,  0.3627],
-             [-0.2081, -0.0948,  0.3913,  0.0760]],
-        ]))
+        self.assertTensorEqual(
+            result,
+            torch.tensor([
+                [[-0.1002, -0.0532,  0.3063,  0.1015],
+                 [-0.3845,  0.0201,  0.3521,  0.5935]],
+                [[ 0.1582,  0.1196,  0.3376,  0.3627],
+                 [-0.2081, -0.0948,  0.3913,  0.0760]],
+            ]))
         result.sum().backward()
         self.assertTrue((embeddings.grad != 0).any())
         self.assertTrue((operator.real.grad != 0).any())
         self.assertTrue((operator.imag.grad != 0).any())
 
 
-class TestDotComparator(TestCase):
+class TestDotComparator(TensorTestCase):
 
     def test_forward_one_batch(self):
         comparator = DotComparator()
@@ -600,17 +645,19 @@ class TestDotComparator(TestCase):
         pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
             comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
             comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
-        assertTensorEqual(self, pos_scores, torch.tensor([
-            [1.2024, 0.3246],
-        ]))
-        assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [[0.6463, 1.4433, 0.0000, 1.1491],
-             [0.5392, 0.7652, 0.0000, 0.5815]],
-        ]))
-        assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [[1.0838, 0.0000, 0.6631, 0.3002],
-             [0.9457, 0.0000, 0.6156, 0.2751]],
-        ]))
+        self.assertTensorEqual(pos_scores, torch.tensor([[1.2024, 0.3246]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[0.6463, 1.4433, 0.0000, 1.1491],
+                 [0.5392, 0.7652, 0.0000, 0.5815]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[1.0838, 0.0000, 0.6631, 0.3002],
+                 [0.9457, 0.0000, 0.6156, 0.2751]],
+            ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
         self.assertTrue((rhs_pos.grad != 0).any())
@@ -642,18 +689,19 @@ class TestDotComparator(TestCase):
         pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
             comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
             comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
-        assertTensorEqual(self, pos_scores, torch.tensor([
-            [1.2024],
-            [0.3246],
-        ]))
-        assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [[0.6463, 1.4433]],
-            [[0.0000, 0.5815]],
-        ]))
-        assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [[1.0838, 0.0000]],
-            [[0.6156, 0.2751]],
-        ]))
+        self.assertTensorEqual(pos_scores, torch.tensor([[1.2024], [0.3246]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[0.6463, 1.4433]],
+                [[0.0000, 0.5815]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[1.0838, 0.0000]],
+                [[0.6156, 0.2751]],
+            ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
         self.assertTrue((rhs_pos.grad != 0).any())
@@ -661,7 +709,7 @@ class TestDotComparator(TestCase):
         self.assertTrue((rhs_neg.grad != 0).any())
 
 
-class TestCosComparator(TestCase):
+class TestCosComparator(TensorTestCase):
 
     def test_forward_one_batch(self):
         comparator = CosComparator()
@@ -688,17 +736,19 @@ class TestCosComparator(TestCase):
         pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
             comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
             comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
-        assertTensorEqual(self, pos_scores, torch.tensor([
-            [0.9741, 0.6106],
-        ]))
-        assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [[0.6165, 0.8749, 0.9664, 0.8701],
-             [0.9607, 0.8663, 0.7494, 0.8224]],
-        ]))
-        assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [[0.8354, 0.6406, 0.6626, 0.6856],
-             [0.9063, 0.7439, 0.7648, 0.7810]],
-        ]))
+        self.assertTensorEqual(pos_scores, torch.tensor([[0.9741, 0.6106]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[0.6165, 0.8749, 0.9664, 0.8701],
+                 [0.9607, 0.8663, 0.7494, 0.8224]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[0.8354, 0.6406, 0.6626, 0.6856],
+                 [0.9063, 0.7439, 0.7648, 0.7810]],
+            ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
         self.assertTrue((rhs_pos.grad != 0).any())
@@ -730,18 +780,19 @@ class TestCosComparator(TestCase):
         pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
             comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
             comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
-        assertTensorEqual(self, pos_scores, torch.tensor([
-            [0.9741],
-            [0.6106],
-        ]))
-        assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [[0.6165, 0.8749]],
-            [[0.7494, 0.8224]],
-        ]))
-        assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [[0.8354, 0.6406]],
-            [[0.7648, 0.7810]],
-        ]))
+        self.assertTensorEqual(pos_scores, torch.tensor([[0.9741], [0.6106]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[0.6165, 0.8749]],
+                [[0.7494, 0.8224]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[0.8354, 0.6406]],
+                [[0.7648, 0.7810]],
+            ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
         self.assertTrue((rhs_pos.grad != 0).any())
@@ -749,7 +800,7 @@ class TestCosComparator(TestCase):
         self.assertTrue((rhs_neg.grad != 0).any())
 
 
-class TestBiasedComparator(TestCase):
+class TestBiasedComparator(TensorTestCase):
 
     def test_forward_one_batch(self):
         comparator = BiasedComparator(CosComparator())
@@ -776,17 +827,19 @@ class TestBiasedComparator(TestCase):
         pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
             comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
             comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
-        assertTensorEqual(self, pos_scores, torch.tensor([
-            [2.8086, 1.5434],
-        ]))
-        assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [[1.7830, 2.5800, 2.3283, 2.4269],
-             [1.5172, 2.0194, 1.4850, 1.9369]]
-        ]))
-        assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [[2.5017, 2.0980, 2.1129, 1.9578],
-             [2.2670, 1.8759, 1.8838, 1.7381]],
-        ]))
+        self.assertTensorEqual(pos_scores, torch.tensor([[2.8086, 1.5434]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[1.7830, 2.5800, 2.3283, 2.4269],
+                 [1.5172, 2.0194, 1.4850, 1.9369]]
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[2.5017, 2.0980, 2.1129, 1.9578],
+                 [2.2670, 1.8759, 1.8838, 1.7381]],
+            ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
         self.assertTrue((rhs_pos.grad != 0).any())
@@ -818,18 +871,19 @@ class TestBiasedComparator(TestCase):
         pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
             comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
             comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
-        assertTensorEqual(self, pos_scores, torch.tensor([
-            [2.8086],
-            [1.5434],
-        ]))
-        assertTensorEqual(self, lhs_neg_scores, torch.tensor([
-            [[1.7830, 2.5800]],
-            [[1.4850, 1.9369]],
-        ]))
-        assertTensorEqual(self, rhs_neg_scores, torch.tensor([
-            [[2.5017, 2.0980]],
-            [[1.8838, 1.7381]],
-        ]))
+        self.assertTensorEqual(pos_scores, torch.tensor([[2.8086], [1.5434]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[1.7830, 2.5800]],
+                [[1.4850, 1.9369]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[2.5017, 2.0980]],
+                [[1.8838, 1.7381]],
+            ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
         self.assertTrue((rhs_pos.grad != 0).any())
@@ -837,7 +891,7 @@ class TestBiasedComparator(TestCase):
         self.assertTrue((rhs_neg.grad != 0).any())
 
 
-class TestLogisticLoss(TestCase):
+class TestLogisticLoss(TensorTestCase):
 
     def test_forward(self):
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
@@ -848,8 +902,8 @@ class TestLogisticLoss(TestCase):
         ], requires_grad=True)
         loss_fn = LogisticLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(4.2589))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.tensor(4.2589))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
         self.assertTrue((pos_scores.grad != 0).any())
         self.assertTrue((neg_scores.grad != 0).any())
@@ -859,8 +913,8 @@ class TestLogisticLoss(TestCase):
         neg_scores = torch.full((3, 5), -1e9, requires_grad=True)
         loss_fn = LogisticLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
 
     def test_forward_bad(self):
@@ -868,8 +922,8 @@ class TestLogisticLoss(TestCase):
         neg_scores = torch.full((3, 5), +1e9, requires_grad=True)
         loss_fn = LogisticLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(6e9))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.tensor(6e9))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
 
     def test_no_neg(self):
@@ -877,8 +931,8 @@ class TestLogisticLoss(TestCase):
         neg_scores = torch.empty((3, 0), requires_grad=True)
         loss_fn = LogisticLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(2.0794))
-        assertTensorEqual(self, margin, torch.empty((3, 0)))
+        self.assertTensorEqual(loss, torch.tensor(2.0794))
+        self.assertTensorEqual(margin, torch.empty((3, 0)))
         loss.backward()
 
     def test_no_pos(self):
@@ -886,12 +940,12 @@ class TestLogisticLoss(TestCase):
         neg_scores = torch.empty((0, 0), requires_grad=True)
         loss_fn = LogisticLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.empty((0, 0)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.empty((0, 0)))
         loss.backward()
 
 
-class TestRankingLoss(TestCase):
+class TestRankingLoss(TensorTestCase):
 
     def test_forward(self):
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
@@ -902,8 +956,8 @@ class TestRankingLoss(TestCase):
         ], requires_grad=True)
         loss_fn = RankingLoss(1.)
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(13.4475))
-        assertTensorEqual(self, margin, torch.tensor([
+        self.assertTensorEqual(loss, torch.tensor(13.4475))
+        self.assertTensorEqual(margin, torch.tensor([
             [0.6256, 0.8392, 1.1805, 0.4367, 0.2817],
             [1.0475, 0.8361, 0.8882, 0.9682, 0.7426],
             [1.6363, 0.8522, 0.8161, 0.6538, 1.6428],
@@ -917,8 +971,8 @@ class TestRankingLoss(TestCase):
         neg_scores = torch.full((3, 5), 1, requires_grad=True)
         loss_fn = RankingLoss(1.)
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
 
     def test_forward_bad(self):
@@ -926,8 +980,8 @@ class TestRankingLoss(TestCase):
         neg_scores = torch.zeros((3, 5), requires_grad=True)
         loss_fn = RankingLoss(1.)
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(30.))
-        assertTensorEqual(self, margin, torch.full((3, 5), 2))
+        self.assertTensorEqual(loss, torch.tensor(30.))
+        self.assertTensorEqual(margin, torch.full((3, 5), 2))
         loss.backward()
 
     def test_no_neg(self):
@@ -935,8 +989,8 @@ class TestRankingLoss(TestCase):
         neg_scores = torch.empty((3, 0), requires_grad=True)
         loss_fn = RankingLoss(1.)
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.empty((3, 0)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.empty((3, 0)))
         loss.backward()
 
     def test_no_pos(self):
@@ -944,12 +998,12 @@ class TestRankingLoss(TestCase):
         neg_scores = torch.empty((0, 3), requires_grad=True)
         loss_fn = RankingLoss(1.)
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.empty((0, 3)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.empty((0, 3)))
         loss.backward()
 
 
-class TestSoftmaxLoss(TestCase):
+class TestSoftmaxLoss(TensorTestCase):
 
     def test_forward(self):
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
@@ -960,8 +1014,8 @@ class TestSoftmaxLoss(TestCase):
         ], requires_grad=True)
         loss_fn = SoftmaxLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(5.2513))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.tensor(5.2513))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
         self.assertTrue((pos_scores.grad != 0).any())
         self.assertTrue((neg_scores.grad != 0).any())
@@ -971,8 +1025,8 @@ class TestSoftmaxLoss(TestCase):
         neg_scores = torch.full((3, 5), -1e9, requires_grad=True)
         loss_fn = SoftmaxLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
 
     def test_forward_bad(self):
@@ -980,8 +1034,8 @@ class TestSoftmaxLoss(TestCase):
         neg_scores = torch.full((3, 5), +1e9, requires_grad=True)
         loss_fn = SoftmaxLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.tensor(6e9))
-        assertTensorEqual(self, margin, torch.zeros((3, 5)))
+        self.assertTensorEqual(loss, torch.tensor(6e9))
+        self.assertTensorEqual(margin, torch.zeros((3, 5)))
         loss.backward()
 
     def test_no_neg(self):
@@ -989,8 +1043,8 @@ class TestSoftmaxLoss(TestCase):
         neg_scores = torch.empty((3, 0), requires_grad=True)
         loss_fn = SoftmaxLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.empty((3, 0)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.empty((3, 0)))
         loss.backward()
 
     def test_no_pos(self):
@@ -998,8 +1052,8 @@ class TestSoftmaxLoss(TestCase):
         neg_scores = torch.empty((0, 3), requires_grad=True)
         loss_fn = SoftmaxLoss()
         loss, margin = loss_fn(pos_scores, neg_scores)
-        assertTensorEqual(self, loss, torch.zeros(()))
-        assertTensorEqual(self, margin, torch.empty((0, 3)))
+        self.assertTensorEqual(loss, torch.zeros(()))
+        self.assertTensorEqual(margin, torch.empty((0, 3)))
         loss.backward()
 
 
