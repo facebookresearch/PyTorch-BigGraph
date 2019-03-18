@@ -19,6 +19,7 @@ Welcome to torchbiggraph's documentation!
    evaluation
    featurized_entities
    configuration_file
+   related
 
 
 Indices and tables
