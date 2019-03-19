@@ -19,7 +19,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'torchbiggraph'
+project = 'PyTorch-BigGraph'
 copyright = '2019, Facebook AI Research'
 author = 'Facebook AI Research'
 
@@ -133,7 +133,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'torchbiggraph.tex', 'torchbiggraph Documentation',
+    (master_doc, 'torchbiggraph.tex', 'PyTorch-BigGraph Documentation',
      'Facebook AI Research', 'manual'),
 ]
 
@@ -143,7 +143,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'torchbiggraph', 'torchbiggraph Documentation',
+    (master_doc, 'torchbiggraph', 'PyTorch-BigGraph Documentation',
      [author], 1)
 ]
 
@@ -154,7 +154,7 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'torchbiggraph', 'torchbiggraph Documentation',
+    (master_doc, 'torchbiggraph', 'PyTorch-BigGraph Documentation',
      author, 'torchbiggraph', 'One line description of project.',
      'Miscellaneous'),
 ]

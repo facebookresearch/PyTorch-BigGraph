@@ -3,12 +3,9 @@
 Batch preparation
 =================
 
-This chapter presents how the training data is prepared and organized in batches
+This section presents how the training data is prepared and organized in batches
 before the loss is :ref:`calculated <loss-calculation>` and :ref:`optimized <optimizers>`
 on each of them.
-
-Passes
-------
 
 Training proceeds by iterating over the edges, through various nested loops. The
 outermost one walks through so-called **epochs**. Each epoch is independent and
@@ -31,19 +28,19 @@ processed depends on the value of the ``bucket_order`` configuration key. In
 addition to a random permutation, there are methods that try to have successive
 buckets share a common partition: this allows for that partition to be reused,
 thus allowing it to be kept in memory rather than being unloaded and another one
-getting loaded in its place.
-
-.. note::
-    In :ref:`distributed mode <distributed-training>`, the various trainer processes
-    operate on the buckets at the same time, thus the iteration is managed differently.
+getting loaded in its place. (In :ref:`distributed mode <distributed-training>`,
+the various trainer processes operate on the buckets at the same time, thus the
+iteration is managed differently).
 
 Once the trainer has fixed a given chunk and a certain bucket, its edges are
 finally loaded from disk. When
 :ref:`evaluating during training <evaluation-during-training>`, a subset of these
 edges is withheld (such subset is the same for all epochs). The remaining edges
-are immediately uniformly shuffled, then split into equal parts, and one part is
-given to each **"Hogwild!" worker** for the training to proceed in parallel.
-The number of such workers is determined by the ``workers`` parameter.
+are immediately uniformly shuffled and then split into equal parts. These parts
+are distributed among a pool of **processes**, so that the training can proceed
+in parallel on all of them at the same time. These subprocesses are "Hogwild!"
+workers, which do not synchronize their computations or memory accesses. The
+number of such workers is determined by the ``workers`` parameter.
 
 The way each worker trains on its set of edges depends on whether
 :ref:`dynamic relations <dynamic-relations>` are in use. The simplest scenario is if

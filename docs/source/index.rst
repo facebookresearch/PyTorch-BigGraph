@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to torchbiggraph's documentation!
-=========================================
+Welcome to PyTorch-BigGraph's documentation!
+============================================
 
 .. toctree::
    :maxdepth: 2
@@ -17,6 +17,7 @@ Welcome to torchbiggraph's documentation!
    distributed_training
    loss_optimization
    evaluation
+   dynamic_relations
    featurized_entities
    configuration_file
 
