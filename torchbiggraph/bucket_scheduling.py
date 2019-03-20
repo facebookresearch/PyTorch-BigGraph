@@ -13,8 +13,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from torch_extensions.rpc.rpc import Client, Server
 
 from .config import BucketOrder
+from .distributed import Startable
 from .types import Bucket, EntityName, Partition, Rank, Side
-from .util import Startable, log, vlog
+from .util import log, vlog
 
 
 ###

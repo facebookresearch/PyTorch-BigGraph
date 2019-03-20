@@ -24,6 +24,7 @@ from torch.optim import Optimizer, Adagrad
 from .bucket_scheduling import LockServer, AbstractBucketScheduler, \
     SingleMachineBucketScheduler, DistributedBucketScheduler
 from .config import parse_config, ConfigSchema
+from .distributed import ProcessRanks, init_process_group, start_server
 from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
@@ -35,8 +36,8 @@ from .stats import Stats, stats
 from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
     OptimizerStateDict, FloatTensorType, LongTensorType
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
-    create_pool, fast_approx_rand, DummyOptimizer, init_process_group, \
-    split_almost_equally, round_up_to_nearest_multiple, start_server
+    create_pool, fast_approx_rand, DummyOptimizer, split_almost_equally, \
+    round_up_to_nearest_multiple
 
 
 class Action(Enum):
@@ -322,82 +323,72 @@ def train_and_report_stats(
     parameter_sharer: Optional[ParameterSharer]
     partition_client: Optional[PartitionClient]
     if config.num_machines > 1:
-        world_size = 0
-
-        def add_group(group_size: int) -> List[Rank]:
-            nonlocal world_size
-            group = [Rank(world_size + r) for r in range(group_size)]
-            world_size += group_size
-            return group
-
-        trainer_ranks = add_group(config.num_machines)
-        parameter_server_ranks = add_group(config.num_machines)
-        parameter_client_ranks = add_group(config.num_machines)
-        lock_server_rank, = add_group(1)
-        if config.num_partition_servers < 0:
-            # Use machines as partition servers
-            partition_server_ranks = add_group(config.num_machines)
-        else:
-            partition_server_ranks = add_group(config.num_partition_servers)
+        if not 0 <= rank < config.num_machines:
+            raise RuntimeError("Invalid rank for trainer")
+        if not td.is_available():
+            raise RuntimeError("The installed PyTorch version doesn't provide "
+                               "distributed training capabilities.")
+        ranks = ProcessRanks.from_num_invocations(
+            config.num_machines, config.num_partition_servers)
 
         if rank == RANK_ZERO:
             log("Setup lock server...")
             start_server(
                 LockServer(
-                    num_clients=len(trainer_ranks),
+                    num_clients=len(ranks.trainers),
                     nparts_lhs=nparts_lhs,
                     nparts_rhs=nparts_rhs,
                     lock_lhs=len(lhs_partitioned_types) > 0,
                     lock_rhs=len(rhs_partitioned_types) > 0,
                     init_tree=config.distributed_tree_init_order,
                 ),
-                server_rank=lock_server_rank,
-                world_size=world_size,
+                server_rank=ranks.lock_server,
+                world_size=ranks.world_size,
                 init_method=config.distributed_init_method,
-                groups=[trainer_ranks],
+                groups=[ranks.trainers],
             )
 
         bucket_scheduler = DistributedBucketScheduler(
-            server_rank=lock_server_rank,
-            client_rank=trainer_ranks[rank],
+            server_rank=ranks.lock_server,
+            client_rank=ranks.trainers[rank],
         )
 
         log("Setup param server...")
         start_server(
-            ParameterServer(num_clients=len(trainer_ranks)),
-            server_rank=parameter_server_ranks[rank],
+            ParameterServer(num_clients=len(ranks.trainers)),
+            server_rank=ranks.parameter_servers[rank],
             init_method=config.distributed_init_method,
-            world_size=world_size,
-            groups=[trainer_ranks],
+            world_size=ranks.world_size,
+            groups=[ranks.trainers],
         )
 
         parameter_sharer = ParameterSharer(
-            client_rank=parameter_client_ranks[rank],
-            all_server_ranks=parameter_server_ranks,
+            client_rank=ranks.parameter_clients[rank],
+            all_server_ranks=ranks.parameter_servers,
             init_method=config.distributed_init_method,
-            world_size=world_size,
-            groups=[trainer_ranks],
+            world_size=ranks.world_size,
+            groups=[ranks.trainers],
         )
 
         if config.num_partition_servers == -1:
             start_server(
-                ParameterServer(num_clients=len(trainer_ranks)),
-                server_rank=partition_server_ranks[rank],
-                world_size=world_size,
+                ParameterServer(num_clients=len(ranks.trainers)),
+                server_rank=ranks.partition_servers[rank],
+                world_size=ranks.world_size,
                 init_method=config.distributed_init_method,
-                groups=[trainer_ranks],
+                groups=[ranks.trainers],
             )
 
-        if len(partition_server_ranks) > 0:
-            partition_client = PartitionClient(partition_server_ranks)
+        if len(ranks.partition_servers) > 0:
+            partition_client = PartitionClient(ranks.partition_servers)
         else:
             partition_client = None
 
         groups = init_process_group(
-            rank=trainer_ranks[rank],
-            world_size=world_size,
+            rank=ranks.trainers[rank],
+            world_size=ranks.world_size,
             init_method=config.distributed_init_method,
-            groups=[trainer_ranks],
+            groups=[ranks.trainers],
         )
         trainer_group, = groups
         sync = DistributedSynchronizer(trainer_group)

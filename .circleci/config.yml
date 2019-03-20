@@ -101,6 +101,7 @@ jobs:
           command: |
             . ~/venv/bin/activate
             python3 tests/bucket_scheduling_tests.py
+            python3 tests/distributed_tests.py
             python3 tests/fileio_tests.py
             python3 tests/functional_tests.py
             python3 tests/model_tests.py

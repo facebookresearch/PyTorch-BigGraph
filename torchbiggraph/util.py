@@ -8,19 +8,17 @@
 
 import os
 import os.path
-from abc import ABC, abstractmethod
 from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from datetime import datetime
+from typing import Dict, Iterable, List, Set, Tuple
 
 import torch
-import torch.distributed as td
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
 
 from .config import ConfigSchema
 from .entitylist import EntityList
-from .types import Side, EntityName, Rank, FloatTensorType
+from .types import Side, EntityName, FloatTensorType
 
 
 def log(msg: str) -> None:
@@ -215,72 +213,3 @@ def compute_randomized_auc(
     diff = (pos_[torch.randint(len(pos_), (num_samples,))]
             > neg_[torch.randint(len(neg_), (num_samples,))])
     return float(diff.float().mean())
-
-
-# makes it easy to pass around process group args as a dict and pass as kwargs
-def init_process_group(
-    init_method: Optional[str],
-    world_size: int,
-    rank: Rank,
-    groups: List[List[Rank]],
-    backend: str = "gloo",
-) -> List['td.ProcessGroup']:
-    # With the THD backend there were no timeouts so high variance in
-    # execution time between trainers was not a problem. With the new c10d
-    # implementation we do have to take timeouts into account. To simulate
-    # the old behavior we use a ridiculously high default timeout.
-    timeout = timedelta(days=365)
-    log("init_process_group start")
-    if init_method is None:
-        raise RuntimeError("distributed_init_method must be set when num_machines > 1")
-    td.init_process_group(backend,
-                          init_method=init_method,
-                          world_size=world_size,
-                          rank=rank,
-                          timeout=timeout)
-    log("init_process_group creating groups")
-    group_objs = []
-    for group in groups:
-        group_objs.append(td.new_group(group, timeout=timeout))
-    log("init_process_group done")
-    return group_objs
-
-
-class Startable(ABC):
-
-    @abstractmethod
-    def start(self) -> None:
-        pass
-
-
-def _server_init(
-    server: Startable,
-    init_method: Optional[str],
-    world_size: int,
-    server_rank: Rank,
-    groups: List[List[Rank]],
-) -> None:
-    init_process_group(
-        init_method=init_method,
-        world_size=world_size,
-        rank=server_rank,
-        groups=groups,
-    )
-    server.start()
-
-
-def start_server(
-    server: Startable,
-    init_method: Optional[str],
-    world_size: int,
-    server_rank: Rank,
-    groups: List[List[Rank]],
-) -> mp.Process:
-    p = mp.Process(
-        name="%s-%d" % (type(server).__name__, server_rank),
-        target=_server_init,
-        args=(server, init_method, world_size, server_rank, groups),
-    )
-    p.daemon = True
-    p.start()
-    return p

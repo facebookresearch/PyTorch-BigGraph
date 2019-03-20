@@ -9,9 +9,11 @@
 import argparse
 from itertools import chain
 
+import torch.distributed as td
+
 from .config import parse_config, ConfigSchema
+from .distributed import ProcessRanks, init_process_group
 from .parameter_sharing import ParameterServer
-from .util import init_process_group
 
 # This is a small binary that just runs a partition server.
 # You need to run this if you run a distributed run and set
@@ -19,13 +21,22 @@ from .util import init_process_group
 
 
 def run_partition_server(config, rank=0):
-    barrier_group_ranks = list(range(config.num_machines))
-    init_process_group(rank=config.num_machines * 3 + 1 + rank,
-                       init_method=config.distributed_init_method,
-                       world_size=config.num_machines * 3 + 1 + config.num_partition_servers,
-                       groups=[barrier_group_ranks],  # ugh
-                       )
-    ps = ParameterServer(config.num_machines)
+    if config.num_partition_servers <= 0:
+        raise RuntimeError("Config doesn't require explicit partition servers")
+    if not 0 <= rank < config.num_partition_servers:
+        raise RuntimeError("Invalid rank for partition server")
+    if not td.is_available():
+        raise RuntimeError("The installed PyTorch version doesn't provide "
+                           "distributed training capabilities.")
+    ranks = ProcessRanks.from_num_invocations(
+        config.num_machines, config.num_partition_servers)
+    init_process_group(
+        rank=ranks.partition_servers[rank],
+        world_size=ranks.world_size,
+        init_method=config.distributed_init_method,
+        groups=[ranks.trainers],
+    )
+    ps = ParameterServer(num_clients=len(ranks.trainers))
     ps.start()
 
 
