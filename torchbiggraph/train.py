@@ -8,13 +8,12 @@
 
 import argparse
 import os.path
-import random
 import sys
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
-from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
 
 import attr
 import torch
@@ -30,7 +29,7 @@ from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
     ConfigMetadataProvider, maybe_old_entity_path, PartitionClient
 from .model import make_model, override_model, MultiRelationEmbedder
-from .parameterserver import ParameterServer, GradientParameterServerClientThread
+from .parameter_sharing import ParameterServer, ParameterSharer
 from .row_adagrad import RowAdagrad
 from .stats import Stats, stats
 from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
@@ -320,6 +319,7 @@ def train_and_report_stats(
 
     sync: AbstractSynchronizer
     bucket_scheduler: AbstractBucketScheduler
+    parameter_sharer: Optional[ParameterSharer]
     partition_client: Optional[PartitionClient]
     if config.num_machines > 1:
         world_size = 0
@@ -371,7 +371,7 @@ def train_and_report_stats(
             groups=[trainer_ranks],
         )
 
-        parameter_client = GradientParameterServerClientThread(
+        parameter_sharer = ParameterSharer(
             client_rank=parameter_client_ranks[rank],
             all_server_ranks=parameter_server_ranks,
             init_method=config.distributed_init_method,
@@ -407,6 +407,7 @@ def train_and_report_stats(
         sync = DummySynchronizer()
         bucket_scheduler = SingleMachineBucketScheduler(
             nparts_lhs, nparts_rhs, config.bucket_order)
+        parameter_sharer = None
         partition_client = None
         dlog = lambda msg: None
 
@@ -506,14 +507,9 @@ def train_and_report_stats(
                 optimizer.load_state_dict(optim_state)
             optimizers[(entity, Partition(0))] = optimizer
 
-    if config.num_machines > 1:
-        # start communicating shared parameters with the parameter server
-        added_to_parameter_client: Set[int] = set()
-        for k, v in ModuleStateDict(model.state_dict()).items():
-            if v._cdata not in added_to_parameter_client:
-                added_to_parameter_client.add(v._cdata)
-                log("Adding %s (%d params) to parameter server" % (k, v.nelement()))
-                parameter_client.set_param(k, v.data)
+    # start communicating shared parameters with the parameter server
+    if parameter_sharer is not None:
+        parameter_sharer.share_model_params(model)
 
     strict = False
 

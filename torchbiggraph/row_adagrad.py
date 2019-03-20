@@ -19,7 +19,7 @@ class RowAdagrad(Optimizer):
 
     def __init__(self, params, lr=1e-2, lr_decay=0, weight_decay=0):
         defaults = dict(lr=lr, lr_decay=lr_decay, weight_decay=weight_decay)
-        super(RowAdagrad, self).__init__(params, defaults)
+        super().__init__(params, defaults)
 
         for group in self.param_groups:
             for p in group['params']:

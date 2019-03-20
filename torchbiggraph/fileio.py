@@ -29,7 +29,7 @@ from torch_extensions.rpc.rpc import (
 
 from .config import ConfigSchema
 from .entitylist import EntityList
-from .parameterserver import ParameterServerClient
+from .parameter_sharing import ParameterClient
 from .types import EntityName, Partition, Rank, OptimizerStateDict, ModuleStateDict, \
     FloatTensorType, LongTensorType
 from .util import log, vlog, create_pool
@@ -408,12 +408,12 @@ CONFIG_FILE = "config.json"
 
 
 class PartitionClient:
-    """A wrapper around ParameterServerClient that knows how to read and write
+    """A wrapper around ParameterClient that knows how to read and write
     partitions (i.e. pairs (embs, optim_state)) to the parameter servers.
     """
 
     def __init__(self, server_ranks: List[Rank]) -> None:
-        self._clients = [ParameterServerClient(rank) for rank in server_ranks]
+        self._clients = [ParameterClient(rank) for rank in server_ranks]
 
     def store(
         self,

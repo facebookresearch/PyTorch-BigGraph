@@ -9,18 +9,19 @@
 import queue
 import time
 import traceback
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import torch
 import torch.distributed as td
 import torch.multiprocessing as mp
+import torch.nn as nn
 
-from .types import Rank, CharTensorType
+from .types import CharTensorType, Rank, ModuleStateDict
 from .util import log, Startable, init_process_group
 
 
 ################################################################################
-# Generic parameter server
+# Generic parameter client-server protocol
 ################################################################################
 
 
@@ -158,7 +159,7 @@ class ParameterServer(Startable):
         td.send(data, dst=rank)
 
 
-class ParameterServerClient:
+class ParameterClient:
     """Client for ParameterServer.
     Supports store, accumulate, swap, swap-accumulate, and get operations."""
 
@@ -258,14 +259,14 @@ class ParameterServerClient:
         td.recv(ack, src=self.server_rank)
 
 
-class GradientParameterServerClient:
+class GradientParameterClient:
     """We keep track of the last pull of each tensor from the server, and then when
     a push is requested, we accumulate the difference between the pulled tensor
     and the current version
     """
 
     def __init__(self, server_rank: Rank) -> None:
-        self._client = ParameterServerClient(server_rank)
+        self._client = ParameterClient(server_rank)
         self._cache: Dict[str, torch.Tensor] = {}
 
     def push(self, key: str, tensor: torch.Tensor) -> None:
@@ -305,8 +306,9 @@ class GradientParameterServerClient:
     def join(self) -> None:
         self._client.join()
 
+
 ################################################################################
-# Project-specific additions
+# Parameter sharer
 ################################################################################
 
 
@@ -333,7 +335,7 @@ def _client_thread_loop(
         )
 
         params = {}
-        clients = [GradientParameterServerClient(server_rank)
+        clients = [GradientParameterClient(server_rank)
                    for server_rank in all_server_ranks]
         log_time, log_rounds, log_bytes = time.time(), 0, 0
 
@@ -387,7 +389,7 @@ def _client_thread_loop(
         raise
 
 
-class GradientParameterServerClientThread:
+class ParameterSharer:
     """Wrapper object that creates a thread, that pulls parameters and pushes
     gradients, in a loop.
     """
@@ -423,3 +425,11 @@ class GradientParameterServerClientThread:
         self.q.put(('join', None))
         self.check()
         self.p.join()
+
+    def share_model_params(self, model: nn.Module) -> None:
+        shared_parameters: Set[int] = set()
+        for k, v in ModuleStateDict(model.state_dict()).items():
+            if v._cdata not in shared_parameters:
+                shared_parameters.add(v._cdata)
+                log("Adding %s (%d params) to parameter server" % (k, v.nelement()))
+                self.set_param(k, v.data)

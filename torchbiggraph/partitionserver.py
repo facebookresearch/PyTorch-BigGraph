@@ -10,7 +10,7 @@ import argparse
 from itertools import chain
 
 from .config import parse_config, ConfigSchema
-from .parameterserver import ParameterServer
+from .parameter_sharing import ParameterServer
 from .util import init_process_group
 
 # This is a small binary that just runs a partition server.

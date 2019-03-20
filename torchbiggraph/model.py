@@ -767,7 +767,7 @@ class MultiRelationEmbedder(nn.Module):
         num_dynamic_rels: int = 0,
     ):
 
-        super(MultiRelationEmbedder, self).__init__()
+        super().__init__()
 
         self.dim: int = dim
 
