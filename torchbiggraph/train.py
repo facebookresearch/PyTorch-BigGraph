@@ -11,6 +11,7 @@ import os.path
 import random
 import sys
 import time
+from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
 from typing import Any, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
@@ -211,6 +212,28 @@ def init_embs(
 RANK_ZERO = Rank(0)
 
 
+class AbstractSynchronizer(ABC):
+
+    @abstractmethod
+    def barrier(self) -> None:
+        pass
+
+
+class DummySynchronizer(AbstractSynchronizer):
+
+    def barrier(self):
+        pass
+
+
+class DistributedSynchronizer(AbstractSynchronizer):
+
+    def __init__(self, group: 'td.ProcessGroup') -> None:
+        self.group = group
+
+    def barrier(self):
+        td.barrier(group=self.group)
+
+
 class IterationManager(MetadataProvider):
 
     def __init__(
@@ -294,7 +317,8 @@ def train_and_report_stats(
     vlog("nparts %d %d types %s %s" %
          (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
 
-    partition_client = None
+    sync: AbstractSynchronizer
+    partition_client: Optional[PartitionClient]
     if config.num_machines > 1:
         world_size = 0
 
@@ -363,6 +387,8 @@ def train_and_report_stats(
 
         if len(partition_server_ranks) > 0:
             partition_client = PartitionClient(partition_server_ranks)
+        else:
+            partition_client = None
 
         groups = init_process_group(
             rank=trainer_ranks[rank],
@@ -371,6 +397,13 @@ def train_and_report_stats(
             groups=[trainer_ranks],
         )
         trainer_group, = groups
+        sync = DistributedSynchronizer(trainer_group)
+        dlog = log
+
+    else:
+        sync = DummySynchronizer()
+        partition_client = None
+        dlog = lambda msg: None
 
     # fork early for HOGWILD threads
     log("Creating workers...")
@@ -591,12 +624,11 @@ def train_and_report_stats(
             vlog("%s" % (bucket,))
         vlog('')
 
-        if config.num_machines > 1:
-            td.barrier(group=trainer_group)
-            log("Lock client new epoch...")
-            if rank == 0:
-                lock_client.new_pass(is_first=edge_path_idx == 0 and epoch_idx == 0)
-            td.barrier(group=trainer_group)
+        sync.barrier()
+        dlog("Lock client new epoch...")
+        if config.num_machines > 1 and rank == 0:
+            lock_client.new_pass(is_first=edge_path_idx == 0 and epoch_idx == 0)
+        sync.barrier()
 
         remaining = len(buckets)
         cur_b = None
@@ -711,8 +743,7 @@ def train_and_report_stats(
         swap_partitioned_embeddings(cur_b, None)
 
         # Distributed Processing: all machines can leave the barrier now.
-        if config.num_machines > 1:
-            td.barrier(trainer_group)
+        sync.barrier()
 
         # Write metadata: for multiple machines, write from rank-0
         log("Finished epoch %d path %d pass %d; checkpointing global state."
@@ -744,18 +775,16 @@ def train_and_report_stats(
         log("Writing the checkpoint...")
         checkpoint_manager.write_new_version(config)
 
-        if config.num_machines > 1:
-            log("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
-            td.barrier(trainer_group)
-            log("All parts of the checkpoint have been written")
+        dlog("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
+        sync.barrier()
+        dlog("All parts of the checkpoint have been written")
 
         log("Switching to new checkpoint version...")
         checkpoint_manager.switch_to_new_version()
 
-        if config.num_machines > 1:
-            log("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
-            td.barrier(trainer_group)
-            log("All workers have switched to the new checkpoint version")
+        dlog("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
+        sync.barrier()
+        dlog("All workers have switched to the new checkpoint version")
 
         # After all the machines have finished committing
         # checkpoints, we remove the old checkpoints.
@@ -769,8 +798,7 @@ def train_and_report_stats(
     pool.close()
     pool.join()
 
-    if config.num_machines > 1:
-        td.barrier(trainer_group)
+    sync.barrier()
 
     checkpoint_manager.close()
     if loadpath_manager is not None:
