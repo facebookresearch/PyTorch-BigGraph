@@ -16,6 +16,7 @@ import attr
 import torch
 from torch_extensions.tensorlist.tensorlist import TensorList
 
+from .bucket_scheduling import create_buckets_ordered_lexicographically
 from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .fileio import CheckpointManager, EdgeReader
@@ -25,8 +26,7 @@ from .stats import Stats, stats
 from .types import Side, Rank, Bucket, EntityName, Partition, FloatTensorType, \
     LongTensorType
 from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
-    compute_randomized_auc, create_buckets_ordered_lexicographically, \
-    split_almost_equally
+    compute_randomized_auc, split_almost_equally
 
 
 StatsType = TypeVar("StatsType", bound=Stats)

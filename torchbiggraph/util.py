@@ -8,7 +8,6 @@
 
 import os
 import os.path
-import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -19,9 +18,9 @@ import torch.distributed as td
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
 
-from .config import BucketOrder, ConfigSchema
+from .config import ConfigSchema
 from .entitylist import EntityList
-from .types import Side, EntityName, Bucket, Partition, Rank, FloatTensorType
+from .types import Side, EntityName, Rank, FloatTensorType
 
 
 def log(msg: str) -> None:
@@ -202,205 +201,6 @@ def get_partitioned_types(
 
     (num_partitions, partitioned_entity_names), = entity_names_by_num_parts.items()
     return num_partitions, partitioned_entity_names
-
-
-def create_ordered_buckets(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    order: BucketOrder,
-    *,
-    generator: random.Random,
-) -> List[Bucket]:
-    if order is BucketOrder.RANDOM:
-        return create_buckets_ordered_randomly(
-            nparts_lhs, nparts_rhs, generator=generator)
-    elif order is BucketOrder.AFFINITY:
-        return create_buckets_ordered_by_affinity(
-            nparts_lhs, nparts_rhs, generator=generator)
-    elif order is BucketOrder.INSIDE_OUT or order is BucketOrder.OUTSIDE_IN:
-        return create_buckets_ordered_by_layer(
-            nparts_lhs, nparts_rhs, order, generator=generator)
-    else:
-        raise NotImplementedError("Unknown bucket order: %s" % order)
-
-
-def create_buckets_ordered_lexicographically(
-    nparts_lhs: int,
-    nparts_rhs: int,
-) -> List[Bucket]:
-    """Return buckets in increasing LHS and, for the same LHS, in increasing RHS
-
-    """
-    buckets = [
-        Bucket(Partition(lhs), Partition(rhs))
-        for lhs in range(nparts_lhs)
-        for rhs in range(nparts_rhs)
-    ]
-    return buckets
-
-
-def create_buckets_ordered_randomly(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    *,
-    generator: random.Random,
-) -> List[Bucket]:
-    """Return all buckets, randomly permuted.
-
-    Produce buckets for [0, #LHS) x [0, #RHS) and shuffle them.
-
-    """
-    buckets = create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs)
-    generator.shuffle(buckets)
-    return buckets
-
-
-def create_buckets_ordered_by_affinity(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    *,
-    generator: random.Random,
-) -> List[Bucket]:
-    """Try having consecutive buckets share as many partitions as possible.
-
-    Start from a random bucket. Until there are buckets left, try to choose the
-    next one so that it has as many partitions in common as possible with the
-    previous one. When multiple options are available, pick one randomly.
-
-    """
-    if nparts_lhs <= 0 or nparts_rhs <= 0:
-        return []
-
-    # This is our "source of truth" on what buckets we haven't outputted yet. It
-    # can be queried in constant time.
-    remaining: Set[Bucket] = set()
-    # These are our random orders: we shuffle them once and then pop from the
-    # end. Each bucket appears in several of them. They are updated lazily,
-    # which means they may contain buckets that have already been outputted.
-    all_buckets: List[Bucket] = []
-    buckets_per_partition: List[List[Bucket]] = \
-        [[] for _ in range(max(nparts_lhs, nparts_rhs))]
-
-    for lhs in range(nparts_lhs):
-        for rhs in range(nparts_rhs):
-            b = Bucket(Partition(lhs), Partition(rhs))
-            remaining.add(b)
-            all_buckets.append(b)
-            buckets_per_partition[lhs].append(b)
-            buckets_per_partition[rhs].append(b)
-
-    generator.shuffle(all_buckets)
-    for buckets in buckets_per_partition:
-        generator.shuffle(buckets)
-
-    b = all_buckets.pop()
-    remaining.remove(b)
-    order = [b]
-
-    while remaining:
-        transposed_b = Bucket(b.rhs, b.lhs)
-        if transposed_b in remaining:
-            remaining.remove(transposed_b)
-            order.append(transposed_b)
-            if not remaining:
-                break
-
-        same_as_lhs = buckets_per_partition[b.lhs]
-        same_as_rhs = buckets_per_partition[b.rhs]
-        while len(same_as_lhs) > 0 or len(same_as_rhs) > 0:
-            chosen, = generator.choices(
-                [same_as_lhs, same_as_rhs],
-                weights=[len(same_as_lhs), len(same_as_rhs)],
-            )
-            next_b = chosen.pop()
-            if next_b in remaining:
-                break
-        else:
-            while True:
-                next_b = all_buckets.pop()
-                if next_b in remaining:
-                    break
-        remaining.remove(next_b)
-        order.append(next_b)
-        b = next_b
-
-    return order
-
-
-def create_layer_of_buckets(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    layer_idx: int,
-    *,
-    generator: random.Random,
-) -> List[Bucket]:
-    """Return the layer of #LHS x #RHS matrix of the given index
-
-    The i-th layer contains the buckets (lhs, rhs) such that min(lhs, rhs) == i.
-    Buckets that are one the transpose of the other will be consecutive. Other
-    than that, the order is random.
-
-    """
-    layer_p = Partition(layer_idx)
-    pairs = [[Bucket(layer_p, layer_p)]]
-    for idx in range(layer_idx + 1, max(nparts_lhs, nparts_rhs)):
-        p = Partition(idx)
-        pair = []
-        if p < nparts_lhs:
-            pair.append(Bucket(p, layer_p))
-        if p < nparts_rhs:
-            pair.append(Bucket(layer_p, p))
-        generator.shuffle(pair)
-        pairs.append(pair)
-    generator.shuffle(pairs)
-    return [b for p in pairs for b in p]
-
-
-def create_buckets_ordered_by_layer(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    order: BucketOrder,
-    *,
-    generator: random.Random,
-) -> List[Bucket]:
-    """Output buckets in concentric L-shaped layers (e.g., first row + column)
-
-    If order is OUTSIDE_IN, start outputting all buckets that have 0 as one of
-    their partitions. Once done, output all the ones (among those remaining)
-    that have 1 as one of their partitions. After that, those that have 2, and
-    so on, until none are left. Each of these stages is called a layer, and
-    within each layer buckets are shuffled at random.
-
-    For example: [
-        (2, 0), (0, 3), (0, 1), (1, 0), (0, 2), (0, 0),  # Layer for 0
-        (1, 2), (1, 1), (2, 1), (1, 3),  # Layer for 1
-        (2, 2), (2, 3),  # Layer for 2
-    ]
-
-    If order is INSIDE_OUT, the layers are the same but their order is reversed.
-
-    When displaying the layers on a #LHS x #RHS matrix, they have an upside-down
-    "L" shape, with the layer for 0 being comprised of the first row and column,
-    and the subsequent ones being "nested" inside of it. Graphically:
-
-       |  0   1   2   3
-    ---+----------------
-     0 | L0  L0  L0  L0
-     1 | L0  L1  L1  L1
-     2 | L0  L1  L2  L2
-
-    """
-    if order is not BucketOrder.INSIDE_OUT \
-            and order is not BucketOrder.OUTSIDE_IN:
-        raise ValueError("Unknown order: %s" % order)
-
-    layers = [
-        create_layer_of_buckets(nparts_lhs, nparts_rhs, i, generator=generator)
-        for i in range(min(nparts_lhs, nparts_rhs))
-    ]
-    if order is BucketOrder.INSIDE_OUT:
-        layers.reverse()
-    return [b for l in layers for b in l]
 
 
 # compute a randomized AUC using a fixed number of sample points

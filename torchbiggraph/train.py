@@ -22,12 +22,13 @@ import torch.distributed as td
 import torch.multiprocessing as mp
 from torch.optim import Optimizer, Adagrad
 
+from .bucket_scheduling import LockServer, AbstractBucketScheduler, \
+    SingleMachineBucketScheduler, DistributedBucketScheduler
 from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
     ConfigMetadataProvider, maybe_old_entity_path, PartitionClient
-from .lockserver import LockServer, LockClient
 from .model import make_model, override_model, MultiRelationEmbedder
 from .parameterserver import ParameterServer, GradientParameterServerClientThread
 from .row_adagrad import RowAdagrad
@@ -35,9 +36,8 @@ from .stats import Stats, stats
 from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
     OptimizerStateDict, FloatTensorType, LongTensorType
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
-    create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, \
-    init_process_group, split_almost_equally, round_up_to_nearest_multiple, \
-    start_server
+    create_pool, fast_approx_rand, DummyOptimizer, init_process_group, \
+    split_almost_equally, round_up_to_nearest_multiple, start_server
 
 
 class Action(Enum):
@@ -316,8 +316,10 @@ def train_and_report_stats(
     nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
     vlog("nparts %d %d types %s %s" %
          (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
+    total_buckets = nparts_lhs * nparts_rhs
 
     sync: AbstractSynchronizer
+    bucket_scheduler: AbstractBucketScheduler
     partition_client: Optional[PartitionClient]
     if config.num_machines > 1:
         world_size = 0
@@ -355,8 +357,9 @@ def train_and_report_stats(
                 groups=[trainer_ranks],
             )
 
-        lock_client = LockClient(
+        bucket_scheduler = DistributedBucketScheduler(
             server_rank=lock_server_rank,
+            client_rank=trainer_ranks[rank],
         )
 
         log("Setup param server...")
@@ -402,6 +405,8 @@ def train_and_report_stats(
 
     else:
         sync = DummySynchronizer()
+        bucket_scheduler = SingleMachineBucketScheduler(
+            nparts_lhs, nparts_rhs, config.bucket_order)
         partition_client = None
         dlog = lambda msg: None
 
@@ -551,8 +556,7 @@ def train_and_report_stats(
                 del embs
                 del optim_state
 
-            if config.num_machines > 1:
-                lock_client.release_bucket(old_b)
+            bucket_scheduler.release_bucket(old_b)
 
         # 2. copy old embeddings that will be used in the next pair
         #    into a temporary dictionary
@@ -579,8 +583,7 @@ def train_and_report_stats(
             else:
                 vlog("Loading (%s, %d)" % (entity, part))
 
-                force_dirty = (config.num_machines > 1
-                               and lock_client.check_and_set_dirty(entity, part))
+                force_dirty = bucket_scheduler.check_and_set_dirty(entity, part)
                 embs, optim_state = load_embeddings(
                     entity, part, strict=strict, force_dirty=force_dirty)
                 io_bytes += embs.nelement() * 4  # ignore optim state
@@ -610,48 +613,28 @@ def train_and_report_stats(
         edge_reader = EdgeReader(iteration_manager.edge_path)
         log("edge_path= %s" % iteration_manager.edge_path)
 
-        buckets = create_ordered_buckets(
-            nparts_lhs=nparts_lhs,
-            nparts_rhs=nparts_rhs,
-            order=config.bucket_order,
-            generator=random.Random(),
-        )
-        total_buckets = len(buckets)
-
-        # Print buckets
-        vlog('\nPartition pairs:')
-        for bucket in buckets:
-            vlog("%s" % (bucket,))
-        vlog('')
-
         sync.barrier()
         dlog("Lock client new epoch...")
-        if config.num_machines > 1 and rank == 0:
-            lock_client.new_pass(is_first=edge_path_idx == 0 and epoch_idx == 0)
+        bucket_scheduler.new_pass(is_first=iteration_manager.iteration_idx == 0)
         sync.barrier()
 
-        remaining = len(buckets)
+        remaining = total_buckets
         cur_b = None
         while remaining > 0:
             old_b = cur_b
             io_time = 0.
             io_bytes = 0
-            if config.num_machines > 1:
-                cur_b, remaining = lock_client.acquire_bucket(rank, maybe_old_bucket=old_b)
-                cur_b = Bucket(*cur_b) if cur_b is not None else None
-                print('still in queue: %d' % remaining, file=sys.stderr)
-                if cur_b is None:
-                    if old_b is not None:
-                        # if you couldn't get a new pair, release the lock
-                        # to prevent a deadlock!
-                        tic = time.time()
-                        io_bytes += swap_partitioned_embeddings(old_b, None)
-                        io_time += time.time() - tic
-                    time.sleep(1)  # don't hammer td
-                    continue
-            else:
-                cur_b = buckets.pop(0)
-                remaining -= 1
+            cur_b, remaining = bucket_scheduler.acquire_bucket()
+            print('still in queue: %d' % remaining, file=sys.stderr)
+            if cur_b is None:
+                if old_b is not None:
+                    # if you couldn't get a new pair, release the lock
+                    # to prevent a deadlock!
+                    tic = time.time()
+                    io_bytes += swap_partitioned_embeddings(old_b, None)
+                    io_time += time.time() - tic
+                time.sleep(1)  # don't hammer td
+                continue
 
             def log_status(msg, always=False):
                 f = log if always else vlog
@@ -664,17 +647,16 @@ def train_and_report_stats(
             current_index = \
                 (iteration_manager.iteration_idx + 1) * total_buckets - remaining
 
-            if remaining > 0 and background_io:
-                assert config.num_machines == 1
+            next_b = bucket_scheduler.peek()
+            if next_b is not None and background_io:
                 # Ensure the previous bucket finished writing to disk.
                 checkpoint_manager.wait_for_marker(current_index - 1)
 
                 log_status("Prefetching")
-                next_partition = buckets[0]
                 for entity in lhs_partitioned_types:
-                    checkpoint_manager.prefetch(entity, next_partition.lhs)
+                    checkpoint_manager.prefetch(entity, next_b.lhs)
                 for entity in rhs_partitioned_types:
-                    checkpoint_manager.prefetch(entity, next_partition.rhs)
+                    checkpoint_manager.prefetch(entity, next_b.rhs)
 
                 checkpoint_manager.record_marker(current_index)
 
