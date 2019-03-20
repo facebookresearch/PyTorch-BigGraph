@@ -63,7 +63,7 @@ See :ref:`data-model` for more details.
 
 - ``relations`` (type: ``[relation]``, see below for the ``relation`` schema)
 
-  The relation types. The ID with which they will be referenced in the edge lists is their index in this list plus one (as we use Lua-style indexing).
+  The relation types. The ID with which they will be referenced in the edge lists is their index in this list.
 
   The sub-schema of the items of this list is:
 
@@ -161,16 +161,6 @@ See :ref:`negative-sampling` for more details.
 
   The number of negatives uniformly sampled from the currently active partition, per positive edge.
 
-See :ref:`optimizers` for more details.
-
-  - ``lr`` (type: ``float``)
-
-    The learning rate for the optimizer.
-
-  - ``relation_lr`` (type: ``float`` or ``none``)
-
-    If set, the learning rate for the optimizer for relations. Otherwise, ``lr`` is used.
-
 See :ref:`loss` for more details.
 
 - ``loss_fn`` (type: ``str``, either ``ranking``, ``logistic`` or ``softmax``)
@@ -179,7 +169,17 @@ See :ref:`loss` for more details.
 
 - ``margin`` (type: ``float`` or ``none``)
 
-  When using ranking loss, this value controls the minimum separation between positive and negative scores, below which a (linear) loss is incured.
+  When using ranking loss, this value controls the minimum separation between positive and negative scores, below which a (linear) loss is incurred.
+
+See :ref:`optimizers` for more details.
+
+- ``lr`` (type: ``float``)
+
+  The learning rate for the optimizer.
+
+- ``relation_lr`` (type: ``float`` or ``none``)
+
+  If set, the learning rate for the optimizer for relations. Otherwise, ``lr`` is used.
 
 Evaluation during training
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -222,7 +222,7 @@ See :ref:`distributed-training` for more details.
 Dynamic relations
 ^^^^^^^^^^^^^^^^^
 
-See :ref:``
+See :ref:`dynamic-relations` for more details.
 
 - ``dynamic_relations`` (type: ``bool``)
 

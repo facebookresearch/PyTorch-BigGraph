@@ -143,7 +143,7 @@ class ConfigSchema(Schema):
     relations: List[RelationSchema] = attr.ib(
         metadata={'help': "The relation types. The ID with which they will be "
                           "referenced in the edge lists is their index in this "
-                          "list plus one (as we use Lua-style indexing)."},
+                          "list."},
     )
     dimension: int = attr.ib(
         metadata={'help': "The dimension of the real space the embedding live "
