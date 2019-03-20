@@ -20,8 +20,8 @@ from torch_extensions.tensorlist.tensorlist import TensorList
 from .config import LossFunction, Operator, Comparator, EntitySchema, \
     RelationSchema, ConfigSchema
 from .fileio import maybe_old_entity_path
-from .util import log
 from .types import Side, FloatTensorType, LongTensorType
+from .util import log
 
 
 def match_shape(tensor, *expected_shape):

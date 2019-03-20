@@ -6,43 +6,51 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import sys
 from typing import Dict, List, Optional, Set, Tuple
 
-import torch.multiprocessing as mp
 from torch_extensions.rpc.rpc import Client, Server
 
-from .util import log, init_process_group
 from .types import Side, Bucket, Partition, EntityName, Rank
+from .util import log, Startable, create_buckets_ordered_lexicographically
 
 
-class LockServer(Server):
+class LockServer(Server, Startable):
 
-    def new_epoch(
+    def __init__(
         self,
-        buckets: List[Bucket],
-        lock_lhs: bool = True,
-        lock_rhs: bool = True,
-        init_tree: bool = False,
+        num_clients: int,
+        nparts_lhs: int,
+        nparts_rhs: int,
+        lock_lhs: bool,
+        lock_rhs: bool,
+        init_tree: bool,
     ) -> None:
-        """
-        Start a new epoch of training.
-
-        Args:
-            buckets: A list of 2-tuples of all partition pairs that should be
-                   processed during this epoch.
-        """
-        self.active: Dict[Bucket, Rank] = {}
-        self.done: Set[Bucket] = set()
-        self.dirty: Set[Tuple[EntityName, Partition]] = set()
-        self.buckets: List[Bucket] = buckets
+        super().__init__(num_clients)
+        self.buckets: List[Bucket] = \
+            create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs)
+        self.lock_lhs: bool = lock_lhs
+        self.lock_rhs: bool = lock_rhs
         self.locked_sides: List[Side] = []
         if lock_lhs:
             self.locked_sides.append(Side.LHS)
         if lock_rhs:
             self.locked_sides.append(Side.RHS)
+        self.init_tree = init_tree
 
-        self.init_tree: Optional[Set[Partition]] = {Partition(0)} if init_tree else None
+        self.active: Dict[Bucket, Rank] = {}
+        self.done: Set[Bucket] = set()
+        self.dirty: Set[Tuple[EntityName, Partition]] = set()
+        self.inited: Optional[Set[Partition]] = None
+
+    def new_pass(self, is_first: bool = False) -> None:
+        """Start a new epoch of training."""
+        self.active = {}
+        self.done = set()
+        self.dirty = set()
+        if self.init_tree and is_first:
+            self.inited = {Partition(0)}
+        else:
+            self.inited = None
 
     def _can_acquire(
         self,
@@ -55,7 +63,7 @@ class LockServer(Server):
             return True
         return part not in locked_parts or locked_parts[part] == rank
 
-    def acquire_pair(
+    def acquire_bucket(
         self,
         rank: Rank,
         maybe_old_bucket: Optional[Bucket] = None,
@@ -97,18 +105,16 @@ class LockServer(Server):
             if (pair not in self.done
                 and self._can_acquire(rank, pair.lhs, locked_partitions, Side.LHS)
                 and self._can_acquire(rank, pair.rhs, locked_partitions, Side.RHS)
-                and (self.init_tree is None
-                     or pair.lhs in self.init_tree
-                     or pair.rhs in self.init_tree)):
+                and (self.inited is None
+                     or pair.lhs in self.inited
+                     or pair.rhs in self.inited)):
 
                 self.active[pair] = rank
                 self.done.add(pair)
-                if self.init_tree is not None:
-                    self.init_tree.add(pair.lhs)
-                    self.init_tree.add(pair.rhs)
-                print("lockserver %d acquire %s: active= %s" %
-                      (rank, pair, self.active), file=sys.stderr)
-                sys.stderr.flush()
+                if self.inited is not None:
+                    self.inited.add(pair.lhs)
+                    self.inited.add(pair.rhs)
+                log("lockserver %d acquire %s: active= %s" % (rank, pair, self.active))
                 return pair, remaining
 
         return None, remaining
@@ -119,9 +125,7 @@ class LockServer(Server):
         """
         if bucket.lhs is not None:
             self.active.pop(bucket)
-            print("lockserver release %s: active= %s" %
-                  (bucket, self.active), file=sys.stderr)
-            sys.stderr.flush()
+            log("lockserver release %s: active= %s" % (bucket, self.active))
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         """
@@ -139,43 +143,4 @@ class LockServer(Server):
 class LockClient(Client):
 
     def __init__(self, server_rank: Rank) -> None:
-        super(LockClient, self).__init__(LockServer, server_rank)
-
-
-def _start_lock_server(
-    server_rank: Rank,
-    num_clients: int,
-    init_method: Optional[str],
-    world_size: int,
-    groups: List[List[Rank]],
-) -> None:
-    log("_start_lock_server: init_process_group begin")
-    init_process_group(init_method=init_method,
-                       world_size=world_size,
-                       rank=server_rank,
-                       groups=groups)
-    s = LockServer(num_clients)
-    s.start()
-
-
-def setup_lock_server(
-    is_server_node: bool,
-    server_rank: Rank,
-    num_clients: int,
-    init_method: Optional[str],
-    world_size: int,
-    groups: List[List[Rank]],
-) -> LockClient:
-
-    if is_server_node:
-        # set up the parameter server on rank 0, but as a separate node
-        # with MPI rank provided
-        p_server = mp.Process(
-            target=_start_lock_server,
-            args=(server_rank, num_clients, init_method, world_size, groups))
-        p_server.daemon = True
-        p_server.start()
-
-    client = LockClient(server_rank)
-
-    return client
+        super().__init__(LockServer, server_rank)

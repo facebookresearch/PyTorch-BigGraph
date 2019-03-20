@@ -21,12 +21,12 @@ from .entitylist import EntityList
 from .fileio import CheckpointManager, EdgeReader
 from .model import RankingLoss, make_model, override_model, MultiRelationEmbedder, \
     Margins, Scores
-from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
-    compute_randomized_auc, create_buckets_ordered_lexicographically, \
-    split_almost_equally
 from .stats import Stats, stats
 from .types import Side, Rank, Bucket, EntityName, Partition, FloatTensorType, \
     LongTensorType
+from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
+    compute_randomized_auc, create_buckets_ordered_lexicographically, \
+    split_almost_equally
 
 
 StatsType = TypeVar("StatsType", bound=Stats)

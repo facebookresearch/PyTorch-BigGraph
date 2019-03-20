@@ -15,8 +15,8 @@ import torch
 import torch.distributed as td
 import torch.multiprocessing as mp
 
-from .util import log, init_process_group
 from .types import Rank, CharTensorType
+from .util import log, Startable, init_process_group
 
 
 ################################################################################
@@ -26,7 +26,7 @@ from .types import Rank, CharTensorType
 
 # FIXME! This will be slow
 def _tostring(t: CharTensorType) -> str:
-    return "".join(chr(x) for x in t)
+    return "".join(chr(x.item()) for x in t)
 
 
 def _fromstring(s: str) -> CharTensorType:
@@ -50,7 +50,7 @@ _tensor_types = [
 _tensor_type_idx = {t().type(): i for i, t in enumerate(_tensor_types)}
 
 
-class ParameterServer:
+class ParameterServer(Startable):
     """
     A simple parameter server. Clients can store tensors, accumulate, and
     get tensors by string key. Operations on the parameter server are globally
@@ -73,7 +73,7 @@ class ParameterServer:
             # 1. receive the command
             cmd_buffer = torch.full((6,), -1, dtype=torch.long)
             rank = td.recv(cmd_buffer)
-            cmd = cmd_buffer[0]
+            cmd = cmd_buffer[0].item()
 
             if cmd == STORE_CMD:
                 key = self._recv_key(rank, cmd_buffer[1].item())
@@ -333,8 +333,8 @@ def _client_thread_loop(
         )
 
         params = {}
-        clients = [GradientParameterServerClient(server_rank) for
-                   server_rank in all_server_ranks]
+        clients = [GradientParameterServerClient(server_rank)
+                   for server_rank in all_server_ranks]
         log_time, log_rounds, log_bytes = time.time(), 0, 0
 
         # thread loop:
@@ -394,15 +394,16 @@ class GradientParameterServerClientThread:
 
     def __init__(
         self,
-        client_rank: int,
-        all_server_ranks: List[int],
+        client_rank: Rank,
+        all_server_ranks: List[Rank],
         init_method: Optional[str],
         world_size: int,
-        groups: List[List[int]],
+        groups: List[List[Rank]],
     ) -> None:
         self.q = mp.Queue()
         self.errq = mp.Queue()
         self.p = mp.Process(
+            name="ParameterClient-%d" % client_rank,
             target=_client_thread_loop,
             args=(client_rank, all_server_ranks, self.q, self.errq, init_method, world_size, groups)
         )
@@ -422,52 +423,3 @@ class GradientParameterServerClientThread:
         self.q.put(('join', None))
         self.check()
         self.p.join()
-
-
-def _start_parameter_server(
-    rank: Rank,
-    num_clients: int,
-    init_method: Optional[str],
-    world_size: int,
-    groups: List[List[Rank]],
-) -> None:
-    init_process_group(init_method, world_size, rank, groups)
-    ps = ParameterServer(num_clients)
-    ps.start()
-
-
-def setup_parameter_server(
-    server_rank: Rank,
-    num_clients: int,
-    init_method: Optional[str],
-    world_size: int,
-    groups: List[List[Rank]],
-) -> None:
-    # set up the parameter server on rank 0, but as a separate node
-    # with MPI rank num_machines
-    p_server = mp.Process(
-        target=_start_parameter_server,
-        args=(server_rank, num_clients, init_method, world_size, groups))
-    p_server.daemon = True
-    p_server.start()
-
-
-def setup_parameter_server_thread(
-    client_rank: Rank,
-    server_rank: Rank,
-    all_server_ranks: List[Rank],
-    num_clients: int,
-    init_method: Optional[str],
-    world_size: int,
-    groups: List[List[Rank]],
-) -> GradientParameterServerClientThread:
-    setup_parameter_server(server_rank,
-                           num_clients,
-                           init_method,
-                           world_size,
-                           groups)
-
-    client = GradientParameterServerClientThread(
-        client_rank, all_server_ranks, init_method, world_size, groups)
-
-    return client

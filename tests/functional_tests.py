@@ -267,8 +267,8 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
-        do_eval(eval_config)
         self.assertCheckpointWritten(train_config, version=1)
+        do_eval(eval_config)
 
     def test_resume_from_checkpoint(self):
         entity_name = "e"
@@ -359,8 +359,8 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
-        do_eval(eval_config)
         self.assertCheckpointWritten(train_config, version=1)
+        do_eval(eval_config)
 
     def test_partitioned(self):
         e1 = EntitySchema(num_partitions=1)
@@ -393,8 +393,8 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
-        do_eval(eval_config)
         self.assertCheckpointWritten(train_config, version=1)
+        do_eval(eval_config)
 
     def test_distributed(self):
         sync_path = TemporaryDirectory()
@@ -426,8 +426,12 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[0].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        trainer0 = Process(target=train, args=(train_config,), kwargs={"rank": 0})
-        trainer1 = Process(target=train, args=(train_config,), kwargs={"rank": 1})
+        trainer0 = Process(
+            name="trainer#0",
+            target=train, args=(train_config,), kwargs={"rank": 0})
+        trainer1 = Process(
+            name="trainer#1",
+            target=train, args=(train_config,), kwargs={"rank": 1})
         # FIXME In Python 3.7 use kill here.
         self.addCleanup(trainer0.terminate)
         self.addCleanup(trainer1.terminate)
@@ -471,9 +475,14 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[0].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        trainer0 = Process(target=train, args=(train_config,), kwargs={"rank": 0})
-        trainer1 = Process(target=train, args=(train_config,), kwargs={"rank": 1})
+        trainer0 = Process(
+            name="trainer#0",
+            target=train, args=(train_config,), kwargs={"rank": 0})
+        trainer1 = Process(
+            name="trainer#1",
+            target=train, args=(train_config,), kwargs={"rank": 1})
         partition_server = Process(
+            name="partition server#0",
             target=run_partition_server, args=(train_config,), kwargs={"rank": 0})
         # FIXME In Python 3.7 use kill here.
         self.addCleanup(trainer0.terminate)
@@ -540,8 +549,8 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0)
-        do_eval(eval_config)
         self.assertCheckpointWritten(train_config, version=1)
+        do_eval(eval_config)
 
 
 if __name__ == '__main__':

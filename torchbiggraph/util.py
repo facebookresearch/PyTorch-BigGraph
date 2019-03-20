@@ -9,6 +9,7 @@
 import os
 import os.path
 import random
+from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Set, Tuple
@@ -443,3 +444,43 @@ def init_process_group(
         group_objs.append(td.new_group(group, timeout=timeout))
     log("init_process_group done")
     return group_objs
+
+
+class Startable(ABC):
+
+    @abstractmethod
+    def start(self) -> None:
+        pass
+
+
+def _server_init(
+    server: Startable,
+    init_method: Optional[str],
+    world_size: int,
+    server_rank: Rank,
+    groups: List[List[Rank]],
+) -> None:
+    init_process_group(
+        init_method=init_method,
+        world_size=world_size,
+        rank=server_rank,
+        groups=groups,
+    )
+    server.start()
+
+
+def start_server(
+    server: Startable,
+    init_method: Optional[str],
+    world_size: int,
+    server_rank: Rank,
+    groups: List[List[Rank]],
+) -> mp.Process:
+    p = mp.Process(
+        name="%s-%d" % (type(server).__name__, server_rank),
+        target=_server_init,
+        args=(server, init_method, world_size, server_rank, groups),
+    )
+    p.daemon = True
+    p.start()
+    return p

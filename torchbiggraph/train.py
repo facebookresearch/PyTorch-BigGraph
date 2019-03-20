@@ -25,18 +25,18 @@ from .config import parse_config, ConfigSchema
 from .entitylist import EntityList
 from .eval import eval_many_batches, EvalStats
 from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
-    ConfigMetadataProvider, maybe_old_entity_path
-from .lockserver import setup_lock_server
+    ConfigMetadataProvider, maybe_old_entity_path, PartitionClient
+from .lockserver import LockServer, LockClient
 from .model import make_model, override_model, MultiRelationEmbedder
-from .parameterserver import setup_parameter_server_thread, \
-    setup_parameter_server
+from .parameterserver import ParameterServer, GradientParameterServerClientThread
 from .row_adagrad import RowAdagrad
-from .util import log, vlog, chunk_by_index, get_partitioned_types, \
-    create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, \
-    init_process_group, split_almost_equally, round_up_to_nearest_multiple
 from .stats import Stats, stats
 from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
     OptimizerStateDict, FloatTensorType, LongTensorType
+from .util import log, vlog, chunk_by_index, get_partitioned_types, \
+    create_pool, fast_approx_rand, DummyOptimizer, create_ordered_buckets, \
+    init_process_group, split_almost_equally, round_up_to_nearest_multiple, \
+    start_server
 
 
 class Action(Enum):
@@ -288,56 +288,89 @@ def train_and_report_stats(
             ), "rt") as tf:
                 entity_counts[entity].append(int(tf.read().strip()))
 
-    partition_server_ranks = None
+    # Figure out how many lhs and rhs partitions we need
+    nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
+    nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
+    vlog("nparts %d %d types %s %s" %
+         (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
+
+    partition_client = None
     if config.num_machines > 1:
-        log("Setup lock server...")
-        init_method = config.distributed_init_method
-        # N param client threads, N param servers, 1 lock server
-        world_size = config.num_machines * 3 + 1  # + config.num_partition_servers
+        world_size = 0
 
-        if config.num_partition_servers > 0:
-            world_size += config.num_partition_servers
-        elif config.num_partition_servers == -1:  # use machines as partition servers
-            world_size += config.num_machines
+        def add_group(group_size: int) -> List[Rank]:
+            nonlocal world_size
+            group = [Rank(world_size + r) for r in range(group_size)]
+            world_size += group_size
+            return group
 
-        barrier_group_ranks = list(range(config.num_machines))
-        lock_client = setup_lock_server(
-            is_server_node=(rank == 0),
-            server_rank=3 * config.num_machines,
-            num_clients=config.num_machines,
-            init_method=init_method,
-            world_size=world_size,
-            groups=[barrier_group_ranks])
+        trainer_ranks = add_group(config.num_machines)
+        parameter_server_ranks = add_group(config.num_machines)
+        parameter_client_ranks = add_group(config.num_machines)
+        lock_server_rank, = add_group(1)
+        if config.num_partition_servers < 0:
+            # Use machines as partition servers
+            partition_server_ranks = add_group(config.num_machines)
+        else:
+            partition_server_ranks = add_group(config.num_partition_servers)
+
+        if rank == RANK_ZERO:
+            log("Setup lock server...")
+            start_server(
+                LockServer(
+                    num_clients=len(trainer_ranks),
+                    nparts_lhs=nparts_lhs,
+                    nparts_rhs=nparts_rhs,
+                    lock_lhs=len(lhs_partitioned_types) > 0,
+                    lock_rhs=len(rhs_partitioned_types) > 0,
+                    init_tree=config.distributed_tree_init_order,
+                ),
+                server_rank=lock_server_rank,
+                world_size=world_size,
+                init_method=config.distributed_init_method,
+                groups=[trainer_ranks],
+            )
+
+        lock_client = LockClient(
+            server_rank=lock_server_rank,
+        )
 
         log("Setup param server...")
-
-        parameter_client = setup_parameter_server_thread(
-            client_rank=config.num_machines * 2 + rank,
-            server_rank=config.num_machines + rank,
-            all_server_ranks=[config.num_machines + x
-                              for x in range(config.num_machines)],
-            num_clients=config.num_machines,
-            init_method=init_method,
+        start_server(
+            ParameterServer(num_clients=len(trainer_ranks)),
+            server_rank=parameter_server_ranks[rank],
+            init_method=config.distributed_init_method,
             world_size=world_size,
-            groups=[barrier_group_ranks])
+            groups=[trainer_ranks],
+        )
 
-        num_partition_servers = config.num_partition_servers
+        parameter_client = GradientParameterServerClientThread(
+            client_rank=parameter_client_ranks[rank],
+            all_server_ranks=parameter_server_ranks,
+            init_method=config.distributed_init_method,
+            world_size=world_size,
+            groups=[trainer_ranks],
+        )
+
         if config.num_partition_servers == -1:
-            setup_parameter_server(server_rank=config.num_machines * 3 + 1 + rank,
-                                   num_clients=config.num_machines,
-                                   init_method=init_method,
-                                   world_size=world_size,
-                                   groups=[barrier_group_ranks])
-            num_partition_servers = config.num_machines
+            start_server(
+                ParameterServer(num_clients=len(trainer_ranks)),
+                server_rank=partition_server_ranks[rank],
+                world_size=world_size,
+                init_method=config.distributed_init_method,
+                groups=[trainer_ranks],
+            )
 
-        partition_server_ranks = range(config.num_machines * 3 + 1,
-                                       config.num_machines * 3 + 1 + num_partition_servers)
+        if len(partition_server_ranks) > 0:
+            partition_client = PartitionClient(partition_server_ranks)
 
-        groups = init_process_group(init_method=init_method,
-                                    world_size=world_size,
-                                    rank=rank,
-                                    groups=[barrier_group_ranks])
-        barrier_group = groups[0]
+        groups = init_process_group(
+            rank=trainer_ranks[rank],
+            world_size=world_size,
+            init_method=config.distributed_init_method,
+            groups=[trainer_ranks],
+        )
+        trainer_group, = groups
 
     # fork early for HOGWILD threads
     log("Creating workers...")
@@ -366,7 +399,7 @@ def train_and_report_stats(
         background=background_io,
         rank=rank,
         num_machines=config.num_machines,
-        partition_server_ranks=partition_server_ranks,
+        partition_client=partition_client,
     )
     checkpoint_manager.register_metadata_provider(ConfigMetadataProvider(config))
     checkpoint_manager.write_config(config)
@@ -403,12 +436,6 @@ def train_and_report_stats(
                                               config.dimension, config.init_scale)
         assert embs.is_shared()
         return torch.nn.Parameter(embs), optim_state
-
-    # Figure out how many lhs and rhs partitions we need
-    nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
-    nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
-    vlog("nparts %d %d types %s %s" %
-         (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
 
     log("Initializing global model...")
 
@@ -565,16 +592,11 @@ def train_and_report_stats(
         vlog('')
 
         if config.num_machines > 1:
-            td.barrier(group=barrier_group)
+            td.barrier(group=trainer_group)
             log("Lock client new epoch...")
             if rank == 0:
-                lock_client.new_epoch(buckets,
-                                      lock_lhs=len(lhs_partitioned_types) > 0,
-                                      lock_rhs=len(rhs_partitioned_types) > 0,
-                                      init_tree=(config.distributed_tree_init_order
-                                                 and edge_path_idx == 0
-                                                 and epoch_idx == 0))
-            td.barrier(group=barrier_group)
+                lock_client.new_pass(is_first=edge_path_idx == 0 and epoch_idx == 0)
+            td.barrier(group=trainer_group)
 
         remaining = len(buckets)
         cur_b = None
@@ -583,7 +605,7 @@ def train_and_report_stats(
             io_time = 0.
             io_bytes = 0
             if config.num_machines > 1:
-                cur_b, remaining = lock_client.acquire_pair(rank, maybe_old_bucket=old_b)
+                cur_b, remaining = lock_client.acquire_bucket(rank, maybe_old_bucket=old_b)
                 cur_b = Bucket(*cur_b) if cur_b is not None else None
                 print('still in queue: %d' % remaining, file=sys.stderr)
                 if cur_b is None:
@@ -690,7 +712,7 @@ def train_and_report_stats(
 
         # Distributed Processing: all machines can leave the barrier now.
         if config.num_machines > 1:
-            td.barrier(barrier_group)
+            td.barrier(trainer_group)
 
         # Write metadata: for multiple machines, write from rank-0
         log("Finished epoch %d path %d pass %d; checkpointing global state."
@@ -724,7 +746,7 @@ def train_and_report_stats(
 
         if config.num_machines > 1:
             log("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
-            td.barrier(barrier_group)
+            td.barrier(trainer_group)
             log("All parts of the checkpoint have been written")
 
         log("Switching to new checkpoint version...")
@@ -732,7 +754,7 @@ def train_and_report_stats(
 
         if config.num_machines > 1:
             log("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
-            td.barrier(barrier_group)
+            td.barrier(trainer_group)
             log("All workers have switched to the new checkpoint version")
 
         # After all the machines have finished committing
@@ -748,7 +770,7 @@ def train_and_report_stats(
     pool.join()
 
     if config.num_machines > 1:
-        td.barrier(barrier_group)
+        td.barrier(trainer_group)
 
     checkpoint_manager.close()
     if loadpath_manager is not None:

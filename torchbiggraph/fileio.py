@@ -15,7 +15,7 @@ import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from glob import glob
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import h5py
 import numpy as np
@@ -29,9 +29,10 @@ from torch_extensions.rpc.rpc import (
 
 from .config import ConfigSchema
 from .entitylist import EntityList
-from .util import log, vlog, create_pool
+from .parameterserver import ParameterServerClient
 from .types import EntityName, Partition, Rank, OptimizerStateDict, ModuleStateDict, \
     FloatTensorType, LongTensorType
+from .util import log, vlog, create_pool
 
 
 def maybe_old_entity_path(path: str) -> bool:
@@ -411,8 +412,7 @@ class PartitionClient:
     partitions (i.e. pairs (embs, optim_state)) to the parameter servers.
     """
 
-    def __init__(self, server_ranks: Iterable[int]) -> None:
-        from .parameterserver import ParameterServerClient
+    def __init__(self, server_ranks: List[Rank]) -> None:
         self._clients = [ParameterServerClient(rank) for rank in server_ranks]
 
     def store(
@@ -497,7 +497,7 @@ class CheckpointManager:
         rank: Rank = -1,
         num_machines: int = 1,
         background: bool = False,
-        partition_server_ranks: Optional[List[int]] = None,
+        partition_client: Optional[PartitionClient] = None,
     ) -> None:
         """
         Args:
@@ -537,9 +537,7 @@ class CheckpointManager:
             self.outstanding: OrderedDict = OrderedDict()
             self.prefetched: Dict[str, Tuple[FloatTensorType, Optional[OptimizerStateDict]]] = {}
 
-        self.partition_client: Optional[PartitionClient] = None
-        if partition_server_ranks is not None and len(partition_server_ranks) > 0:
-            self.partition_client = PartitionClient(partition_server_ranks)
+        self.partition_client = partition_client
 
         self.metadata_providers: List[MetadataProvider] = []
 
