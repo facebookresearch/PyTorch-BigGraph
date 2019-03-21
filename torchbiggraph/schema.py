@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from inspect import isclass
 from itertools import chain
-from typing import Any, ClassVar, Dict, List, Optional, Type
+from typing import Any, ClassVar, Dict, List, Optional, Sized, Type, Union
 
 import attr
 
@@ -64,7 +64,10 @@ class DeepTypeError(TypeError):
         self.path = "[%r]%s" % (key, self.path)
 
     def __str__(self):
-        return "%s: %s" % (self.path.lstrip('.'), self.message)
+        path = self.path.lstrip('.')
+        if not path:
+            return self.message
+        return "%s: %s" % (path, self.message)
 
 
 class Mapper(ABC):
@@ -186,8 +189,11 @@ class Loader(Mapper):
             # Be lenient.
             if isinstance(data, type_):
                 return data
-            raise TypeError("Not a str: %s" % data)
-        return type_[data.upper()]
+            raise DeepTypeError("Not a str: %s" % data)
+        try:
+            return type_[data.upper()]
+        except KeyError:
+            raise DeepTypeError("Unknown option: %s" % data) from None
 
     def map_schema(self, data: Any, type_: Type["Schema"]) -> "Schema":
         if not isinstance(data, dict):
@@ -200,7 +206,7 @@ class Loader(Mapper):
             try:
                 field = fields[key]
             except LookupError:
-                raise DeepTypeError("Unknown key: %s" % key)
+                raise DeepTypeError("Unknown key: %s" % key) from None
             if field.type is None:
                 raise RuntimeError("Unannotated field: %s" % key)
             try:
@@ -209,7 +215,10 @@ class Loader(Mapper):
                 err.prepend_attr(key)
                 raise err
         # TODO Remove noqa when flake8 will understand kw_only added in attrs-18.2.0.
-        return type_(**kwargs)  # noqa
+        try:
+            return type_(**kwargs)  # noqa
+        except (ValueError, TypeError) as err:
+            raise DeepTypeError(str(err)) from None
 
 
 class Dumper(Mapper):
@@ -318,3 +327,18 @@ class Schema:
 
     def to_dict(self) -> Dict[str, Any]:
         return Dumper().map_with_type(self, type(self))
+
+
+def non_negative(_, field: attr.Attribute, value: Union[int, float]):
+    if value < 0:
+        raise ValueError("%s must be >= 0, got %s" % (field.name, value))
+
+
+def positive(_, field: attr.Attribute, value: Union[int, float]):
+    if value <= 0:
+        raise ValueError("%s must be > 0, got %s" % (field.name, value))
+
+
+def non_empty(_, field: attr.Attribute, value: Sized):
+    if len(value) == 0:
+        raise ValueError("%s must be non-empty" % field.name)

@@ -513,7 +513,7 @@ class TestFunctional(TestCase):
         relation_config = RelationSchema(name="r", lhs="el", rhs="er")
         base_config = ConfigSchema(
             dimension=10,
-            relations=[],  # filled in later
+            relations=[relation_config],
             entities={
                 "el": EntitySchema(num_partitions=1),
                 "er": EntitySchema(num_partitions=1),
@@ -522,13 +522,15 @@ class TestFunctional(TestCase):
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
             dynamic_relations=True,
+            global_emb=False,  # Must be off for dynamic relations.
         )
         gen_config = attr.evolve(
             base_config,
             relations=[relation_config] * 10,
+            dynamic_relations=False,  # Must be off if more than 1 relation.
         )
         dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.04, 0.02]
+            gen_config, num_entities=100, fractions=[0.04, 0.02]
         )
         self.addCleanup(dataset.cleanup)
         with open(os.path.join(
@@ -537,7 +539,6 @@ class TestFunctional(TestCase):
             f.write("%d" % len(gen_config.relations))
         train_config = attr.evolve(
             base_config,
-            relations=[relation_config],
             entity_path=dataset.entity_path.name,
             edge_paths=[dataset.relation_paths[0].name],
         )

@@ -16,7 +16,7 @@ import h5py
 import numpy as np
 import torch
 
-from torchbiggraph.config import ConfigSchema
+from torchbiggraph.config import EntitySchema, RelationSchema, ConfigSchema
 from torchbiggraph.fileio import DatasetIO, Mapping, ConfigMetadataProvider
 
 
@@ -115,7 +115,9 @@ class TestConfigMetadataProvider(TestCase):
 
     def test_basic(self):
         config = ConfigSchema(
-            entities={}, relations=[], dimension=0,
+            entities={"e": EntitySchema(num_partitions=1)},
+            relations=[RelationSchema(name="r", lhs="e", rhs="e")],
+            dimension=1,
             entity_path="foo", edge_paths=["bar"], checkpoint_path="baz")
         metadata = ConfigMetadataProvider(config).get_checkpoint_metadata()
         self.assertIsInstance(metadata, dict)

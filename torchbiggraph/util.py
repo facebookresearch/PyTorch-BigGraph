@@ -10,7 +10,7 @@ import os
 import os.path
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Any, Dict, Iterable, List, Set, Tuple
 
 import torch
 import torch.multiprocessing as mp
@@ -124,20 +124,20 @@ def fast_approx_rand(numel: int) -> FloatTensorType:
 
 class DummyOptimizer(Optimizer):
 
-    def __init__(self):
+    def __init__(self) -> None:
         # This weird dance makes Optimizer accept an empty parameter list.
         super().__init__([{'params': []}], {})
 
-    def step(self, closure=None):
+    def step(self, closure: None = None) -> None:
         pass
 
-    def state_dict(self):
-        return None
+    def state_dict(self) -> Dict[str, Any]:
+        return {}
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
         pass
 
-    def share_memory(self):
+    def share_memory(self) -> None:
         pass
 
 
