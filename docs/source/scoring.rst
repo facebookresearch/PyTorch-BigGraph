@@ -92,6 +92,8 @@ To define an additional operator, one must subclass the :class:`torchbiggraph.mo
 (or the :class:`torchbiggraph.model.AbstractDynamicOperator` one when using :ref:`dynamic relations <dynamic-relations>`)
 and add an entry to the :class:`torchbiggraph.config.Operator` enum.
 
+.. _comparators:
+
 Comparators
 -----------
 

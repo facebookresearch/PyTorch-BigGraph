@@ -49,6 +49,7 @@ Communication protocols
 
 Distributed training requires the machines to coordinate and communicate in various ways for different purposes.
 These tasks are:
+
 - synchronizing which trainer is operating on which bucket, assigning them so that there are no conflicts
 - passing the embeddings of an entity partition from one trainer to the next one when needed (as this is data that is only
   accessed by one trainer at a time)
