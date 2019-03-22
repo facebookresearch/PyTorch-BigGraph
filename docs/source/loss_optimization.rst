@@ -152,4 +152,12 @@ This loss is activated by setting ``loss_fn`` to ``softmax``.
 Optimizers
 ----------
 
-.. todo:: adagrad vs row-adagrad, learning rate and relation learning rate, ...
+The `Adagrad <http://jmlr.org/papers/v12/duchi11a.html>`_ optimization method is used to update all model parameters. Adagrad performs stochastic gradient descent with an adaptive learning rate applied to each parameter inversely proportional to the inverse square magnitude of all previous updates. In practice, Adagrad updates lead to an order of magnitude faster convergence for typical PBG models.
+
+The initial learning rate for Adagrad is specified by the `lr` config parameter.A separate learning rate can also be set for non-embeddings using the `relation_lr` parameter.
+
+Standard Adagrad requires an equal amount of memory for optimizer state as the size of the model, which is prohibitive for the large models targeted by PBG. To reduce optimizer memory usage, a modified version of Adagrad is used that uses a common learning rate for each entity embedding. The learning rate is proportional to the inverse sum of the squared gradients from each element of the embedding, divided by the dimension. Non-embedding parameters (e.g. relation operator parameters) use standard Adagrad.
+
+Adagrad parameters are updated asynchronously across worker threads with no explicit synchronization. Asynchronous updates to the Adagrad state (the total squared gradient) appear stable, likely because each element of the state tensor only accumulates positives updates. Optimization is further stabilized by performing a short period of training with a single thread before beginning Hogwild! training, which is tuned by the ``hogwild_delay`` parameter.
+
+In distributed training, the Adagrad state for shared parameters (e.g. relation operator parameters) are shared via the parameter server using the same asynchronous gradient update as the parameters themselves. Similar to inter-thread synchronization, these asynchronous updates are stable after an initial burn-in period because the total squared gradient strictly accumulates positive values.
