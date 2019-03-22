@@ -342,3 +342,41 @@ def positive(_, field: attr.Attribute, value: Union[int, float]):
 def non_empty(_, field: attr.Attribute, value: Sized):
     if len(value) == 0:
         raise ValueError("%s must be non-empty" % field.name)
+
+
+def extract_nested_type(type_: Any, path: List[str]) -> Any:
+    try:
+        type_ = unpack_optional(type_)
+    except TypeError:
+        pass
+    if len(path) == 0:
+        return type_
+    if has_origin(type_, list):
+        element_type, = type_.__args__
+        return extract_nested_type(element_type, path[1:])
+    if has_origin(type_, dict):
+        _, value_type = type_.__args__
+        return extract_nested_type(value_type, path[1:])
+    if isclass(type_) and issubclass(type_, Schema):
+        child_type = attr.fields_dict(type_)[path[0]].type
+        return extract_nested_type(child_type, path[1:])
+    raise NotImplementedError("Unknown type %r" % type_)
+
+
+def inject_nested_value(data: Any, path: List[str], value: Any) -> Any:
+    if len(path) == 0:
+        raise ValueError("Got empty path")
+    if isinstance(data, list):
+        index, path = int(path[0]), path[1:]
+        if len(path) == 0:
+            data[index] = value
+        else:
+            inject_nested_value(data[index], path, value)
+    elif isinstance(data, dict):
+        key, path = path[0], path[1:]
+        if len(path) == 0:
+            data[key] = value
+        else:
+            inject_nested_value(data[key], path, value)
+    else:
+        raise NotImplementedError("Data of unknown type: %r" % data)

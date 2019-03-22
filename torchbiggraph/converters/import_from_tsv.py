@@ -227,10 +227,27 @@ def convert_input_data(
     rel_col: Optional[int] = None,
     entity_min_count: int = 1,
     relation_type_min_count: int = 1,
-):
+) -> None:
 
     entity_configs, relation_configs, entity_path, dynamic_relations = \
         validate_config(config)
+
+    some_output_paths = []
+    some_output_paths.append(os.path.join(entity_path, "dictionary.json"))
+    some_output_paths.extend(
+        os.path.join(entity_path, "entity_count_%s_0.txt" % entity_name)
+        for entity_name in entity_configs.keys())
+    if dynamic_relations:
+        some_output_paths.append(os.path.join(entity_path, "dynamic_rel_count.txt"))
+    some_output_paths.extend(
+        os.path.join(os.path.splitext(edge_file)[0] + "_partitioned", "edges_0_0.h5")
+        for edge_file in edge_paths)
+
+    if all(os.path.exists(path) for path in some_output_paths):
+        print("Found some files that indicate that the input data "
+              "has already been preprocessed, not doing it again.")
+        print("These files are: %s" % ", ".join(some_output_paths))
+        return
 
     os.makedirs(entity_path, exist_ok=True)
 

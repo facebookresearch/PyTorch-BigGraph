@@ -74,7 +74,7 @@ def make_tsv(checkpoint: str, dictfile: str, outfile: str) -> None:
     print("Done exporting data to %s" % outfile)
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description='Convert Data for PBG')
     parser.add_argument('--checkpoint')
     parser.add_argument('--dict', required=True)
@@ -83,3 +83,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     make_tsv(args.checkpoint, args.dict, args.out)
+
+
+if __name__ == "__main__":
+    main()

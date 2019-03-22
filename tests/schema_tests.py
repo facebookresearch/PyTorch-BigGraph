@@ -12,7 +12,8 @@ from unittest import TestCase, main
 
 import attr
 
-from torchbiggraph.schema import unpack_optional, Loader, Dumper, schema, Schema
+from torchbiggraph.schema import unpack_optional, Loader, Dumper, schema, Schema, \
+    extract_nested_type, inject_nested_value
 
 
 class TestUnpackOptional(TestCase):
@@ -369,6 +370,42 @@ class TestConfig(TestCase):
                 '',
             ]
         )
+
+
+class TestExtractNestedType(TestCase):
+
+    def test_empty(self):
+        self.assertIs(extract_nested_type(SampleConfigTypes, []), SampleConfigTypes)
+
+    def test_optional(self):
+        self.assertIs(
+            extract_nested_type(SampleOuterConfig,
+                                ["my_schema", "my_optional_str"]),
+            str)
+
+    def test_list(self):
+        self.assertIs(
+            extract_nested_type(SampleOuterConfig,
+                                ["my_dict_of_schemas", "key", "my_help_text"]),
+            str)
+
+    def test_dict(self):
+        self.assertIs(
+            extract_nested_type(SampleOuterConfig,
+                                ["my_list_of_schemas", "42", "my_default"]),
+            int)
+
+
+class TestInjectNestedValue(TestCase):
+
+    def test_empty(self):
+        with self.assertRaises(ValueError):
+            inject_nested_value({"foo": 42}, [], {"bar": 43})
+
+    def test_mixed(self):
+        data = {"foo": [{"bar": True, "baz": [42, 43]}]}
+        inject_nested_value(data, ["foo", "0", "baz", "1"], 1)
+        self.assertEqual(data, {"foo": [{"bar": True, "baz": [42, 1]}]})
 
 
 if __name__ == '__main__':

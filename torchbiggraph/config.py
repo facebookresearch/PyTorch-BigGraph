@@ -16,8 +16,8 @@ from typing import Any, ClassVar, Dict, List, Optional
 import attr
 from attr.validators import optional
 
-from .schema import DeepTypeError, Schema, schema, unpack_optional, \
-    non_negative, positive, non_empty
+from .schema import DeepTypeError, Schema, schema, non_negative, positive, \
+    non_empty, extract_nested_type, inject_nested_value
 
 
 class Operator(Enum):
@@ -402,15 +402,12 @@ def get_config_dict_from_module(config_filename: str) -> Any:
 def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
     for override in overrides:
         try:
-            key, value = override.split('=')
-            param_type = attr.fields_dict(ConfigSchema)[key].type or str
+            key, _, value = override.rpartition("=")
+            path = key.split(".")
+            param_type = extract_nested_type(ConfigSchema, path)
             # this is a bit of a hack; we should do something better
             # but this is convenient for specifying lists of strings
             # e.g. edge_paths
-            try:
-                param_type = unpack_optional(param_type)
-            except TypeError:
-                pass
             if isinstance(param_type, type) and issubclass(param_type, list):
                 value = value.split(",")
             # Convert numbers (caution: ignore bools, which are ints)
@@ -418,7 +415,7 @@ def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
                     and issubclass(param_type, (int, float)) \
                     and not issubclass(param_type, bool):
                 value = param_type(value)
-            config_dict[key] = value
+            inject_nested_value(config_dict, path, value)
         except Exception as err:
             raise RuntimeError("Can't parse override: %s" % override) from err
     return config_dict

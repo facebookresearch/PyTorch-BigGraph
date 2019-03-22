@@ -16,8 +16,8 @@ from torchbiggraph.config import ConfigSchema
 from torchbiggraph.eval import RankingEvaluator, EvalStats
 from torchbiggraph.fileio import EdgeReader
 from torchbiggraph.model import Margins, Scores
-from torchbiggraph.util import log, Partition
-from torchbiggraph.types import FloatTensorType, LongTensorType
+from torchbiggraph.util import log
+from torchbiggraph.types import Partition, FloatTensorType, LongTensorType
 
 
 class FilteredRankingEvaluator(RankingEvaluator):
