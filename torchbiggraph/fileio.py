@@ -595,8 +595,10 @@ class CheckpointManager:
         part: Partition,
         embs: FloatTensorType,
         optim_state: Optional[OptimizerStateDict],
+        force_clean: bool = False,
     ) -> None:
-        self.dirty.add((entity, part))
+        if not force_clean:
+            self.dirty.add((entity, part))
 
         file_path = self._file_path(entity, part)
 
