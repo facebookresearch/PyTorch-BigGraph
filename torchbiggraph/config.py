@@ -251,11 +251,11 @@ class ConfigSchema(Schema):
         default=BucketOrder.INSIDE_OUT,
         metadata={'help': "The order in which to iterate over the buckets."},
     )
-    workers: int = attr.ib(
-        default=40,
-        validator=positive,
+    workers: Optional[int] = attr.ib(
+        default=None,
+        validator=optional(positive),
         metadata={'help': "The number of worker processes for \"Hogwild!\" "
-                          "training."},
+                          "training. If not given, set to CPU count."},
     )
     batch_size: int = attr.ib(
         default=1000,

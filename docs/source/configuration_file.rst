@@ -143,9 +143,9 @@ See :ref:`batch-preparation` for more details.
 
   The order in which to iterate over the buckets.
 
-- ``workers`` (type: ``int``)
+- ``workers`` (type: ``int`` or ``none``)
 
-  The number of worker processes for "Hogwild!" training.
+  The number of worker processes for "Hogwild!" training. If not given, set to CPU count.
 
 - ``batch_size`` (type: ``int``)
 

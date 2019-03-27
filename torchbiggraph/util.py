@@ -10,7 +10,7 @@ import os
 import os.path
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import torch
 import torch.multiprocessing as mp
@@ -213,3 +213,15 @@ def compute_randomized_auc(
     diff = (pos_[torch.randint(len(pos_), (num_samples,))]
             > neg_[torch.randint(len(neg_), (num_samples,))])
     return float(diff.float().mean())
+
+
+def get_num_workers(override: Optional[int]) -> int:
+    if override is not None:
+        return override
+    cpu_count = os.cpu_count()
+    if cpu_count is not None:
+        return cpu_count
+    result = 40
+    print("WARNING: number of workers unspecified and couldn't autodetect "
+          "CPU count; defaulting to %d workers." % result)
+    return result

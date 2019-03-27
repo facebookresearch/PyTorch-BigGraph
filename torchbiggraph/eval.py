@@ -26,7 +26,7 @@ from .stats import Stats, stats
 from .types import Side, Rank, Bucket, EntityName, Partition, FloatTensorType, \
     LongTensorType
 from .util import log, get_partitioned_types, chunk_by_index, create_pool, \
-    compute_randomized_auc, split_almost_equally
+    compute_randomized_auc, split_almost_equally, get_num_workers
 
 
 StatsType = TypeVar("StatsType", bound=Stats)
@@ -205,7 +205,8 @@ def do_eval_and_report_stats(
     nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
     nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
 
-    pool = create_pool(config.workers)
+    num_workers = get_num_workers(config.workers)
+    pool = create_pool(num_workers)
 
     model = make_model(config)
 
@@ -254,7 +255,7 @@ def do_eval_and_report_stats(
             # log("%s: Launching and waiting for workers" % (bucket,))
             all_bucket_stats = pool.starmap(eval_one_thread, [
                 (Rank(i), config, model, lhs[s], rhs[s], rel[s], evaluator)
-                for i, s in enumerate(split_almost_equally(num_edges, num_parts=config.workers))
+                for i, s in enumerate(split_almost_equally(num_edges, num_parts=num_workers))
             ])
 
             compute_time = time.time() - tic

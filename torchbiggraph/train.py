@@ -37,7 +37,7 @@ from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
     OptimizerStateDict, FloatTensorType, LongTensorType
 from .util import log, vlog, chunk_by_index, get_partitioned_types, \
     create_pool, fast_approx_rand, DummyOptimizer, split_almost_equally, \
-    round_up_to_nearest_multiple
+    round_up_to_nearest_multiple, get_num_workers
 
 
 class Action(Enum):
@@ -146,9 +146,6 @@ def perform_action_one_thread(
     rhs = rhs[my_edges]
     rel = rel[my_edges]
 
-    # if rank == 0 or rank == config.workers - 1:
-    #     log("Rank %d : chunking edges..." % rank)
-
     if action is Action.TRAIN:
         if optimizers is None:
             raise ValueError("Need optimizers for training")
@@ -173,6 +170,7 @@ def perform_action_one_thread(
 
 def distribute_action_among_workers(
     pool: mp.Pool,
+    num_workers: int,
     config: ConfigSchema,
     action: Action,
     model: MultiRelationEmbedder,
@@ -185,7 +183,7 @@ def distribute_action_among_workers(
 ) -> Union[TrainStats, EvalStats]:
     all_stats = pool.starmap(perform_action_one_thread, [
         (Rank(i), config, action, model, epoch_idx, lhs, rhs, rel, edge_perm[s], optimizers)
-        for i, s in enumerate(split_almost_equally(edge_perm.size(0), num_parts=config.workers))
+        for i, s in enumerate(split_almost_equally(edge_perm.size(0), num_parts=num_workers))
     ])
 
     if action is action.TRAIN:
@@ -404,7 +402,8 @@ def train_and_report_stats(
 
     # fork early for HOGWILD threads
     log("Creating workers...")
-    pool = create_pool(config.workers)
+    num_workers = get_num_workers(config.workers)
+    pool = create_pool(num_workers)
 
     def make_optimizer(params: Iterable[torch.nn.Parameter], is_emb: bool) -> Optimizer:
         params = list(params)
@@ -674,7 +673,7 @@ def train_and_report_stats(
             if num_eval_edges > 0:
                 log_status("Waiting for workers to perform evaluation")
                 eval_stats_before = distribute_action_among_workers(
-                    pool, config,
+                    pool, num_workers, config,
                     Action.EVAL, model, epoch_idx, lhs, rhs, rel, eval_edge_perm)
                 log("stats before %s: %s" % (cur_b, eval_stats_before))
 
@@ -683,7 +682,7 @@ def train_and_report_stats(
             # HOGWILD training
             log_status("Waiting for workers to perform training")
             stats = distribute_action_among_workers(
-                pool, config,
+                pool, num_workers, config,
                 Action.TRAIN, model, epoch_idx, lhs, rhs, rel, edge_perm,
                 list(optimizers.values()))
             compute_time = time.time() - tic
@@ -702,7 +701,7 @@ def train_and_report_stats(
             if num_eval_edges > 0:
                 log_status("Waiting for workers to perform evaluation")
                 eval_stats_after = distribute_action_among_workers(
-                    pool, config,
+                    pool, num_workers, config,
                     Action.EVAL, model, epoch_idx, lhs, rhs, rel, eval_edge_perm)
                 log("stats after %s: %s" % (cur_b, eval_stats_after))
 
