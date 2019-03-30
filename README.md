@@ -1,4 +1,4 @@
-# PyTorch-BigGraph
+# ![PyTorch-BigGraph](docs/source/_static/logo_color.svg)
 
 [![CircleCI Status](https://circleci.com/gh/facebookresearch/PyTorch-BigGraph.svg?style=svg)](https://circleci.com/gh/facebookresearch/PyTorch-BigGraph) [![Documentation Status](https://readthedocs.org/projects/torchbiggraph/badge/?version=latest)](https://torchbiggraph.readthedocs.io/en/latest/?badge=latest)
 
@@ -74,7 +74,10 @@ Then, the script converts the edge lists to PBG's input format. This amounts to 
 
 Luckily, there is a command that does all of this:
 ```bash
-torchbiggraph_import_from_tsv --lhs-col=0 --rel-col=1 --rhs-col=2 examples/configs/fb15k_config.py data/FB15k/freebase_mtr100_mte100-*.txt
+torchbiggraph_import_from_tsv \
+  --lhs-col=0 --rel-col=1 --rhs-col=2 \
+  examples/configs/fb15k_config.py \
+  data/FB15k/freebase_mtr100_mte100-*.txt
 ```
 The outputs will be stored next to the inputs in the `data/FB15k` directory.
 
@@ -84,7 +87,9 @@ This simple utility is only suitable for small graphs that fit entirely in memor
 
 The `torchbiggraph_train` command is used to launch training. The training parameters are tucked away in a configuration file, whose path is given to the command. They can however be overridden from the command line with the `--param` flag. The sample config is used for both training and evaluation, so we will have to use the override to specify the edge set to use.
 ```bash
-torchbiggraph_train examples/configs/fb15k_config.py -p edge_paths=data/FB15k/freebase_mtr100_mte100-train_partitioned
+torchbiggraph_train \
+  examples/configs/fb15k_config.py \
+  -p edge_paths=data/FB15k/freebase_mtr100_mte100-train_partitioned
 ```
 
 This will read data from the `entity_path` directory specified in the configuration and the `edge_paths` directory given on the command line. It will write checkpoints (which also double as the output data) to the `checkpoint_path` directory also defined in the configuration, which in this case is `model/fb15k`.
@@ -110,7 +115,10 @@ Switching to new checkpoint version...
 
 Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set, as follows:
 ```bash
-torchbiggraph_eval examples/configs/fb15k_config.py -p edge_paths=data/FB15k/freebase_mtr100_mte100-test_partitioned relations.0.all_negs=true
+torchbiggraph_eval \
+  examples/configs/fb15k_config.py \
+  -p edge_paths=data/FB15k/freebase_mtr100_mte100-test_partitioned \
+  -p relations.0.all_negs=true
 ```
 
 This computes a set of metrics on the quality on the embeddings and prints them out. The last line should look like:
@@ -125,7 +133,10 @@ The evaluation performed by the `examples/fb15k.py` script differs from the abov
 
 During preprocessing, the entities and relation types had their identifiers converted from strings to ordinals. In order to map the output embeddings back onto the original names, one can do:
 ```bash
-torchbiggraph_export_to_tsv --dict data/FB15k/dictionary.json --checkpoint model/fb15k --out joined_embeddings.tsv
+torchbiggraph_export_to_tsv \
+  --dict data/FB15k/dictionary.json \
+  --checkpoint model/fb15k \
+  --out joined_embeddings.tsv
 ```
 This will create the `joined_embeddings.tsv` file, which is a text file where each line contains the identifier of an entity or the name of a relation type followed respectively by its embedding or its parameters, each in a different column, all separated by tabs. For example, with each line shortened for brevity:
 ```
