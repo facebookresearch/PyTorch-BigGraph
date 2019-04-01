@@ -151,9 +151,13 @@ This will create the `joined_embeddings.tsv` file, which is a text file where ea
 
 More information can be found in [the full documentation](https://torchbiggraph.readthedocs.io/).
 
+## Pre-trained embeddings
+
+We trained a PBG model on full [Wikidata](https://www.wikidata.org/), using [translation operator](https://torchbiggraph.readthedocs.io/en/latest/scoring.html#operators). It can be downloaded [here](https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv). The file is in tsv format as described in the above section. Note that the first line of the file contains the number of entities, number of relations and dimension of the embeddings, separated by tabs. 
+
 ## Citation
 
-To cite this work please use:
+If you use PyTorch-BigGraph or the pre-trained wikidata embeddings in your work, please cite:
 ```tex
 @inproceedings{pbg,
   title={{PyTorch-BigGraph: A Large-scale Graph Embedding System}},
