@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   width="400px"
+   height="300px"
+   viewBox="0 0 400 300"
+   version="1.1">
+  <path
+     style="fill:none;stroke:#f57900;stroke-width:4"
+     d="M 114.83829,117.83697 238.77219,132.54242" />
+  <path
+     style="fill:none;stroke:#f57900;stroke-width:4"
+     d="M 123.3727,67.743256 330.05264,95.436226" />
+  <circle
+     style="fill:#3465a4;stroke:none"
+     cx="131.90706"
+     cy="230.50075"
+     r="10" />
+  <circle
+     style="fill:#3465a4;stroke:none"
+     cx="194.24506"
+     cy="237.92189"
+     r="10" />
+  <circle
+     style="fill:#3465a4;stroke:none"
+     cx="165.30241"
+     cy="274.28577"
+     r="10" />
+  <circle
+     style="fill:#cc0000;stroke:none"
+     cx="114.83829"
+     cy="117.83697"
+     r="10" />
+  <circle
+     style="fill:#cc0000;stroke:none"
+     cx="123.3727"
+     cy="67.743256"
+     r="10" />
+  <circle
+     style="fill:#cc0000;stroke:none"
+     cx="44.819988"
+     cy="54.835136"
+     r="10" />
+  <circle
+     style="fill:#cc0000;stroke:none"
+     cx="47.459236"
+     cy="120.56171"
+     r="10" />
+  <circle
+     style="fill:#cc0000;stroke:none"
+     cx="84.707932"
+     cy="86.296471"
+     r="10" />
+  <circle
+     style="fill:#edd400;stroke:none"
+     cx="230.6089"
+     cy="65.751114"
+     r="10" />
+  <circle
+     style="fill:#edd400;stroke:none"
+     cx="286.2677"
+     cy="39.776566"
+     r="10" />
+  <circle
+     style="fill:#edd400;stroke:none"
+     cx="238.77219"
+     cy="132.54242"
+     r="10" />
+  <circle
+     style="fill:#edd400;stroke:none"
+     cx="330.05264"
+     cy="95.436226"
+     r="10" />
+  <circle
+     style="fill:#edd400;stroke:none"
+     cx="280.33066"
+     cy="92.467712"
+     r="10" />
+  <circle
+     style="fill:#edd400;stroke:none"
+     cx="305.56274"
+     cy="148.12677"
+     r="10" />
+  <path
+     style="fill:none;stroke:#000000;stroke-width:2;stroke-dasharray:10 10"
+     d="M 97.912352,162.40179 106.67499,8.7463109" />
+  <path
+     style="fill:none;stroke:#000000;stroke-width:2;stroke-dasharray:10 10"
+     d="M 69.978697,162.49316 60.567019,6.6995242" />
+  <path
+     style="fill:none;stroke:#000000;stroke-width:2;stroke-dasharray:10 10"
+     d="M 200.18199,102.11594 353.05854,36.809831" />
+  <path
+     style="fill:none;stroke:#000000;stroke-width:2;stroke-dasharray:10 10"
+     d="M 217.99286,165.93829 377.54846,97.663236" />
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="24.961798"
+     y="35.395218">0</text>
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="73.730057"
+     y="30.827671">1</text>
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="122.13883"
+     y="38.669441">2</text>
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="312.24182"
+     y="29.386723">0</text>
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="351.57416"
+     y="80.593666">1</text>
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="358.36597"
+     y="151.56528">2</text>
+  <text
+     style="font-size:36px;font-family:sans-serif;fill:#000000;stroke:none"
+     x="112.99926"
+     y="295.53546">0</text>
+</svg>
