@@ -228,6 +228,11 @@ class ConfigSchema(Schema):
                           "contains initial values for the embeddings of all "
                           "the entities of some types."},
     )
+    checkpoint_interval: Optional[int] = attr.ib(
+        default=None,
+        metadata={'help': "If set, old embeddings.h5 files will be kept at "
+                          "this interval"}
+    )
 
     # training config
 

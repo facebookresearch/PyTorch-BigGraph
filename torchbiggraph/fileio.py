@@ -733,6 +733,16 @@ class CheckpointManager:
             self._write_version_file(self.checkpoint_version)
             vlog("Rank 0: done")
 
+    def maybe_remove_old_version(self, config: ConfigSchema) -> None:
+        if config.checkpoint_interval is None:
+            return self.remove_old_version(config)
+
+        # If checkpoint_interval is provided, we check if we should keep
+        # the old version
+        old_version = self.checkpoint_version - 1
+        if old_version % config.checkpoint_interval != 0:
+            return self.remove_old_version(config)
+
     def remove_old_version(self, config: ConfigSchema) -> None:
         old_version = self.checkpoint_version - 1
         for entity, econf in config.entities.items():

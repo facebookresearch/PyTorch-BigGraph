@@ -756,7 +756,7 @@ def train_and_report_stats(
 
         # After all the machines have finished committing
         # checkpoints, we remove the old checkpoints.
-        checkpoint_manager.remove_old_version(config)
+        checkpoint_manager.maybe_remove_old_version(config)
 
         # now we're sure that all partition files exist,
         # so be strict about loading them
