@@ -1,5 +1,5 @@
 attrs>=18.2.0
-h5py
+h5py>=2.8.0
 numpy
 torch>=1.0
 tqdm
