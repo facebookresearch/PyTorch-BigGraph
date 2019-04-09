@@ -40,6 +40,10 @@ See :ref:`io-format` for more details.
 
   If set, it must be a path to a directory that contains initial values for the embeddings of all the entities of some types.
 
+- ``checkpoint_interval`` (type: string or null; default: ``null``)
+
+  How often should embeddings be saved? If not provided, only final embeddings will be saved.
+
 Graph structure
 ^^^^^^^^^^^^^^^
 

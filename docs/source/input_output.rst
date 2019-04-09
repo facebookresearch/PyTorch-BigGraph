@@ -73,6 +73,8 @@ The latest complete checkpoint version is stored in an additional file in the sa
 
 Each checkpoint contains a JSON dump of the config that was used to produce it stored in the :file:`config.json` file.
 
+Old checkpoints will be automatically deleted unless specified through ``checkpoint_interval``
+
 Model parameters
 ^^^^^^^^^^^^^^^^
 
