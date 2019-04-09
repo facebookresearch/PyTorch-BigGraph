@@ -230,8 +230,8 @@ class ConfigSchema(Schema):
     )
     checkpoint_interval: Optional[int] = attr.ib(
         default=None,
-        metadata={'help': "If set, old embeddings.h5 files will be kept at "
-                          "this interval"}
+        metadata={'help': "How often should embeddings be saved? If not "
+                          "provided, only final embeddings will be saved."},
     )
 
     # training config
