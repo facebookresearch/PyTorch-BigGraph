@@ -747,17 +747,6 @@ def train_and_report_stats(
         sync.barrier()
         dlog("All parts of the checkpoint have been written")
 
-        log("Switching to new checkpoint version...")
-        checkpoint_manager.switch_to_new_version()
-
-        dlog("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
-        sync.barrier()
-        dlog("All workers have switched to the new checkpoint version")
-
-        # After all the machines have finished committing
-        # checkpoints, we remove the old checkpoints.
-        checkpoint_manager.remove_old_version(config)
-
         if config.checkpoint_interval is not None:
             # If it is the right interval for saving, we copy all current
             # checkpoints into it's own separate folder
@@ -769,6 +758,17 @@ def train_and_report_stats(
 
             if is_save_interval & is_last_edge_path & is_last_edge_chunk:
                 checkpoint_manager.save_current_version(config, epoch_idx)
+
+        log("Switching to new checkpoint version...")
+        checkpoint_manager.switch_to_new_version()
+
+        dlog("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
+        sync.barrier()
+        dlog("All workers have switched to the new checkpoint version")
+
+        # After all the machines have finished committing
+        # checkpoints, we remove the old checkpoints.
+        checkpoint_manager.remove_old_version(config)
 
         # now we're sure that all partition files exist,
         # so be strict about loading them
