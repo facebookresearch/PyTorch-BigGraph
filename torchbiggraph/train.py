@@ -767,7 +767,7 @@ def train_and_report_stats(
             is_last_edge_chunk = \
                 (edge_chunk_idx + 1) == iteration_manager.num_edge_chunks
 
-            if not (is_save_interval & is_last_edge_path & is_last_edge_chunk):
+            if is_save_interval & is_last_edge_path & is_last_edge_chunk:
                 checkpoint_manager.save_current_version(config, epoch_idx)
 
         # now we're sure that all partition files exist,
