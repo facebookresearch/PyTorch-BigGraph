@@ -15,6 +15,7 @@ import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from glob import glob
+from shutil import copyfile
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import h5py
@@ -733,16 +734,6 @@ class CheckpointManager:
             self._write_version_file(self.checkpoint_version)
             vlog("Rank 0: done")
 
-    def maybe_remove_old_version(self, config: ConfigSchema) -> None:
-        if config.checkpoint_interval is None:
-            return self.remove_old_version(config)
-
-        # If checkpoint_interval is provided, we check if we should keep
-        # the old version
-        old_version = self.checkpoint_version - 1
-        if old_version % config.checkpoint_interval != 0:
-            return self.remove_old_version(config)
-
     def remove_old_version(self, config: ConfigSchema) -> None:
         old_version = self.checkpoint_version - 1
         for entity, econf in config.entities.items():
@@ -752,6 +743,29 @@ class CheckpointManager:
                 vlog("%d os.remove %s" % (self.rank, old_file_path))
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)
+
+    def save_current_version(
+        self,
+        config: ConfigSchema,
+        epoch_idx: int
+    ) -> None:
+        """
+        This function merely copies all files in current version
+        into a separate folder
+
+        ? random note: epoch_idx can be replaced with anything, here we just
+        use this as a postfix
+        """
+        save_dir = os.path.join(self.path, 'epoch_%d' % epoch_idx)
+        os.makedirs(save_dir, exist_ok=True)
+        for entity, econf in config.entities.items():
+            for part in range(self.rank, econf.num_partitions, self.num_machines):
+                file_name = "embeddings_%s_%d.v%d.h5" % (entity, part, self.checkpoint_version)
+                src_path = os.path.join(self.path, file_name)
+                dst_path = os.path.join(save_dir, file_name)
+                if os.path.exists(src_path):
+                    copyfile(src_path, dst_path)
+
 
     def close(self) -> None:
         if self.background:

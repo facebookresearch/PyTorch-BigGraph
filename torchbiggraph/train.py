@@ -756,7 +756,19 @@ def train_and_report_stats(
 
         # After all the machines have finished committing
         # checkpoints, we remove the old checkpoints.
-        checkpoint_manager.maybe_remove_old_version(config)
+        checkpoint_manager.remove_old_version(config)
+
+        if config.checkpoint_interval is not None:
+            # If it is the right interval for saving, we copy all current
+            # checkpoints into it's own separate folder
+            is_save_interval = epoch_idx % config.checkpoint_interval == 0
+            is_last_edge_path = \
+                (edge_path_idx + 1) == iteration_manager.num_edge_paths
+            is_last_edge_chunk = \
+                (edge_chunk_idx + 1) == iteration_manager.num_edge_chunks
+
+            if not (is_save_interval & is_last_edge_path & is_last_edge_chunk):
+                checkpoint_manager.save_current_version(config, epoch_idx)
 
         # now we're sure that all partition files exist,
         # so be strict about loading them
