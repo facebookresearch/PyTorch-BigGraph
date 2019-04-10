@@ -757,13 +757,13 @@ class CheckpointManager:
         use this as a postfix
         """
         save_dir = os.path.join(self.path, 'epoch_%d' % epoch_idx)
-        os.makedirs(save_dir, exist_ok=True)
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 file_name = "embeddings_%s_%d.v%d.h5" % (entity, part, self.checkpoint_version)
                 src_path = os.path.join(self.path, file_name)
                 dst_path = os.path.join(save_dir, file_name)
                 if os.path.exists(src_path):
+                    os.makedirs(save_dir, exist_ok=True)
                     copyfile(src_path, dst_path)
 
 
