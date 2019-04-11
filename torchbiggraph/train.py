@@ -283,6 +283,11 @@ class IterationManager(MetadataProvider):
             "iteration/edge_chunk_idx": self.edge_chunk_idx,
         }
 
+    def is_last_iteration_of_epoch(self) -> bool:
+        is_last_edge_path = (self.edge_path_idx + 1) == self.num_edge_paths
+        is_last_edge_chunk = (self.edge_chunk_idx + 1) == self.num_edge_chunks
+        return is_last_edge_path and is_last_edge_chunk
+
 
 def train_and_report_stats(
     config: ConfigSchema,
@@ -751,13 +756,8 @@ def train_and_report_stats(
             # If it is the right interval for saving, we copy all current
             # checkpoints into it's own separate folder
             is_save_interval = epoch_idx % config.checkpoint_interval == 0
-            is_last_edge_path = \
-                (edge_path_idx + 1) == iteration_manager.num_edge_paths
-            is_last_edge_chunk = \
-                (edge_chunk_idx + 1) == iteration_manager.num_edge_chunks
-
-            if is_save_interval & is_last_edge_path & is_last_edge_chunk:
-                checkpoint_manager.save_current_version(config, epoch_idx)
+            if is_save_interval and iteration_manager.is_last_iteration_of_epoch():
+                checkpoint_manager.save_current_version()
 
         log("Switching to new checkpoint version...")
         checkpoint_manager.switch_to_new_version()
