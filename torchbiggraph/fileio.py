@@ -765,6 +765,7 @@ class CheckpointManager:
                 if os.path.exists(src_path):
                     os.makedirs(save_dir, exist_ok=True)
                     shutil.move(src_path, dst_path)
+                    os.symlink(dst_path, src_path)
 
     def close(self) -> None:
         if self.background:
