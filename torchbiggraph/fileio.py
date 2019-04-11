@@ -11,11 +11,11 @@ import io
 import json
 import os
 import os.path
+import shutil
 import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from glob import glob
-from shutil import copyfile
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import h5py
@@ -750,8 +750,8 @@ class CheckpointManager:
         epoch_idx: int
     ) -> None:
         """
-        This function merely copies all files in current version
-        into a separate folder
+        This function merely moves all files in current version
+        into a separate folder a symlink is left behind
 
         ? random note: epoch_idx can be replaced with anything, here we just
         use this as a postfix
@@ -764,8 +764,7 @@ class CheckpointManager:
                 dst_path = os.path.join(save_dir, file_name)
                 if os.path.exists(src_path):
                     os.makedirs(save_dir, exist_ok=True)
-                    copyfile(src_path, dst_path)
-
+                    shutil.move(src_path, dst_path)
 
     def close(self) -> None:
         if self.background:

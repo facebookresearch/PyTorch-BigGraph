@@ -753,11 +753,11 @@ def train_and_report_stats(
         dlog("All parts of the checkpoint have been written")
 
         if config.checkpoint_interval is not None:
-            # If it is the right interval for saving, we copy all current
-            # checkpoints into it's own separate folder
+            # If it is the right interval for saving, we move the entire
+            # current checkpoint into it's own separate folder
             is_save_interval = epoch_idx % config.checkpoint_interval == 0
             if is_save_interval and iteration_manager.is_last_iteration_of_epoch():
-                checkpoint_manager.save_current_version()
+                checkpoint_manager.save_current_version(config, epoch_idx)
 
         log("Switching to new checkpoint version...")
         checkpoint_manager.switch_to_new_version()
@@ -780,6 +780,8 @@ def train_and_report_stats(
 
     sync.barrier()
 
+    # Move final epoch into it's own folder
+    checkpoint_manager.save_current_version(config, config.num_epochs)
     checkpoint_manager.close()
     if loadpath_manager is not None:
         loadpath_manager.close()
