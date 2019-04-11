@@ -228,7 +228,7 @@ class ConfigSchema(Schema):
                           "contains initial values for the embeddings of all "
                           "the entities of some types."},
     )
-    checkpoint_interval: Optional[int] = attr.ib(
+    checkpoint_save_interval: Optional[int] = attr.ib(
         default=None,
         metadata={'help': "How often should embeddings be saved? If not "
                           "provided, only final embeddings will be saved."},
