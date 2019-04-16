@@ -762,7 +762,7 @@ class CheckpointManager:
                 file_name = "embeddings_%s_%d.v%d.h5" % (entity, part, self.checkpoint_version)
                 src_path = os.path.join(self.path, file_name)
                 dst_path = os.path.join(save_dir, file_name)
-                if os.path.exists(src_path):
+                if os.path.exists(src_path) and not os.path.islink(src_path):
                     os.makedirs(save_dir, exist_ok=True)
                     shutil.move(src_path, dst_path)
                     os.symlink(dst_path, src_path)
