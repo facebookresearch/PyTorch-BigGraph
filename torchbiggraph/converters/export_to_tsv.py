@@ -58,16 +58,22 @@ def make_tsv(checkpoint: str, dictfile: str, outfile: str) -> None:
         # TODO Provide a better output format for relation parameters.
         print("Writing relation parameters...")
         if model.num_dynamic_rels > 0:
-            rels_lhs = next(model.lhs_operators[0].parameters())
-            for ix, rel in enumerate(relation_types):
-                write(out_tf, rel, rels_lhs[ix])
+            lhs_parameters = torch.cat([
+                parameter.view(model.num_dynamic_rels, -1)
+                for parameter in model.lhs_operators[0].parameters()
+            ], dim=1)
+            for rel_idx, rel_name in enumerate(relation_types):
+                write(out_tf, rel_name, lhs_parameters[rel_idx])
 
-            rels_rhs = next(model.rhs_operators[0].parameters())
-            for ix, rel in enumerate(relation_types):
-                write(out_tf, rel + "_reverse_relation", rels_rhs[ix])
+            rhs_parameters = torch.cat([
+                parameter.view(model.num_dynamic_rels, -1)
+                for parameter in model.rhs_operators[0].parameters()
+            ], dim=1)
+            for rel_idx, rel_name in enumerate(relation_types):
+                write(out_tf, rel_name + "_reverse_relation", rhs_parameters[rel_idx])
         else:
-            for ix, operator in enumerate(model.rhs_operators):
-                write(out_tf, model.relations[ix].name, torch.cat([
+            for rel_name, operator in zip(relation_types, model.rhs_operators):
+                write(out_tf, rel_name, torch.cat([
                     parameter.flatten() for parameter in operator.parameters()
                 ], dim=0))
 

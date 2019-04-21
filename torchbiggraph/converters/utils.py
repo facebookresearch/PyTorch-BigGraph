@@ -22,6 +22,12 @@ def extract_gzip(gzip_path: str, remove_finished: bool = False) -> str:
     if ext != ".gz":
         raise RuntimeError("Not a gzipped file")
 
+    if os.path.exists(fpath):
+        print("Found a file that indicates that the input data "
+              "has already been extracted, not doing it again.")
+        print("This file is: %s" % fpath)
+        return fpath
+
     with open(fpath, "wb") as out_bf, gzip.GzipFile(gzip_path) as zip_f:
         shutil.copyfileobj(zip_f, out_bf)
     if remove_finished:
