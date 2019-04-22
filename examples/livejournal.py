@@ -35,8 +35,19 @@ def convert_path(fname):
 
 
 def random_split_file(fpath):
-    print('Shuffling and splitting train/test file. This may take a while.')
     root = os.path.dirname(fpath)
+
+    output_paths = [
+        os.path.join(root, FILENAMES['train']),
+        os.path.join(root, FILENAMES['test']),
+    ]
+    if all(os.path.exists(path) for path in output_paths):
+        print("Found some files that indicate that the input data "
+              "has already been shuffled and split, not doing it again.")
+        print("These files are: %s" % ", ".join(output_paths))
+        return
+
+    print('Shuffling and splitting train/test file. This may take a while.')
     train_file = os.path.join(root, FILENAMES['train'])
     test_file = os.path.join(root, FILENAMES['test'])
 
