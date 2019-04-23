@@ -16,8 +16,8 @@ from typing import Any, ClassVar, Dict, List, Optional
 import attr
 from attr.validators import optional
 
-from .schema import DeepTypeError, Schema, schema, non_negative, positive, \
-    non_empty, extract_nested_type, inject_nested_value
+from .schema import has_origin, DeepTypeError, Schema, schema, non_negative, \
+    positive, non_empty, extract_nested_type, inject_nested_value
 
 
 class Operator(Enum):
@@ -408,7 +408,7 @@ def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
             # this is a bit of a hack; we should do something better
             # but this is convenient for specifying lists of strings
             # e.g. edge_paths
-            if isinstance(param_type, type) and issubclass(param_type, list):
+            if has_origin(param_type, list):
                 value = value.split(",")
             # Convert numbers (caution: ignore bools, which are ints)
             if isinstance(param_type, type) \
