@@ -20,7 +20,10 @@ Welcome to PyTorch-BigGraph's documentation!
    dynamic_relations
    featurized_entities
    configuration_file
+   faq_troubleshooting
    related
+   downstream_tasks
+   pretrained_embeddings
 
 
 Indices and tables
