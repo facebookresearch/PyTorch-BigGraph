@@ -16,8 +16,8 @@ We used the so-called "truthy" dump from 2019-03-06, in the RDF NTriples format.
 anymore on the Wikidata website). We used as entities all the distinct strings that appeared as either source or
 target nodes in this dump: this means that entities include URLs of Wikidata entities (in the form :samp:`<http://www.wikidata.org/entity/Q{123}>`),
 plain quoted strings (e.g., :samp:`"{Foo}"`), strings with language annotation (e.g., :samp:`"{Bar}"@{fr}`), dates and times, and possibly more.
-Similarly, we used as relation types all the distinct strings that appeared as properties. We then filterer out entities that appeared
-less than 5 times in the data dump.
+Similarly, we used as relation types all the distinct strings that appeared as properties. We then filtered out entities and relation types that
+appeared less than 5 times in the data dump.
 
 The embeddings were trained with the following configuration::
 

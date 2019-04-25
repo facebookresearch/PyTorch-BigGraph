@@ -1,22 +1,11 @@
 Downstream tasks
 ================
 
-PBG is intended to be a tool that takes as input a graph and produces as output embeddings for it.
-It should not be PBG's concern to know where the graph comes from or what it represents, or to deal
-with how the embeddings are going to be utilized for the task at hand. (One exception is the loss
-function, which should be chosen based on the intended use of the embeddings).
-
-In a sense, PBG should be seen as a block, that must be chained with other blocks to form a full
-pipeline. As such, PBG aims to be self-contained, to do one job (and do it well) and to adhere to
-standard interfaces so that it can more easily be plugged to other utilities.
-
-PBG does not intend to add support for "downstream tasks" (querying, ranking, clustering, nearest
-neighbor search, ...) to the main codebase, as there are plenty of them and everyone wants them
-in a slightly different flavor. Trying to properly support them all is impossible and would bloat
-the code and dilute the core functionality.
-
-However, in order to provide a starting point for users to write their own downstream tools, this
-page gives some basic examples of how to consume PBG's output data and perform some toy tasks on it.
+PBG is a tool for producing graph embeddings, that is it takes a graph (i.e. an edgelist) as input
+and produces embeddings for each entity in the graph. These embeddings can be used in a variety of
+ways to solve downstream tasks. Below, we provide example code for how to perform several common
+downstream tasks with PBG embeddings. In some cases, other open source tools can be used to perform
+these downstream tasks (e.g. nearest neighbor search) with PBG embeddings, which we discuss below.
 
 Parsing the output data
 -----------------------
