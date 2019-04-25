@@ -47,7 +47,7 @@ The results of [the paper](https://www.sysml.cc/doc/2019/71.pdf) can easily be r
 ```bash
 examples/fb15k.py
 ```
-This will download the Freebase 15k knowledge base dataset, put it into the right format, train on it using the ComplEx model and finally perform an evaluation of the learned embeddings that calculates the MRR and other metrics that should match the paper. Another script, `examples/livejournal.py`, does the same for the LiveJournal interaction graph dataset.
+This will download the Freebase 15k knowledge base dataset, put it into the right format, train on it using the ComplEx model and finally perform an evaluation of the learned embeddings that calculates the MRR and other metrics that should match the paper. Another script, `examples/livejournal.py`, does the same for the LiveJournal interaction graph dataset. These scripts are _not_ self-contained and are best run from a full checkout of this repository.
 
 To learn how to use PBG, let us walk through what the FB15k script does.
 

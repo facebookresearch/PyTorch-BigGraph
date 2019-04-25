@@ -101,14 +101,16 @@ command on the appropriate number of machines.
 Updating shared parameters
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The parameters of the model that need to be used by all trainers at the same time (this includes the operator weights,
-the global embeddings of each entity type, the embeddings of the unpartitioned entities) are synchronized using a series
-of ""**parameter servers**"". Each trainer starts a local parameter server in a separate subprocess, and each trainer connects to
+Some parameters of the model need to be used by all trainers at the same time (this includes the operator weights,
+the global embeddings of each entity type, the embeddings of the unpartitioned entities). These are parameters that
+don't depend on what bucket the trainer is operating on, and therefore are always present on all trainers (as opposed
+to the entity embeddings, which are loaded and unloaded as needed). These parameters are synchronized using a series
+of "**parameter servers**". Each trainer starts a local parameter server (in a separate subprocess) and connects to
 all other parameter servers. Each parameter that is shared between trainers is then stored in a parameter server (possibly
-sharded across several of them, if too large). At regular intervals each trainer considers each shared parameter,
-computes the difference between its current local value and the value it had when it was last synced with the parameter
-server that hosts it and sends that delta to that parameter server, which in turn accumulates it with all other deltas
-it received from other trainers and sends the current value of the parameter back to the trainers. The parameter server
+sharded across several of them, if too large). Each trainer also has a loop (also in a separate subprocess) which, at regular intervals, goes over each shared parameter,
+computes the difference between its current local value and the value it had when it was last synced with the
+server where the parameter is hosted and sends that delta to that server. The server, in turn, accumulates all the deltas
+it receives from all trainers, updates the value of the parameter and sends this new value back to the trainers. The parameter server
 performs throttling to 100 updates/s or 1GB/s, in order to prevent the parameter server from starving the other
 communication.
 
