@@ -58,21 +58,28 @@ class TensorList(object):
     Indexing by an int returns a torch.Tensor with that list element.
     """
 
-    @staticmethod
-    def cat(elements):
+    @classmethod
+    def cat(cls, elements):
         offsets, data = zip(*[[x.offsets, x.data] for x in elements])
         offsets = list(offsets)
         batch_offset = torch.LongTensor([o[-1] for o in offsets]).cumsum(0)
         for j in range(len(offsets) - 1):
             offsets[j + 1] = offsets[j + 1][1:] + batch_offset[j]
-        return TensorList(
+        return cls(
             torch.cat(offsets),
             torch.cat(data))
 
+    @classmethod
+    def empty(cls, num_tensors=0):
+        return cls(
+            torch.zeros((), dtype=torch.long).expand((num_tensors + 1,)),
+            torch.empty((0,), dtype=torch.long),
+        )
+
     def new(self):
-        return TensorList(
-            torch.LongTensor([0]),
-            self.data.new(),
+        return type(self)(
+            self.offsets.new_zeros((1,)),
+            self.data.new_empty((0,)),
         )
 
     def __init__(self, offsets, data):
@@ -106,8 +113,10 @@ class TensorList(object):
             else:
                 return self.data.new()
         elif isinstance(index, slice):
-            assert index.step == 1 or index.step is None
-            new_offsets = self.offsets[index.start:index.stop + 1]
+            start, stop, step = index.indices(len(self))
+            if step != 1:
+                raise ValueError("Expected slice with step 1, got %d" % step)
+            new_offsets = self.offsets[start:stop + 1]
             new_data = self.data[new_offsets[0]:new_offsets[-1]]
             new_offsets = new_offsets - new_offsets[0]
             return TensorList(new_offsets, new_data)

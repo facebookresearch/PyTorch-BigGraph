@@ -8,27 +8,18 @@
 
 from unittest import TestCase, main
 
-import attr
-
-from torchbiggraph.stats import stats, Stats
-
-
-@stats
-class SampleStats(Stats):
-
-    my_int_metric: int = attr.ib()
-    my_float_metric: float = attr.ib()
+from torchbiggraph.stats import Stats
 
 
 class TestConfig(TestCase):
 
     def test_sum(self):
-        a = SampleStats(my_int_metric=1, my_float_metric=0.1, count=1)
-        b = SampleStats(my_int_metric=2, my_float_metric=0.0, count=2)
-        c = SampleStats(my_int_metric=0, my_float_metric=0.2, count=2)
+        a = Stats(my_int_metric=1, my_float_metric=0.1, count=1)
+        b = Stats(my_int_metric=2, my_float_metric=0.0, count=2)
+        c = Stats(my_int_metric=0, my_float_metric=0.2, count=2)
         self.assertEqual(
-            SampleStats.sum([a, b, c]),
-            SampleStats(
+            Stats.sum([a, b, c]),
+            Stats(
                 my_int_metric=3,
                 my_float_metric=0.30000000000000004,
                 count=5,
@@ -36,10 +27,10 @@ class TestConfig(TestCase):
         )
 
     def test_average(self):
-        total = SampleStats(my_int_metric=9, my_float_metric=1.2, count=3)
+        total = Stats(my_int_metric=9, my_float_metric=1.2, count=3)
         self.assertEqual(
             total.average(),
-            SampleStats(
+            Stats(
                 my_int_metric=3,
                 my_float_metric=0.39999999999999997,
                 count=3,
@@ -48,7 +39,7 @@ class TestConfig(TestCase):
 
     def test_str(self):
         self.assertEqual(
-            str(SampleStats(my_int_metric=1, my_float_metric=0.2, count=3)),
+            str(Stats(my_int_metric=1, my_float_metric=0.2, count=3)),
             "my_int_metric:  1 , my_float_metric:  0.2 , count:  3",
         )
 

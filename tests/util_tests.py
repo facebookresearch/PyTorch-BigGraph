@@ -8,7 +8,10 @@
 
 from unittest import TestCase, main
 
-from torchbiggraph.util import split_almost_equally
+from torchbiggraph.util import (
+    split_almost_equally,
+    round_up_to_nearest_multiple,
+)
 
 
 class TestSplitAlmostEqually(TestCase):
@@ -30,6 +33,18 @@ class TestSplitAlmostEqually(TestCase):
             list(split_almost_equally(23, num_parts=4)),
             [slice(0, 6), slice(6, 12), slice(12, 18), slice(18, 23)],
         )
+
+
+class TestRoundUpToNearestMultiple(TestCase):
+
+    def test_exact(self):
+        self.assertEqual(round_up_to_nearest_multiple(24, 4), 24)
+
+    def test_more(self):
+        self.assertEqual(round_up_to_nearest_multiple(25, 4), 28)
+
+    def test_fewer(self):
+        self.assertEqual(round_up_to_nearest_multiple(23, 4), 24)
 
 
 if __name__ == '__main__':

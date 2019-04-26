@@ -6,22 +6,17 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Iterable, Type, TypeVar
+from collections import Counter
+from statistics import mean
+from typing import Iterable, Type
 
-import attr
-
-
-# This decorator must be applied to all classes that are intended to be used as
-# stats. It parses the class-level attributes defined as attr.ibs and produces
-# __init__, __eq__, __hash__, __str__ and other magic methods for them.
-# TODO Remove noqa when flake8 will understand kw_only added in attrs-18.2.0.
-stats = attr.s(kw_only=True, slots=True, frozen=True)  # noqa
+from .types import FloatTensorType
 
 
-StatsType = TypeVar('StatsType', bound='Stats')
+def average_of_sums(*tensors: FloatTensorType) -> float:
+    return mean(t.sum().item() for t in tensors)
 
 
-@stats
 class Stats:
     """A class collecting a set of metrics.
 
@@ -35,42 +30,39 @@ class Stats:
 
     """
 
-    count: int = attr.ib()  # The number of data points this stats aggregates.
+    def __init__(self, *, count: int, **metrics: float) -> None:
+        self.count = count
+        self.metrics = metrics
 
     @classmethod
-    def sum(cls: Type[StatsType], stats: Iterable[StatsType]) -> StatsType:
+    def sum(cls: Type["Stats"], stats: Iterable["Stats"]) -> "Stats":
         """Return a stats whose metrics are the sums of the given stats.
 
         """
-        # TODO Remove noqa when flake8 will understand kw_only added in attrs-18.2.0.
-        return cls(  # noqa
-            **{
-                k: sum(getattr(s, k) for s in stats)
-                for k in attr.fields_dict(cls)
-            }
-        )
+        total_metrics = Counter()
+        for s in stats:
+            for k, v in s.metrics.items():
+                total_metrics[k] += v
+        return cls(count=sum(s.count for s in stats), **total_metrics)
 
-    def average(self: StatsType) -> StatsType:
+    def average(self) -> "Stats":
         """Return these stats with all metrics, except count, averaged.
 
         """
         if self.count == 0:
             return self
-        # TODO Remove noqa when flake8 will understand kw_only added in attrs-18.2.0.
-        return type(self)(  # noqa
+        return type(self)(
             count=self.count,
-            **{
-                k: getattr(self, k) / self.count
-                for k in attr.fields_dict(type(self))
-                if k != 'count'
-            },
+            **{k: v / self.count for k, v in self.metrics.items()},
         )
 
     def __str__(self) -> str:
-        fields = attr.fields(type(self))
-        # Count is first but should be printed last.
-        assert fields[0].name == "count"
-        return " , ".join(
-            "%s:  %.6g" % (f.name, getattr(self, f.name))
-            for f in fields[1:] + (fields[0],)
+        return "%s , count:  %d" % (
+            " , ".join("%s:  %.6g" % (k, v) for k, v in self.metrics.items()),
+            self.count,
         )
+
+    def __eq__(self, other: "Stats") -> bool:
+        return (isinstance(other, Stats)
+                and self.count == other.count
+                and self.metrics == other.metrics)

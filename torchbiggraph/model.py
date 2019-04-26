@@ -17,8 +17,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
-from .config import LossFunction, Operator, Comparator, EntitySchema, \
-    RelationSchema, ConfigSchema
+from .config import Operator, Comparator, EntitySchema, RelationSchema, ConfigSchema
+from .entitylist import EntityList
 from .fileio import maybe_old_entity_path
 from .types import Side, FloatTensorType, LongTensorType
 from .util import log
@@ -97,6 +97,10 @@ def match_shape(tensor, *expected_shape):
 class AbstractEmbedding(nn.Module, ABC):
 
     @abstractmethod
+    def forward(self, input_: EntityList) -> FloatTensorType:
+        pass
+
+    @abstractmethod
     def get_all_entities(self) -> FloatTensorType:
         pass
 
@@ -112,16 +116,19 @@ class SimpleEmbedding(AbstractEmbedding):
         self.weight: nn.Parameter = weight
         self.max_norm: Optional[float] = max_norm
 
-    def forward(self, input: LongTensorType) -> FloatTensorType:
+    def forward(self, input_: EntityList) -> FloatTensorType:
+        return self.get(input_.to_tensor())
+
+    def get(self, input_: LongTensorType) -> FloatTensorType:
         return F.embedding(
-            input, self.weight, max_norm=self.max_norm, sparse=True,
+            input_, self.weight, max_norm=self.max_norm, sparse=True,
         )
 
     def get_all_entities(self) -> FloatTensorType:
-        return self(torch.arange(self.weight.size(0), dtype=torch.long))
+        return self.get(torch.arange(self.weight.size(0), dtype=torch.long))
 
     def sample_entities(self, *dims: int) -> FloatTensorType:
-        return self(torch.randint(low=0, high=self.weight.size(0), size=dims))
+        return self.get(torch.randint(low=0, high=self.weight.size(0), size=dims))
 
 
 class FeaturizedEmbedding(AbstractEmbedding):
@@ -131,11 +138,14 @@ class FeaturizedEmbedding(AbstractEmbedding):
         self.weight: nn.Parameter = weight
         self.max_norm: Optional[float] = max_norm
 
-    def forward(self, input: TensorList) -> FloatTensorType:
-        if input.size(0) == 0:
+    def forward(self, input_: EntityList) -> FloatTensorType:
+        return self.get(input_.to_tensor_list())
+
+    def get(self, input_: TensorList) -> FloatTensorType:
+        if input_.size(0) == 0:
             return torch.empty((0, self.weight.size(1)))
         return F.embedding_bag(
-            input.data.long(), self.weight, input.offsets[:-1],
+            input_.data.long(), self.weight, input_.offsets[:-1],
             max_norm=self.max_norm, sparse=True,
         )
 
@@ -606,114 +616,6 @@ class BiasedComparator(AbstractComparator):
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
-class AbstractLoss(nn.Module, ABC):
-
-    """Calculate weighted loss of scores for positive and negative pairs.
-
-    The inputs are a 1-D tensor of size P containing scores for positive pairs
-    of entities (i.e., those among which an edge exists) and a P x N tensor
-    containing scores for negative pairs (i.e., where no edge should exist). The
-    pairs of entities corresponding to pos_scores[i] and to neg_scores[i,j] have
-    at least one endpoint in common. The output is the loss value these scores
-    induce and the margin for each negative score, which is zero if the negative
-    score is smaller than the positive one by exactly the minimum expected
-    amount, larger than zero if it's closer to the positive and smaller than
-    zero if it's farther away. The margin will be returned only for the ranking
-    loss, and will be zero for all other functions. If the method supports
-    weighting (as is the case for the logistic loss) all positive scores will be
-    weighted by the same weight and so will all the negative ones.
-
-    """
-
-    @abstractmethod
-    def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
-    ) -> Tuple[FloatTensorType, FloatTensorType]:
-        pass
-
-
-class LogisticLoss(AbstractLoss):
-
-    def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
-    ) -> Tuple[FloatTensorType, FloatTensorType]:
-        num_pos = match_shape(pos_scores, -1)
-        num_neg = match_shape(neg_scores, num_pos, -1)
-        neg_weight = 1 / num_neg if num_neg > 0 else 0
-
-        pos_loss = F.binary_cross_entropy_with_logits(
-            pos_scores,
-            torch.ones(()).expand(num_pos),
-            reduction='sum',
-        )
-        neg_loss = F.binary_cross_entropy_with_logits(
-            neg_scores,
-            torch.zeros(()).expand(num_pos, num_neg),
-            reduction='sum',
-        )
-
-        loss = pos_loss + neg_weight * neg_loss
-        margin = torch.zeros(()).expand(num_pos, num_neg)
-
-        return loss, margin
-
-
-class RankingLoss(AbstractLoss):
-
-    def __init__(self, margin):
-        super().__init__()
-        self.margin = margin
-
-    def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
-    ) -> Tuple[FloatTensorType, FloatTensorType]:
-        num_pos = match_shape(pos_scores, -1)
-        num_neg = match_shape(neg_scores, num_pos, -1)
-
-        # FIXME Workaround for https://github.com/pytorch/pytorch/issues/15223.
-        if num_pos == 0 or num_neg == 0:
-            return (torch.zeros((), requires_grad=True),
-                    torch.empty((num_pos, num_neg)))
-
-        margin = neg_scores - pos_scores.unsqueeze(1) + self.margin
-        loss = margin.clamp(min=0).sum()
-
-        return loss, margin
-
-
-class SoftmaxLoss(AbstractLoss):
-
-    def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
-    ) -> Tuple[FloatTensorType, FloatTensorType]:
-        num_pos = match_shape(pos_scores, -1)
-        num_neg = match_shape(neg_scores, num_pos, -1)
-
-        # FIXME Workaround for https://github.com/pytorch/pytorch/issues/15870
-        # and https://github.com/pytorch/pytorch/issues/15223.
-        if num_pos == 0 or num_neg == 0:
-            return (torch.zeros((), requires_grad=True),
-                    torch.empty((num_pos, num_neg)))
-
-        scores = torch.cat([pos_scores.unsqueeze(1), neg_scores], dim=1)
-        loss = F.cross_entropy(
-            scores,
-            torch.zeros((), dtype=torch.long).expand(num_pos),
-            reduction='sum',
-        )
-        margin = torch.zeros(()).expand(num_pos, num_neg)
-
-        return loss, margin
-
-
 class Negatives(Enum):
     NONE = "none"
     UNIFORM = "uniform"
@@ -722,9 +624,6 @@ class Negatives(Enum):
 
 
 Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
-
-# lhs_margin, rhs_margin
-Margins = Tuple[FloatTensorType, FloatTensorType]
 
 # lhs_pos, rhs_pos, lhs_neg, rhs_neg
 Scores = Tuple[FloatTensorType, FloatTensorType, FloatTensorType, FloatTensorType]
@@ -758,11 +657,9 @@ class MultiRelationEmbedder(nn.Module):
         entities: Dict[str, EntitySchema],
         num_batch_negs: int,
         num_uniform_negs: int,
-        margin: float = 0.1,
         comparator: Comparator = Comparator.COS,
         global_emb: bool = False,
         max_norm: Optional[float] = None,
-        loss_fn: LossFunction = LossFunction.RANKING,
         bias: bool = False,
         num_dynamic_rels: int = 0,
     ):
@@ -796,18 +693,6 @@ class MultiRelationEmbedder(nn.Module):
 
         if bias:
             self.comparator = BiasedComparator(self.comparator)
-
-        if loss_fn is LossFunction.LOGISTIC:
-            self.loss_fn = LogisticLoss()
-        elif loss_fn is LossFunction.RANKING:
-            self.loss_fn = RankingLoss(margin)
-        elif loss_fn is LossFunction.SOFTMAX:
-            self.loss_fn = SoftmaxLoss()
-        else:
-            raise NotImplementedError("Unknown loss function: %s" % loss_fn)
-
-        if loss_fn is LossFunction.LOGISTIC and comparator is Comparator.COS:
-            log("WARNING: You have logistic loss and cosine distance. Are you sure?")
 
         self.lhs_embs: nn.ParameterDict = nn.ModuleDict()
         self.rhs_embs: nn.ParameterDict = nn.ModuleDict()
@@ -881,7 +766,7 @@ class MultiRelationEmbedder(nn.Module):
 
     def prepare_negatives(
         self,
-        pos_input: Union[LongTensorType, TensorList],
+        pos_input: EntityList,
         pos_embs: FloatTensorType,
         module: AbstractEmbedding,
         type_: Negatives,
@@ -946,9 +831,7 @@ class MultiRelationEmbedder(nn.Module):
                 (-1, slice(last_chunk_size), slice(last_chunk_size, chunk_size)))
 
         elif type_ is Negatives.ALL:
-            if not isinstance(pos_input, torch.LongTensor):
-                raise TypeError("Cannot use all entities as negatives "
-                                "without the IDs of the positive entities")
+            pos_input = pos_input.to_tensor()
             neg_embs = self.adjust_embs(
                 module.get_all_entities().expand(num_chunks, -1, dim),
                 rel=rel, side=side,
@@ -980,10 +863,10 @@ class MultiRelationEmbedder(nn.Module):
 
     def forward(
         self,
-        lhs: Union[LongTensorType, TensorList],
-        rhs: Union[LongTensorType, TensorList],
+        lhs: EntityList,
+        rhs: EntityList,
         rel: Union[int, LongTensorType],
-    ) -> Tuple[FloatTensorType, Margins, Scores]:
+    ) -> Scores:
         num_pos = match_shape(lhs, -1)
         match_shape(rhs, num_pos)
 
@@ -1102,13 +985,7 @@ class MultiRelationEmbedder(nn.Module):
         lhs_neg_scores = lhs_neg_scores.flatten(0, 1)[:num_pos]
         rhs_neg_scores = rhs_neg_scores.flatten(0, 1)[:num_pos]
 
-        lhs_loss, lhs_margin = self.loss_fn(lhs_pos_scores, lhs_neg_scores)
-        rhs_loss, rhs_margin = self.loss_fn(rhs_pos_scores, rhs_neg_scores)
-        loss = relation.weight * (lhs_loss + rhs_loss)
-
-        return loss, (lhs_margin, rhs_margin), \
-            (lhs_pos_scores.unsqueeze(-1), rhs_pos_scores.unsqueeze(-1),
-             lhs_neg_scores, rhs_neg_scores)
+        return lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
 def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
@@ -1144,11 +1021,9 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
         config.entities,
         num_uniform_negs=config.num_uniform_negs,
         num_batch_negs=config.num_batch_negs,
-        margin=config.margin,
         comparator=config.comparator,
         global_emb=config.global_emb,
         max_norm=config.max_norm,
-        loss_fn=config.loss_fn,
         bias=config.bias,
         num_dynamic_rels=num_dynamic_rels,
     )

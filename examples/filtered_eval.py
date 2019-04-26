@@ -10,14 +10,15 @@ from collections import defaultdict
 from typing import Dict, List, Union, Tuple
 
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.config import ConfigSchema
-from torchbiggraph.eval import RankingEvaluator, EvalStats
+from torchbiggraph.entitylist import EntityList
+from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.fileio import EdgeReader
-from torchbiggraph.model import Margins, Scores
+from torchbiggraph.model import Scores
 from torchbiggraph.util import log
-from torchbiggraph.types import Partition, FloatTensorType, LongTensorType
+from torchbiggraph.stats import Stats
+from torchbiggraph.types import Partition, LongTensorType
 
 
 class FilteredRankingEvaluator(RankingEvaluator):
@@ -29,6 +30,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
     """
 
     def __init__(self, config: ConfigSchema, filter_paths: List[str]):
+        super().__init__()
         if len(config.relations) != 1 or len(config.entities) != 1:
             raise RuntimeError("Filtered ranking evaluation should only be used "
                                "with dynamic relations and one entity type.")
@@ -51,10 +53,10 @@ class FilteredRankingEvaluator(RankingEvaluator):
             num_edges = lhs.size(0)
             for i in range(num_edges):
                 # Assume non-featurized.
-                cur_lhs = lhs[i].collapse(is_featurized=False).item()
+                cur_lhs = lhs.to_tensor()[i].item()
                 cur_rel = rel[i].item()
                 # Assume non-featurized.
-                cur_rhs = rhs[i].collapse(is_featurized=False).item()
+                cur_rhs = rhs.to_tensor()[i].item()
 
                 self.lhs_map[cur_lhs, cur_rel].append(cur_rhs)
                 self.rhs_map[cur_rhs, cur_rel].append(cur_lhs)
@@ -64,27 +66,31 @@ class FilteredRankingEvaluator(RankingEvaluator):
     def eval(
         self,
         scores: Scores,
-        margins: Margins,
-        batch_lhs: Union[FloatTensorType, TensorList],
-        batch_rhs: Union[FloatTensorType, TensorList],
+        batch_lhs: EntityList,
+        batch_rhs: EntityList,
         batch_rel: Union[int, LongTensorType],
-    ) -> EvalStats:
+    ) -> Stats:
         # Assume dynamic relations.
         assert isinstance(batch_rel, torch.LongTensor)
+
+        _, _, lhs_neg_scores, rhs_neg_scores = scores
         b = batch_lhs.size(0)
         for idx in range(b):
-            cur_lhs = batch_lhs[idx].item()
+            # Assume non-featurized.
+            cur_lhs = batch_lhs.to_tensor()[idx].item()
             cur_rel = batch_rel[idx].item()
-            cur_rhs = batch_rhs[idx].item()
+            # Assume non-featurized.
+            cur_rhs = batch_rhs.to_tensor()[idx].item()
+
             rhs_edges_filtered = self.lhs_map[cur_lhs, cur_rel]
             lhs_edges_filtered = self.rhs_map[cur_rhs, cur_rel]
+            assert cur_lhs in lhs_edges_filtered
+            assert cur_rhs in rhs_edges_filtered
 
             # The rank is computed as the number of non-negative margins (as
             # that means a negative with at least as good a score as a positive)
             # so to avoid counting positives we give them a negative margin.
-            margins[0][idx][lhs_edges_filtered] = -1
-            margins[1][idx][rhs_edges_filtered] = -1
-            assert cur_lhs in lhs_edges_filtered
-            assert cur_rhs in rhs_edges_filtered
+            lhs_neg_scores[idx][lhs_edges_filtered] = -1e9
+            rhs_neg_scores[idx][rhs_edges_filtered] = -1e9
 
-        return super().eval(scores, margins, batch_lhs, batch_rhs, batch_rel)
+        return super().eval(scores, batch_lhs, batch_rhs, batch_rel)

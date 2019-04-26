@@ -10,14 +10,13 @@ import os
 import os.path
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, Optional, Set, Tuple
 
 import torch
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
 
 from .config import ConfigSchema
-from .entitylist import EntityList
 from .types import Side, EntityName, FloatTensorType
 
 
@@ -55,62 +54,13 @@ def round_up_to_nearest_multiple(value: int, factor: int) -> int:
     return ((value - 1) // factor + 1) * factor
 
 
-def chunk_by_index(index: torch.Tensor, *others: EntityList) -> List[List[EntityList]]:
-    """
-    Parameters:
-        index: An integral-valued 1D tensor of length N containing indexes of each row.
-        *others: Other tensors with first dimension of length N, indexed by index.
-    Returns:
-        A list of length N, where each element i is a tuple of tensors containing
-        the subset of rows where index[rows] == i.
-    """
-    def slice(x, begin, end):
-        if begin == end:
-            return x.new()
-        else:
-            return x[begin:end]
-
-    if len(index) == 0:
-        return [[] for _ in range(len(others) + 1)]
-
-    sorted_index, order = index.sort()
-    nchunks = sorted_index[-1] + 1
-    nitems = sorted_index.size(0)
-    delta = sorted_index[1:] - sorted_index[:-1]
-    cutpoints = delta.nonzero()
-    if cutpoints.nelement() > 0:
-        cutpoints = cutpoints[:, 0]
-        jumps = delta[cutpoints]
-        cutpoints += 1
-
-        cutpoints = torch.cat([
-            cutpoints.new([0]),
-            cutpoints,
-            cutpoints.new([nitems])])
-        jumps = torch.cat([
-            jumps.new([sorted_index[0]]),
-            jumps,
-            jumps.new([nchunks - sorted_index[-1]])])
-    else:
-        cutpoints = cutpoints.new([0, nitems])
-        jumps = delta.new([sorted_index[0], nchunks - sorted_index[-1]])
-
-    sorted_tensors = [sorted_index] + [t[order] for t in others]
-
-    chunked: List[List[EntityList]] = [[] for _ in sorted_tensors]
-    begin_row = 0
-    for cur_row, jump in zip(cutpoints, jumps):
-        for _ in range(jump):
-            for c, s in zip(chunked, sorted_tensors):
-                c.append(slice(s, begin_row, cur_row))
-            begin_row = cur_row
-
-    return chunked
-
-
 def fast_approx_rand(numel: int) -> FloatTensorType:
     if numel < 1_000_003:
-        return torch.randn(numel).share_memory_()
+        tensor = torch.randn(numel)
+        # share_memory_ does return the tensor but its type annotation says it
+        # doesn't, thus we do this in two separate steps.
+        tensor.share_memory_()
+        return tensor
     # construct the tensor storage in shared mem so we don't have to copy it
     storage = torch.FloatStorage._new_shared(numel)
     tensor = torch.FloatTensor(storage)

@@ -385,7 +385,8 @@ class ConfigSchema(Schema):
                                  "relation type must be defined.")
         # TODO Check that all partitioned entity types have the same number of partitions
         # TODO Check that the batch size is a multiple of the batch negative number
-        # TODO Warn if cos comparator is used with logistic loss.
+        if self.loss_fn is LossFunction.LOGISTIC and self.comparator is Comparator.COS:
+            print("WARNING: You have logistic loss and cosine distance. Are you sure?")
 
 
 def get_config_dict_from_module(config_filename: str) -> Any:
