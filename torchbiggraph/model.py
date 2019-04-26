@@ -448,7 +448,7 @@ def instantiate_operator(
                 "Unknown operator for dynamic rels: %s" % operator)
         return dynamic_operator_class(dim, num_dynamic_rels)
     elif side is Side.LHS:
-        return IdentityOperator(dim)
+        return None
     else:
         try:
             operator_class = OPERATORS[operator]
@@ -616,6 +616,10 @@ class BiasedComparator(AbstractComparator):
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
+def ceil_of_ratio(num: int, den: int) -> int:
+    return (num - 1) // den + 1
+
+
 class Negatives(Enum):
     NONE = "none"
     UNIFORM = "uniform"
@@ -733,24 +737,23 @@ class MultiRelationEmbedder(nn.Module):
     def adjust_embs(
         self,
         embs: FloatTensorType,
-        rel: Union[int, Optional[LongTensorType]],
-        side: Side,
+        rel: Union[int, LongTensorType],
+        entity_type: str,
+        operator: Union[None, AbstractOperator, AbstractDynamicOperator],
     ) -> FloatTensorType:
 
         # 1. Apply the global embedding, if enabled
         if self.global_embs is not None:
             if not isinstance(rel, int):
                 raise RuntimeError("Cannot have global embs with dynamic rels")
-            relation = self.relations[rel]
-            entity = side.pick(relation.lhs, relation.rhs)
-            embs += self.global_embs[self.EMB_PREFIX + entity]
+            embs += self.global_embs[self.EMB_PREFIX + entity_type]
 
         # 2. Apply the relation operator
-        if self.num_dynamic_rels > 0:
-            if rel is not None:
-                embs = side.pick(self.lhs_operators, self.rhs_operators)[0](embs, rel)
-        else:
-            embs = side.pick(self.lhs_operators, self.rhs_operators)[rel](embs)
+        if operator is not None:
+            if self.num_dynamic_rels > 0:
+                embs = operator(embs, rel)
+            else:
+                embs = operator(embs)
 
         # 3. Prepare for the comparator.
         embs = self.comparator.prepare(embs)
@@ -771,9 +774,9 @@ class MultiRelationEmbedder(nn.Module):
         module: AbstractEmbedding,
         type_: Negatives,
         num_uniform_neg: int,
-        *,
-        rel: Union[int, Optional[LongTensorType]],
-        side: Side,
+        rel: Union[int, LongTensorType],
+        entity_type: str,
+        operator: Union[None, AbstractOperator, AbstractDynamicOperator],
     ) -> Tuple[FloatTensorType, Mask]:
         """Given some chunked positives, set up chunks of negatives.
 
@@ -813,7 +816,10 @@ class MultiRelationEmbedder(nn.Module):
                 else:
                     neg_embs = torch.cat([
                         pos_embs,
-                        self.adjust_embs(uniform_neg_embs, rel=rel, side=side)
+                        self.adjust_embs(
+                            uniform_neg_embs,
+                            rel, entity_type, operator,
+                        )
                     ], dim=1)
 
             chunk_indices = torch.arange(chunk_size, dtype=torch.long)
@@ -834,7 +840,7 @@ class MultiRelationEmbedder(nn.Module):
             pos_input = pos_input.to_tensor()
             neg_embs = self.adjust_embs(
                 module.get_all_entities().expand(num_chunks, -1, dim),
-                rel=rel, side=side,
+                rel, entity_type, operator,
             )
 
             if num_uniform_neg > 0:
@@ -887,10 +893,20 @@ class MultiRelationEmbedder(nn.Module):
             relation_idx = rel
 
         relation = self.relations[relation_idx]
-        lhs_module = self.lhs_embs[self.EMB_PREFIX + relation.lhs]
-        rhs_module = self.rhs_embs[self.EMB_PREFIX + relation.rhs]
-        lhs_pos = lhs_module(lhs)
-        rhs_pos = rhs_module(rhs)
+        lhs_module: AbstractEmbedding = self.lhs_embs[self.EMB_PREFIX + relation.lhs]
+        rhs_module: AbstractEmbedding = self.rhs_embs[self.EMB_PREFIX + relation.rhs]
+        lhs_pos: FloatTensorType = lhs_module(lhs)
+        rhs_pos: FloatTensorType = rhs_module(rhs)
+
+        if relation.all_negs:
+            chunk_size = num_pos
+            negative_sampling_method = Negatives.ALL
+        elif self.num_batch_negs == 0:
+            chunk_size = self.num_uniform_negs
+            negative_sampling_method = Negatives.UNIFORM
+        else:
+            chunk_size = self.num_batch_negs
+            negative_sampling_method = Negatives.BATCH_UNIFORM
 
         if self.num_dynamic_rels == 0:
             # In this case the operator is only applied to the RHS. This means
@@ -899,8 +915,29 @@ class MultiRelationEmbedder(nn.Module):
             # m(u', f_r(v)) and m(u, f_r(v')). Since r is always the same, each
             # positive and negative right-hand side entity is only passed once
             # through the operator.
-            lhs_pos = self.adjust_embs(lhs_pos, rel=rel, side=Side.LHS)
-            rhs_pos = self.adjust_embs(rhs_pos, rel=rel, side=Side.RHS)
+
+            if self.lhs_operators[relation_idx] is not None:
+                raise RuntimeError("In non-dynamic relation mode there should "
+                                   "be only a right-hand side operator")
+
+            # Apply operator to right-hand side, sample negatives on both sides.
+            pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(
+                lhs,
+                rhs,
+                rel,
+                relation.lhs,
+                relation.rhs,
+                None,
+                self.rhs_operators[relation_idx],
+                lhs_module,
+                rhs_module,
+                lhs_pos,
+                rhs_pos,
+                chunk_size,
+                negative_sampling_method,
+                negative_sampling_method,
+            )
+            lhs_pos_scores = rhs_pos_scores = pos_scores
 
         else:
             # In this case the positive edges may come from different relations.
@@ -917,75 +954,101 @@ class MultiRelationEmbedder(nn.Module):
             # (u', r, v) and (u, r, v') are scored respectively as m(u', h_r(v))
             # and m(g_r(u), v'). This way we only need to perform two operator
             # applications for every positive input edge, one for each side.
-            lhs_r_pos = self.adjust_embs(lhs_pos, rel=rel, side=Side.LHS)
-            rhs_r_pos = self.adjust_embs(rhs_pos, rel=rel, side=Side.RHS)
-            lhs_pos = self.adjust_embs(lhs_pos, rel=None, side=Side.LHS)
-            rhs_pos = self.adjust_embs(rhs_pos, rel=None, side=Side.RHS)
 
-        if relation.all_negs:
-            chunk_size = num_pos
-            negative_sampling_method = Negatives.ALL
-        elif self.num_batch_negs == 0:
-            chunk_size = self.num_uniform_negs
-            negative_sampling_method = Negatives.UNIFORM
-        else:
-            chunk_size = self.num_batch_negs
-            negative_sampling_method = Negatives.BATCH_UNIFORM
+            # "Forward" edges: apply operator to rhs, sample negatives on lhs.
+            lhs_pos_scores, lhs_neg_scores, _ = self.forward_direction_agnostic(
+                lhs,
+                rhs,
+                rel,
+                relation.lhs,
+                relation.rhs,
+                None,
+                self.rhs_operators[relation_idx],
+                lhs_module,
+                rhs_module,
+                lhs_pos,
+                rhs_pos,
+                chunk_size,
+                negative_sampling_method,
+                Negatives.NONE,
+            )
+            # "Reverse" edges: apply operator to lhs, sample negatives on rhs.
+            rhs_pos_scores, rhs_neg_scores, _ = self.forward_direction_agnostic(
+                rhs,
+                lhs,
+                rel,
+                relation.rhs,
+                relation.lhs,
+                None,
+                self.lhs_operators[relation_idx],
+                rhs_module,
+                lhs_module,
+                rhs_pos,
+                lhs_pos,
+                chunk_size,
+                negative_sampling_method,
+                Negatives.NONE,
+            )
 
-        num_chunks = (num_pos - 1) // chunk_size + 1  # ceil(num_pos / chunk_size)
+        return lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores
+
+    def forward_direction_agnostic(
+        self,
+        src: EntityList,
+        dst: EntityList,
+        rel: Union[int, LongTensorType],
+        src_entity_type: str,
+        dst_entity_type: str,
+        src_operator: Union[None, AbstractOperator, AbstractDynamicOperator],
+        dst_operator: Union[None, AbstractOperator, AbstractDynamicOperator],
+        src_module: AbstractEmbedding,
+        dst_module: AbstractEmbedding,
+        src_pos: FloatTensorType,
+        dst_pos: FloatTensorType,
+        chunk_size: int,
+        src_negative_sampling_method: Negatives,
+        dst_negative_sampling_method: Negatives,
+    ):
+        num_pos = match_shape(src, -1)
+        match_shape(dst, num_pos)
+
+        src_pos = self.adjust_embs(src_pos, rel, src_entity_type, src_operator)
+        dst_pos = self.adjust_embs(dst_pos, rel, dst_entity_type, dst_operator)
+
+        num_chunks = ceil_of_ratio(num_pos, chunk_size)
         if num_pos < num_chunks * chunk_size:
-            padding = torch.zeros(()).expand(num_chunks * chunk_size - num_pos, self.dim)
-            lhs_pos = torch.cat([lhs_pos, padding], dim=0)
-            rhs_pos = torch.cat([rhs_pos, padding], dim=0)
-            if self.num_dynamic_rels > 0:
-                lhs_r_pos = torch.cat([lhs_r_pos, padding], dim=0)
-                rhs_r_pos = torch.cat([rhs_r_pos, padding], dim=0)
-        lhs_pos = lhs_pos.view(num_chunks, chunk_size, self.dim)
-        rhs_pos = rhs_pos.view(num_chunks, chunk_size, self.dim)
-        if self.num_dynamic_rels > 0:
-            lhs_r_pos = lhs_r_pos.view(num_chunks, chunk_size, self.dim)
-            rhs_r_pos = rhs_r_pos.view(num_chunks, chunk_size, self.dim)
+            padding = torch.zeros(()).expand((num_chunks * chunk_size - num_pos, self.dim))
+            src_pos = torch.cat((src_pos, padding), dim=0)
+            dst_pos = torch.cat((dst_pos, padding), dim=0)
+        src_pos = src_pos.view((num_chunks, chunk_size, self.dim))
+        dst_pos = dst_pos.view((num_chunks, chunk_size, self.dim))
 
-        if self.num_dynamic_rels == 0:
-            lhs_neg, lhs_ignore_mask = self.prepare_negatives(
-                lhs, lhs_pos, lhs_module, negative_sampling_method,
-                self.num_uniform_negs, rel=rel, side=Side.LHS)
-            rhs_neg, rhs_ignore_mask = self.prepare_negatives(
-                rhs, rhs_pos, rhs_module, negative_sampling_method,
-                self.num_uniform_negs, rel=rel, side=Side.RHS)
-            pos_scores, lhs_neg_scores, rhs_neg_scores = self.comparator(
-                lhs_pos, rhs_pos, lhs_neg, rhs_neg)
-            lhs_pos_scores = rhs_pos_scores = pos_scores
+        src_neg, src_ignore_mask = self.prepare_negatives(
+            src, src_pos, src_module, src_negative_sampling_method,
+            self.num_uniform_negs, rel, src_entity_type, src_operator)
+        dst_neg, dst_ignore_mask = self.prepare_negatives(
+            dst, dst_pos, dst_module, dst_negative_sampling_method,
+            self.num_uniform_negs, rel, dst_entity_type, dst_operator)
 
-        else:
-            lhs_neg, lhs_ignore_mask = self.prepare_negatives(
-                lhs, lhs_pos, lhs_module, negative_sampling_method,
-                self.num_uniform_negs, rel=None, side=Side.LHS)
-            rhs_neg, rhs_ignore_mask = self.prepare_negatives(
-                rhs, rhs_pos, rhs_module, negative_sampling_method,
-                self.num_uniform_negs, rel=None, side=Side.RHS)
-            lhs_pos_scores, lhs_neg_scores, _ = self.comparator(
-                lhs_pos, rhs_r_pos, lhs_neg, torch.empty((num_chunks, 0, self.dim)))
-            rhs_pos_scores, _, rhs_neg_scores = self.comparator(
-                lhs_r_pos, rhs_pos, torch.empty((num_chunks, 0, self.dim)), rhs_neg)
+        pos_scores, src_neg_scores, dst_neg_scores = \
+            self.comparator(src_pos, dst_pos, src_neg, dst_neg)
 
         # The masks tell us which negative scores (i.e., scores for non-existing
         # edges) must be ignored because they come from pairs we don't actually
         # intend to compare (say, positive pairs or interactions with padding).
         # We do it by replacing them with a "very negative" value so that they
         # are considered spot-on predictions with minimal impact on the loss.
-        for ignore_mask in lhs_ignore_mask:
-            lhs_neg_scores[ignore_mask] = -1e9
-        for ignore_mask in rhs_ignore_mask:
-            rhs_neg_scores[ignore_mask] = -1e9
+        for ignore_mask in src_ignore_mask:
+            src_neg_scores[ignore_mask] = -1e9
+        for ignore_mask in dst_ignore_mask:
+            dst_neg_scores[ignore_mask] = -1e9
 
         # De-chunk the scores and ignore the ones whose positives were padding.
-        lhs_pos_scores = lhs_pos_scores.flatten(0, 1)[:num_pos]
-        rhs_pos_scores = rhs_pos_scores.flatten(0, 1)[:num_pos]
-        lhs_neg_scores = lhs_neg_scores.flatten(0, 1)[:num_pos]
-        rhs_neg_scores = rhs_neg_scores.flatten(0, 1)[:num_pos]
+        pos_scores = pos_scores.flatten(0, 1)[:num_pos]
+        src_neg_scores = src_neg_scores.flatten(0, 1)[:num_pos]
+        dst_neg_scores = dst_neg_scores.flatten(0, 1)[:num_pos]
 
-        return lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores
+        return pos_scores, src_neg_scores, dst_neg_scores
 
 
 def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
