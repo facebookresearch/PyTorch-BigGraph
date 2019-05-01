@@ -43,13 +43,12 @@ class RankingEvaluator(AbstractBatchProcessor):
         batch_edges: EdgeList,
     ) -> Stats:
         batch_size = len(batch_edges)
-        lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores = scores
 
-        lhs_rank = lhs_neg_scores.ge(lhs_pos_scores.unsqueeze(1)).long().sum(1) + 1
-        rhs_rank = rhs_neg_scores.ge(rhs_pos_scores.unsqueeze(1)).long().sum(1) + 1
+        lhs_rank = (scores.lhs_neg >= scores.lhs_pos.unsqueeze(1)).sum(1) + 1
+        rhs_rank = (scores.rhs_neg >= scores.rhs_pos.unsqueeze(1)).sum(1) + 1
 
-        lhs_auc = compute_randomized_auc(lhs_pos_scores, lhs_neg_scores, batch_size)
-        rhs_auc = compute_randomized_auc(rhs_pos_scores, rhs_neg_scores, batch_size)
+        lhs_auc = compute_randomized_auc(scores.lhs_pos, scores.lhs_neg, batch_size)
+        rhs_auc = compute_randomized_auc(scores.rhs_pos, scores.rhs_neg, batch_size)
 
         return Stats(
             pos_rank=average_of_sums(lhs_rank, rhs_rank),

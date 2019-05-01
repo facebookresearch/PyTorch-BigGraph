@@ -10,7 +10,7 @@ import os.path
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Tuple, Type, Union
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
@@ -630,8 +630,12 @@ class Negatives(Enum):
 
 Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
 
-# lhs_pos, rhs_pos, lhs_neg, rhs_neg
-Scores = Tuple[FloatTensorType, FloatTensorType, FloatTensorType, FloatTensorType]
+
+class Scores(NamedTuple):
+    lhs_pos: FloatTensorType
+    rhs_pos: FloatTensorType
+    lhs_neg: FloatTensorType
+    rhs_neg: FloatTensorType
 
 
 class MultiRelationEmbedder(nn.Module):
@@ -902,7 +906,7 @@ class MultiRelationEmbedder(nn.Module):
             pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(
                 edges.lhs,
                 edges.rhs,
-                edges.get_relation_type_as_scalar() if edges.has_scalar_relation_type() else edges.get_relation_type_as_vector(),
+                edges.get_relation_type(),
                 relation.lhs,
                 relation.rhs,
                 None,
@@ -937,7 +941,7 @@ class MultiRelationEmbedder(nn.Module):
             lhs_pos_scores, lhs_neg_scores, _ = self.forward_direction_agnostic(
                 edges.lhs,
                 edges.rhs,
-                edges.get_relation_type_as_scalar() if edges.has_scalar_relation_type() else edges.get_relation_type_as_vector(),
+                edges.get_relation_type(),
                 relation.lhs,
                 relation.rhs,
                 None,
@@ -954,7 +958,7 @@ class MultiRelationEmbedder(nn.Module):
             rhs_pos_scores, rhs_neg_scores, _ = self.forward_direction_agnostic(
                 edges.rhs,
                 edges.lhs,
-                edges.get_relation_type_as_scalar() if edges.has_scalar_relation_type() else edges.get_relation_type_as_vector(),
+                edges.get_relation_type(),
                 relation.rhs,
                 relation.lhs,
                 None,
@@ -968,7 +972,7 @@ class MultiRelationEmbedder(nn.Module):
                 Negatives.NONE,
             )
 
-        return lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores
+        return Scores(lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores)
 
     def forward_direction_agnostic(
         self,

@@ -66,8 +66,6 @@ class FilteredRankingEvaluator(RankingEvaluator):
         scores: Scores,
         batch_edges: EdgeList,
     ) -> Stats:
-        _, _, lhs_neg_scores, rhs_neg_scores = scores
-
         for idx in range(len(batch_edges)):
             # Assume non-featurized.
             cur_lhs = int(batch_edges.lhs.to_tensor()[idx])
@@ -84,7 +82,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
             # The rank is computed as the number of non-negative margins (as
             # that means a negative with at least as good a score as a positive)
             # so to avoid counting positives we give them a negative margin.
-            lhs_neg_scores[idx][lhs_edges_filtered] = -1e9
-            rhs_neg_scores[idx][rhs_edges_filtered] = -1e9
+            scores.lhs_neg[idx][lhs_edges_filtered] = -1e9
+            scores.rhs_neg[idx][rhs_edges_filtered] = -1e9
 
         return super().eval(scores, batch_edges)

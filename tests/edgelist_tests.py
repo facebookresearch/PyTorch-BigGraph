@@ -166,6 +166,26 @@ class TestEdgeList(TestCase):
             ),
         )
 
+    def test_get_relation_type(self):
+        self.assertEqual(
+            EdgeList(
+                EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
+                EntityList.from_tensor(torch.tensor([0, 2], dtype=torch.long)),
+                torch.tensor(3, dtype=torch.long),
+            ).get_relation_type(),
+            3,
+        )
+        self.assertTrue(
+            torch.equal(
+                EdgeList(
+                    EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor([0, 2], dtype=torch.long)),
+                    torch.tensor([2, 0], dtype=torch.long),
+                ).get_relation_type(),
+                torch.tensor([2, 0], dtype=torch.long),
+            ),
+        )
+
     def test_equal(self):
         el = EdgeList(
             EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),

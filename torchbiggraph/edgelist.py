@@ -76,6 +76,12 @@ class EdgeList:
             return self.rel.view((1,)).expand((len(self),))
         return self.rel
 
+    def get_relation_type(self) -> Union[int, LongTensorType]:
+        if self.has_scalar_relation_type():
+            return self.get_relation_type_as_scalar()
+        else:
+            return self.get_relation_type_as_vector()
+
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, EdgeList):
             return NotImplemented

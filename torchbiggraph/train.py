@@ -73,20 +73,19 @@ class Trainer(AbstractBatchProcessor):
     ) -> Stats:
         model.zero_grad()
 
-        lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            model(batch_edges)
+        scores = model(batch_edges)
 
-        lhs_loss = self.loss_fn(lhs_pos_scores, lhs_neg_scores)
-        rhs_loss = self.loss_fn(rhs_pos_scores, rhs_neg_scores)
+        lhs_loss = self.loss_fn(scores.lhs_pos, scores.lhs_neg)
+        rhs_loss = self.loss_fn(scores.rhs_pos, scores.rhs_neg)
         relation = self.relations[batch_edges.get_relation_type_as_scalar()
                                   if batch_edges.has_scalar_relation_type()
                                   else 0]
         loss = relation.weight * (lhs_loss + rhs_loss)
 
         stats = Stats(
-            loss=loss.item(),
-            violators_lhs=lhs_neg_scores.gt(lhs_pos_scores.unsqueeze(1)).long().sum().item(),
-            violators_rhs=rhs_neg_scores.gt(rhs_pos_scores.unsqueeze(1)).long().sum().item(),
+            loss=float(loss),
+            violators_lhs=int((scores.lhs_neg > scores.lhs_pos.unsqueeze(1)).sum()),
+            violators_rhs=int((scores.rhs_neg > scores.rhs_pos.unsqueeze(1)).sum()),
             count=len(batch_edges))
 
         loss.backward()
