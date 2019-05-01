@@ -170,4 +170,4 @@ To cite this work please use:
 
 ## License
 
-PyTorch-BigGraph is BSD licensed, as found in the [LICENSE](LICENSE) file.
+PyTorch-BigGraph is BSD licensed, as found in the [LICENSE.txt](LICENSE.txt) file.

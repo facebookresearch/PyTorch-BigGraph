@@ -2,8 +2,13 @@
 build/
 data/
 dist/
+docs/build/
+.DS_Store
+*.egg
+*.egg-info/
+.idea/
 model/
-*.pyc
-**/__pycache__/
-torchbiggraph.egg-info/
+__pycache__/
+*.py[cod]
+*.so
 venv/

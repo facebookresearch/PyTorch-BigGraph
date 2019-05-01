@@ -47,4 +47,4 @@ formatter are sometimes adopted.
 ## License
 
 By contributing to torchbiggraph, you agree that your contributions will be
-licensed under the LICENSE file in the root directory of this source tree.
+licensed under the LICENSE.txt file in the root directory of this source tree.
