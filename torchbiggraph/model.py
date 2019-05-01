@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
 from .config import Operator, Comparator, EntitySchema, RelationSchema, ConfigSchema
+from .edgelist import EdgeList
 from .entitylist import EntityList
 from .fileio import maybe_old_entity_path
 from .types import Side, FloatTensorType, LongTensorType
@@ -795,7 +796,7 @@ class MultiRelationEmbedder(nn.Module):
         scores that must be ignored.
 
         """
-        num_pos = match_shape(pos_input, -1)
+        num_pos = len(pos_input)
         num_chunks, chunk_size, dim = match_shape(pos_embs, -1, -1, -1)
         last_chunk_size = num_pos - (num_chunks - 1) * chunk_size
 
@@ -869,12 +870,9 @@ class MultiRelationEmbedder(nn.Module):
 
     def forward(
         self,
-        lhs: EntityList,
-        rhs: EntityList,
-        rel: Union[int, LongTensorType],
+        edges: EdgeList,
     ) -> Scores:
-        num_pos = match_shape(lhs, -1)
-        match_shape(rhs, num_pos)
+        num_pos = len(edges)
 
         chunk_size: int
         lhs_negatives: Negatives
@@ -883,20 +881,19 @@ class MultiRelationEmbedder(nn.Module):
         rhs_num_uniform_negs: int
 
         if self.num_dynamic_rels > 0:
-            if not isinstance(rel, torch.LongTensor):
+            if edges.has_scalar_relation_type():
                 raise TypeError("Need relation for each positive pair")
-            match_shape(rel, num_pos)
             relation_idx = 0
         else:
-            if not isinstance(rel, int):
+            if not edges.has_scalar_relation_type():
                 raise TypeError("All positive pairs must come from the same relation")
-            relation_idx = rel
+            relation_idx = edges.get_relation_type_as_scalar()
 
         relation = self.relations[relation_idx]
         lhs_module: AbstractEmbedding = self.lhs_embs[self.EMB_PREFIX + relation.lhs]
         rhs_module: AbstractEmbedding = self.rhs_embs[self.EMB_PREFIX + relation.rhs]
-        lhs_pos: FloatTensorType = lhs_module(lhs)
-        rhs_pos: FloatTensorType = rhs_module(rhs)
+        lhs_pos: FloatTensorType = lhs_module(edges.lhs)
+        rhs_pos: FloatTensorType = rhs_module(edges.rhs)
 
         if relation.all_negs:
             chunk_size = num_pos
@@ -922,9 +919,9 @@ class MultiRelationEmbedder(nn.Module):
 
             # Apply operator to right-hand side, sample negatives on both sides.
             pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(
-                lhs,
-                rhs,
-                rel,
+                edges.lhs,
+                edges.rhs,
+                edges.get_relation_type_as_scalar() if edges.has_scalar_relation_type() else edges.get_relation_type_as_vector(),
                 relation.lhs,
                 relation.rhs,
                 None,
@@ -957,9 +954,9 @@ class MultiRelationEmbedder(nn.Module):
 
             # "Forward" edges: apply operator to rhs, sample negatives on lhs.
             lhs_pos_scores, lhs_neg_scores, _ = self.forward_direction_agnostic(
-                lhs,
-                rhs,
-                rel,
+                edges.lhs,
+                edges.rhs,
+                edges.get_relation_type_as_scalar() if edges.has_scalar_relation_type() else edges.get_relation_type_as_vector(),
                 relation.lhs,
                 relation.rhs,
                 None,
@@ -974,9 +971,9 @@ class MultiRelationEmbedder(nn.Module):
             )
             # "Reverse" edges: apply operator to lhs, sample negatives on rhs.
             rhs_pos_scores, rhs_neg_scores, _ = self.forward_direction_agnostic(
-                rhs,
-                lhs,
-                rel,
+                edges.rhs,
+                edges.lhs,
+                edges.get_relation_type_as_scalar() if edges.has_scalar_relation_type() else edges.get_relation_type_as_vector(),
                 relation.rhs,
                 relation.lhs,
                 None,
@@ -1009,8 +1006,8 @@ class MultiRelationEmbedder(nn.Module):
         src_negative_sampling_method: Negatives,
         dst_negative_sampling_method: Negatives,
     ):
-        num_pos = match_shape(src, -1)
-        match_shape(dst, num_pos)
+        num_pos = len(src)
+        assert len(dst) == num_pos
 
         src_pos = self.adjust_embs(src_pos, rel, src_entity_type, src_operator)
         dst_pos = self.adjust_embs(dst_pos, rel, dst_entity_type, dst_operator)

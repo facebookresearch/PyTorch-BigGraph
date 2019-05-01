@@ -12,6 +12,7 @@ from unittest import TestCase, main
 
 import torch
 
+from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.batching import (
     group_by_relation_type,
@@ -25,33 +26,35 @@ class TestGroupByRelationType(TestCase):
     def test_basic(self):
         self.assertEqual(
             group_by_relation_type(
-                torch.tensor([1, 0, 0, 1, 2, 2, 0, 0, 2, 2], dtype=torch.long),
-                EntityList.from_tensor(torch.tensor(
-                    [93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long)),
-                EntityList.from_tensor(torch.tensor(
-                    [90, 75, 9, 25, 23, 31, 49, 64, 42, 50], dtype=torch.long)),
+                EdgeList(
+                    EntityList.from_tensor(torch.tensor(
+                        [93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor(
+                        [90, 75, 9, 25, 23, 31, 49, 64, 42, 50], dtype=torch.long)),
+                    torch.tensor([1, 0, 0, 1, 2, 2, 0, 0, 2, 2], dtype=torch.long),
+                ),
             ),
             [
-                (
+                EdgeList(
                     EntityList.from_tensor(
                         torch.tensor([24, 13, 77, 38], dtype=torch.long)),
                     EntityList.from_tensor(
                         torch.tensor([75, 9, 49, 64], dtype=torch.long)),
-                    0,
+                    torch.tensor(0, dtype=torch.long),
                 ),
-                (
+                EdgeList(
                     EntityList.from_tensor(
                         torch.tensor([93, 31], dtype=torch.long)),
                     EntityList.from_tensor(
                         torch.tensor([90, 25], dtype=torch.long)),
-                    1,
+                    torch.tensor(1, dtype=torch.long),
                 ),
-                (
+                EdgeList(
                     EntityList.from_tensor(
                         torch.tensor([70, 66, 5, 5], dtype=torch.long)),
                     EntityList.from_tensor(
                         torch.tensor([23, 31, 42, 50], dtype=torch.long)),
-                    2,
+                    torch.tensor(2, dtype=torch.long),
                 ),
             ],
         )
@@ -59,19 +62,21 @@ class TestGroupByRelationType(TestCase):
     def test_constant(self):
         self.assertEqual(
             group_by_relation_type(
-                torch.tensor([3, 3, 3, 3], dtype=torch.long),
-                EntityList.from_tensor(torch.tensor(
-                    [93, 24, 13, 31], dtype=torch.long)),
-                EntityList.from_tensor(torch.tensor(
-                    [90, 75, 9, 25], dtype=torch.long)),
-            ),
-            [
-                (
+                EdgeList(
                     EntityList.from_tensor(torch.tensor(
                         [93, 24, 13, 31], dtype=torch.long)),
                     EntityList.from_tensor(torch.tensor(
                         [90, 75, 9, 25], dtype=torch.long)),
-                    3,
+                    torch.tensor([3, 3, 3, 3], dtype=torch.long),
+                ),
+            ),
+            [
+                EdgeList(
+                    EntityList.from_tensor(torch.tensor(
+                        [93, 24, 13, 31], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor(
+                        [90, 75, 9, 25], dtype=torch.long)),
+                    torch.tensor(3, dtype=torch.long),
                 ),
             ],
         )
@@ -79,9 +84,11 @@ class TestGroupByRelationType(TestCase):
     def test_empty(self):
         self.assertEqual(
             group_by_relation_type(
-                torch.empty((0,), dtype=torch.long),
-                EntityList.empty(),
-                EntityList.empty(),
+                EdgeList(
+                    EntityList.empty(),
+                    EntityList.empty(),
+                    torch.empty((0,), dtype=torch.long),
+                ),
             ),
             [],
         )
@@ -90,92 +97,85 @@ class TestGroupByRelationType(TestCase):
 class TestBatchEdgesMixRelationTypes(TestCase):
 
     def test_basic(self):
-        actual_batches = batch_edges_mix_relation_types(
-            EntityList.from_tensor(torch.tensor(
-                [93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long)),
-            EntityList.from_tensor(torch.tensor(
-                [90, 75, 9, 25, 23, 31, 49, 64, 42, 50], dtype=torch.long)),
-            torch.tensor([1, 0, 0, 1, 2, 2, 0, 0, 2, 2], dtype=torch.long),
-            batch_size=4,
+        self.assertEqual(
+            list(batch_edges_mix_relation_types(
+                EdgeList(
+                    EntityList.from_tensor(torch.tensor(
+                        [93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor(
+                        [90, 75, 9, 25, 23, 31, 49, 64, 42, 50], dtype=torch.long)),
+                    torch.tensor([1, 0, 0, 1, 2, 2, 0, 0, 2, 2], dtype=torch.long),
+                ),
+                batch_size=4,
+            )),
+            [
+                EdgeList(
+                    EntityList.from_tensor(
+                        torch.tensor([93, 24, 13, 31], dtype=torch.long)),
+                    EntityList.from_tensor(
+                        torch.tensor([90, 75, 9, 25], dtype=torch.long)),
+                    torch.tensor([1, 0, 0, 1], dtype=torch.long),
+                ),
+                EdgeList(
+                    EntityList.from_tensor(
+                        torch.tensor([70, 66, 77, 38], dtype=torch.long)),
+                    EntityList.from_tensor(
+                        torch.tensor([23, 31, 49, 64], dtype=torch.long)),
+                    torch.tensor([2, 2, 0, 0], dtype=torch.long),
+                ),
+                EdgeList(
+                    EntityList.from_tensor(
+                        torch.tensor([5, 5], dtype=torch.long)),
+                    EntityList.from_tensor(
+                        torch.tensor([42, 50], dtype=torch.long)),
+                    torch.tensor([2, 2], dtype=torch.long),
+                ),
+            ],
         )
-        expected_batches = [
-            (
-                EntityList.from_tensor(
-                    torch.tensor([93, 24, 13, 31], dtype=torch.long)),
-                EntityList.from_tensor(
-                    torch.tensor([90, 75, 9, 25], dtype=torch.long)),
-                torch.tensor([1, 0, 0, 1], dtype=torch.long),
-            ),
-            (
-                EntityList.from_tensor(
-                    torch.tensor([70, 66, 77, 38], dtype=torch.long)),
-                EntityList.from_tensor(
-                    torch.tensor([23, 31, 49, 64], dtype=torch.long)),
-                torch.tensor([2, 2, 0, 0], dtype=torch.long),
-            ),
-            (
-                EntityList.from_tensor(
-                    torch.tensor([5, 5], dtype=torch.long)),
-                EntityList.from_tensor(
-                    torch.tensor([42, 50], dtype=torch.long)),
-                torch.tensor([2, 2], dtype=torch.long),
-            ),
-        ]
-        # We can't use assertEqual because == between tensors doesn't work.
-        for actual_batch, expected_batch \
-                in zip_longest(actual_batches, expected_batches):
-            a_lhs, a_rhs, a_rel = actual_batch
-            e_lhs, e_rhs, e_rel = expected_batch
-            self.assertEqual(a_lhs, e_lhs)
-            self.assertEqual(a_rhs, e_rhs)
-            self.assertTrue(torch.equal(a_rel, e_rel), "%s != %s" % (a_rel, e_rel))
 
 
 class TestBatchEdgesGroupByType(TestCase):
 
     def test_basic(self):
-        lhs = EntityList.from_tensor(torch.tensor(
-            [93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long))
-        rhs = EntityList.from_tensor(torch.tensor(
-            [90, 75, 9, 25, 23, 31, 49, 64, 42, 50], dtype=torch.long))
-        rel = torch.tensor([1, 0, 0, 1, 2, 2, 0, 0, 2, 2], dtype=torch.long)
-        lhs_by_type = defaultdict(list)
-        rhs_by_type = defaultdict(list)
-        for batch_lhs, batch_rhs, rel_type in batch_edges_group_by_relation_type(
-            lhs, rhs, rel, batch_size=3
-        ):
-            self.assertIsInstance(batch_lhs, EntityList)
-            self.assertLessEqual(batch_lhs.size(0), 3)
-            lhs_by_type[rel_type].append(batch_lhs)
-            self.assertIsInstance(batch_rhs, EntityList)
-            self.assertLessEqual(batch_rhs.size(0), 3)
-            rhs_by_type[rel_type].append(batch_rhs)
-        self.assertCountEqual(lhs_by_type.keys(), [0, 1, 2])
-        self.assertCountEqual(rhs_by_type.keys(), [0, 1, 2])
-        self.assertEqual(
-            EntityList.cat(lhs_by_type[0]),
+        edges = EdgeList(
             EntityList.from_tensor(torch.tensor(
-                [24, 13, 77, 38], dtype=torch.long)))
-        self.assertEqual(
-            EntityList.cat(rhs_by_type[0]),
+                [93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long)),
             EntityList.from_tensor(torch.tensor(
-                [75, 9, 49, 64], dtype=torch.long)))
+                [90, 75, 9, 25, 23, 31, 49, 64, 42, 50], dtype=torch.long)),
+            torch.tensor([1, 0, 0, 1, 2, 2, 0, 0, 2, 2], dtype=torch.long),
+        )
+        edges_by_type = defaultdict(list)
+        for batch_edges in batch_edges_group_by_relation_type(edges, batch_size=3):
+            self.assertIsInstance(batch_edges, EdgeList)
+            self.assertLessEqual(len(batch_edges), 3)
+            self.assertTrue(batch_edges.has_scalar_relation_type())
+            edges_by_type[batch_edges.get_relation_type_as_scalar()].append(batch_edges)
         self.assertEqual(
-            EntityList.cat(lhs_by_type[1]),
-            EntityList.from_tensor(torch.tensor(
-                [93, 31], dtype=torch.long)))
-        self.assertEqual(
-            EntityList.cat(rhs_by_type[1]),
-            EntityList.from_tensor(torch.tensor(
-                [90, 25], dtype=torch.long)))
-        self.assertEqual(
-            EntityList.cat(lhs_by_type[2]),
-            EntityList.from_tensor(torch.tensor(
-                [70, 66, 5, 5], dtype=torch.long)))
-        self.assertEqual(
-            EntityList.cat(rhs_by_type[2]),
-            EntityList.from_tensor(torch.tensor(
-                [23, 31, 42, 50], dtype=torch.long)))
+            {k: EdgeList.cat(v) for k, v in edges_by_type.items()},
+            {
+                0: EdgeList(
+                    EntityList.from_tensor(torch.tensor(
+                        [24, 13, 77, 38], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor(
+                        [75, 9, 49, 64], dtype=torch.long)),
+                    torch.tensor(0, dtype=torch.long),
+                ),
+                1: EdgeList(
+                    EntityList.from_tensor(torch.tensor(
+                        [93, 31], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor(
+                        [90, 25], dtype=torch.long)),
+                    torch.tensor(1, dtype=torch.long),
+                ),
+                2: EdgeList(
+                    EntityList.from_tensor(torch.tensor(
+                        [70, 66, 5, 5], dtype=torch.long)),
+                    EntityList.from_tensor(torch.tensor(
+                        [23, 31, 42, 50], dtype=torch.long)),
+                    torch.tensor(2, dtype=torch.long),
+                ),
+            },
+        )
 
 
 if __name__ == '__main__':

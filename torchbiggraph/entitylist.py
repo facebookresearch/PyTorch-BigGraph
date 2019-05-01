@@ -6,7 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, List, Union, overload
+from typing import Any, Sequence, Union
 
 import torch
 from torch_extensions.tensorlist.tensorlist import TensorList
@@ -30,23 +30,41 @@ class EntityList:
 
     @classmethod
     def from_tensor(cls, tensor: LongTensorType) -> 'EntityList':
-        if tensor.ndimension() != 1:
-            raise ValueError("Expected 1D tensor, got %dD" % tensor.ndimension())
-        tensor_list = TensorList.empty(num_tensors=tensor.nelement())
+        if tensor.dim() != 1:
+            raise ValueError("Expected 1D tensor, got %dD" % tensor.dim())
+        tensor_list = TensorList.empty(num_tensors=tensor.shape[0])
         return cls(tensor, tensor_list)
 
     @classmethod
     def from_tensor_list(cls, tensor_list: TensorList) -> 'EntityList':
-        tensor = torch.full((tensor_list.nelement(),), -1, dtype=torch.long)
+        tensor = torch.full((len(tensor_list),), -1, dtype=torch.long)
         return cls(tensor, tensor_list)
 
     @classmethod
-    def cat(cls, entity_lists: List['EntityList']) -> 'EntityList':
+    def cat(cls, entity_lists: Sequence['EntityList']) -> 'EntityList':
         return cls(
             torch.cat([el.tensor for el in entity_lists]),
             TensorList.cat(el.tensor_list for el in entity_lists))
 
     def __init__(self, tensor: LongTensorType, tensor_list: TensorList) -> None:
+        if not isinstance(tensor, torch.LongTensor):
+            raise TypeError(
+                "Expected long tensor as first argument, got %s" % type(tensor))
+        if not isinstance(tensor_list, TensorList):
+            raise TypeError(
+                "Expected tensor list as second argument, got %s"
+                % type(tensor_list))
+        if tensor.dim() != 1:
+            raise ValueError(
+                "Expected 1-dimensional tensor, got %d-dimensional one"
+                % tensor.dim())
+        if tensor.shape[0] != len(tensor_list):
+            raise ValueError(
+                "The tensor and tensor list have different lengths: %d != %d"
+                % (tensor.shape[0], len(tensor_list)))
+        # TODO We could check that, for all i, we have either tensor[i] < 0 or
+        # tensor_list[i] empty, however it's expensive and we're already doing
+        # something similar at retrieval inside to_tensor(_list).
         self.tensor: LongTensorType = tensor
         self.tensor_list: TensorList = tensor_list
 
@@ -80,38 +98,23 @@ class EntityList:
         self,
         index: Union[int, slice, LongTensorType],
     ) -> 'EntityList':
+        if isinstance(index, int):
+            return self[index:index + 1]
+
         if isinstance(index, torch.LongTensor) or isinstance(index, int):
             tensor_sub = self.tensor[index]
             tensor_list_sub = self.tensor_list[index]
             return type(self)(tensor_sub, tensor_list_sub)
 
-        elif isinstance(index, slice):
+        if isinstance(index, slice):
             start, stop, step = index.indices(len(self))
             if step != 1:
                 raise ValueError("Expected slice with step 1, got %d" % step)
             tensor_sub = self.tensor[start:stop]
             tensor_list_sub = self.tensor_list[start:stop]
             return type(self)(tensor_sub, tensor_list_sub)
-        else:
-            raise KeyError("Unknown index type: %s" % type(index))
+
+        raise KeyError("Unknown index type: %s" % type(index))
 
     def __len__(self) -> int:
-        return self.tensor.nelement()
-
-    def nelement(self) -> int:
-        return len(self)
-
-    @overload
-    def size(self, dim: None) -> torch.Size:
-        ...
-
-    @overload  # noqa: F811  # FIXME(T20027161)
-    def size(self, dim: int) -> int:
-        ...
-
-    def size(self, dim=None):  # noqa: F811  # FIXME(T20027161)
-        assert dim == 0 or dim is None, 'EntityList can only have 1 dimension'
-        if dim is None:
-            return torch.Size([len(self)])
-        else:
-            return len(self)
+        return self.tensor.shape[0]

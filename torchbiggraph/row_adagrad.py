@@ -65,7 +65,7 @@ class RowAdagrad(Optimizer):
                 clr = group['lr'] / (1 + (state['step'] - 1) * group['lr_decay'])
 
                 if grad.is_sparse:
-                    if grad._indices().nelement() == 0:
+                    if grad._indices().numel() == 0:
                         continue
                     # the update is non-linear so indices must be unique
                     grad = grad.coalesce()

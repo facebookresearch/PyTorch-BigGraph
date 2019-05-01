@@ -123,6 +123,12 @@ class TensorList(object):
         else:
             raise KeyError("Unknown index type: %s" % type(index))
 
+    def __eq__(self, other):
+        if not isinstance(other, TensorList):
+            return NotImplemented
+        return (torch.equal(self.offsets, other.offsets)
+                and torch.equal(self.data, other.data))
+
     def __len__(self):
         return self.offsets.size(0) - 1
 

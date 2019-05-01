@@ -28,10 +28,11 @@ from torch_extensions.rpc.rpc import (
 )
 
 from .config import ConfigSchema
+from .edgelist import EdgeList
 from .entitylist import EntityList
 from .parameter_sharing import ParameterClient
 from .types import EntityName, Partition, Rank, OptimizerStateDict, ModuleStateDict, \
-    FloatTensorType, LongTensorType
+    FloatTensorType
 from .util import log, vlog, create_pool
 
 
@@ -77,7 +78,7 @@ class EdgeReader:
         rhs_p: Partition,
         chunk_idx: int = 0,
         num_chunks: int = 1,
-    ) -> Tuple[EntityList, EntityList, LongTensorType]:
+    ) -> EdgeList:
         file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhs_p, rhs_p))
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as hf:
@@ -109,9 +110,9 @@ class EdgeReader:
             lhsd = self.read_dynamic(hf, 'lhsd', begin, end)
             rhsd = self.read_dynamic(hf, 'rhsd', begin, end)
 
-            return (EntityList(lhs, lhsd),
-                    EntityList(rhs, rhsd),
-                    rel)
+            return EdgeList(EntityList(lhs, lhsd),
+                            EntityList(rhs, rhsd),
+                            rel)
 
     @staticmethod
     def read_dynamic(

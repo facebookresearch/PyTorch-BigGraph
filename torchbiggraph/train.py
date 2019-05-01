@@ -13,7 +13,7 @@ import time
 from abc import ABC, abstractmethod
 from functools import partial
 from itertools import chain
-from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
 
 import torch
 import torch.distributed as td
@@ -24,7 +24,7 @@ from .bucket_scheduling import LockServer, AbstractBucketScheduler, \
     SingleMachineBucketScheduler, DistributedBucketScheduler
 from .config import LossFunction, RelationSchema, ConfigSchema, parse_config
 from .distributed import ProcessRanks, init_process_group, start_server
-from .entitylist import EntityList
+from .edgelist import EdgeList
 from .eval import RankingEvaluator
 from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
     ConfigMetadataProvider, maybe_old_entity_path, PartitionClient
@@ -34,7 +34,7 @@ from .parameter_sharing import ParameterServer, ParameterSharer
 from .row_adagrad import RowAdagrad
 from .stats import Stats
 from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
-    OptimizerStateDict, FloatTensorType, LongTensorType
+    OptimizerStateDict, FloatTensorType
 from .util import log, vlog, get_partitioned_types, create_pool, fast_approx_rand, \
     DummyOptimizer, split_almost_equally, round_up_to_nearest_multiple, \
     get_num_workers
@@ -69,26 +69,25 @@ class Trainer(AbstractBatchProcessor):
     def process_one_batch(
         self,
         model: MultiRelationEmbedder,
-        batch_lhs: EntityList,
-        batch_rhs: EntityList,
-        # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
-        batch_rel: Union[int, LongTensorType],
+        batch_edges: EdgeList,
     ) -> Stats:
         model.zero_grad()
 
         lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores = \
-            model(batch_lhs, batch_rhs, batch_rel)
+            model(batch_edges)
 
         lhs_loss = self.loss_fn(lhs_pos_scores, lhs_neg_scores)
         rhs_loss = self.loss_fn(rhs_pos_scores, rhs_neg_scores)
-        relation = self.relations[batch_rel if isinstance(batch_rel, int) else 0]
+        relation = self.relations[batch_edges.get_relation_type_as_scalar()
+                                  if batch_edges.has_scalar_relation_type()
+                                  else 0]
         loss = relation.weight * (lhs_loss + rhs_loss)
 
         stats = Stats(
             loss=loss.item(),
             violators_lhs=lhs_neg_scores.gt(lhs_pos_scores.unsqueeze(1)).long().sum().item(),
             violators_rhs=rhs_neg_scores.gt(rhs_pos_scores.unsqueeze(1)).long().sum().item(),
-            count=batch_lhs.size(0))
+            count=len(batch_edges))
 
         loss.backward()
         self.global_optimizer.step(closure=None)
@@ -112,15 +111,12 @@ class TrainingRankingEvaluator(RankingEvaluator):
     def process_one_batch(
         self,
         model: MultiRelationEmbedder,
-        batch_lhs: EntityList,
-        batch_rhs: EntityList,
-        # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
-        batch_rel: Union[int, LongTensorType],
+        batch_edges: EdgeList,
     ) -> Stats:
         with override_model(model,
                             num_batch_negs=self.override_num_batch_negs,
                             num_uniform_negs=self.override_num_uniform_negs):
-            return super().process_one_batch(model, batch_lhs, batch_rhs, batch_rel)
+            return super().process_one_batch(model, batch_edges)
 
 
 def init_embs(
@@ -467,7 +463,7 @@ def train_and_report_stats(
                 embs = model.get_embeddings(entity, side)
                 optim_key = (entity, part)
                 optim_state = OptimizerStateDict(trainer.entity_optimizers[optim_key].state_dict())
-                io_bytes += embs.nelement() * 4  # ignore optim state
+                io_bytes += embs.numel() * embs.element_size()  # ignore optim state
                 checkpoint_manager.write(entity, part, embs.detach(), optim_state)
                 if optim_key in trainer.entity_optimizers:
                     del trainer.entity_optimizers[optim_key]
@@ -505,7 +501,7 @@ def train_and_report_stats(
                 force_dirty = bucket_scheduler.check_and_set_dirty(entity, part)
                 embs, optim_state = load_embeddings(
                     entity, part, strict=strict, force_dirty=force_dirty)
-                io_bytes += embs.nelement() * 4  # ignore optim state
+                io_bytes += embs.numel() * embs.element_size()  # ignore optim state
 
             model.set_embeddings(entity, embs, side)
             tmp_emb[part_key] = embs
@@ -580,11 +576,13 @@ def train_and_report_stats(
                 checkpoint_manager.record_marker(current_index)
 
             log_status("Loading edges")
-            lhs, rhs, rel = edge_reader.read(
+            edges = edge_reader.read(
                 cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
-            num_edges = rel.size(0)
-            # this might be off in the case of tensorlist
-            io_bytes += (lhs.nelement() + rhs.nelement() + rel.nelement()) * 4
+            num_edges = len(edges)
+            # this might be off in the case of tensorlist or extra edge fields
+            io_bytes += edges.lhs.tensor.numel() * edges.lhs.tensor.element_size()
+            io_bytes += edges.rhs.tensor.numel() * edges.rhs.tensor.element_size()
+            io_bytes += edges.rel.numel() * edges.rel.element_size()
 
             log_status("Shuffling edges")
             # Fix a seed to get the same permutation every time; have it
@@ -611,7 +609,7 @@ def train_and_report_stats(
                         batch_size=eval_batch_size,
                         model=model,
                         batch_processor=evaluator,
-                        lhs=lhs, rhs=rhs, rel=rel,
+                        edges=edges,
                         indices=eval_edge_perm[s],
                     )
                     for s in split_almost_equally(eval_edge_perm.size(0),
@@ -631,7 +629,7 @@ def train_and_report_stats(
                     batch_size=config.batch_size,
                     model=model,
                     batch_processor=trainer,
-                    lhs=lhs, rhs=rhs, rel=rel,
+                    edges=edges,
                     indices=edge_perm[s],
                     delay=config.hogwild_delay if epoch_idx == 0 and rank > 0 else 0,
                 )
@@ -645,7 +643,7 @@ def train_and_report_stats(
                 "bucket %d / %d : Processed %d edges in %.2f s "
                 "( %.2g M/sec ); io: %.2f s ( %.2f MB/sec )" %
                 (total_buckets - remaining, total_buckets,
-                 lhs.size(0), compute_time, lhs.size(0) / compute_time / 1e6,
+                 num_edges, compute_time, num_edges / compute_time / 1e6,
                  io_time, io_bytes / io_time / 1e6),
                 always=True)
             log_status("%s" % stats, always=True)
@@ -660,7 +658,7 @@ def train_and_report_stats(
                         batch_size=eval_batch_size,
                         model=model,
                         batch_processor=evaluator,
-                        lhs=lhs, rhs=rhs, rel=rel,
+                        edges=edges,
                         indices=eval_edge_perm[s],
                     )
                     for s in split_almost_equally(eval_edge_perm.size(0),

@@ -10,19 +10,18 @@ import argparse
 import time
 from functools import partial
 from itertools import chain
-from typing import Generator, List, Optional, Tuple, Union
+from typing import Generator, List, Optional, Tuple
 
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from .batching import call, process_in_batches, AbstractBatchProcessor
 from .bucket_scheduling import create_buckets_ordered_lexicographically
 from .config import parse_config, ConfigSchema
-from .entitylist import EntityList
+from .edgelist import EdgeList
 from .fileio import CheckpointManager, EdgeReader
 from .model import Scores, MultiRelationEmbedder, make_model
 from .stats import average_of_sums, Stats
-from .types import Side, Bucket, EntityName, Partition, LongTensorType
+from .types import Side, Bucket, EntityName, Partition
 from .util import log, get_partitioned_types, create_pool, compute_randomized_auc,\
     split_almost_equally, get_num_workers
 
@@ -32,23 +31,18 @@ class RankingEvaluator(AbstractBatchProcessor):
     def process_one_batch(
         self,
         model: MultiRelationEmbedder,
-        batch_lhs: EntityList,
-        batch_rhs: EntityList,
-        # batch_rel is int in normal mode, LongTensor in dynamic relations mode.
-        batch_rel: Union[int, LongTensorType],
+        batch_edges: EdgeList,
     ) -> Stats:
         with torch.no_grad():
-            scores = model(batch_lhs, batch_rhs, batch_rel)
-        return self.eval(scores, batch_lhs, batch_rhs, batch_rel)
+            scores = model(batch_edges)
+        return self.eval(scores, batch_edges)
 
     def eval(
         self,
         scores: Scores,
-        batch_lhs: Union[LongTensorType, TensorList],
-        batch_rhs: Union[LongTensorType, TensorList],
-        batch_rel: Union[int, LongTensorType],
+        batch_edges: EdgeList,
     ) -> Stats:
-        batch_size = batch_lhs.size(0)
+        batch_size = len(batch_edges)
         lhs_pos_scores, rhs_pos_scores, lhs_neg_scores, rhs_neg_scores = scores
 
         lhs_rank = lhs_neg_scores.ge(lhs_pos_scores.unsqueeze(1)).long().sum(1) + 1
@@ -136,8 +130,8 @@ def do_eval_and_report_stats(
             last_lhs, last_rhs = bucket.lhs, bucket.rhs
 
             # log("%s: Loading edges" % (bucket,))
-            lhs, rhs, rel = edge_reader.read(bucket.lhs, bucket.rhs)
-            num_edges = rel.size(0)
+            edges = edge_reader.read(bucket.lhs, bucket.rhs)
+            num_edges = len(edges)
 
             load_time = time.time() - tic
             tic = time.time()
@@ -148,15 +142,15 @@ def do_eval_and_report_stats(
                     batch_size=config.batch_size,
                     model=model,
                     batch_processor=evaluator,
-                    lhs=lhs[s], rhs=rhs[s], rel=rel[s],
+                    edges=edges[s],
                 )
                 for s in split_almost_equally(num_edges, num_parts=num_workers)
             ])
 
             compute_time = time.time() - tic
             log("%s: Processed %d edges in %.2g s (%.2gM/sec); load time: %.2g s"
-                % (bucket, lhs.size(0), compute_time,
-                   lhs.size(0) / compute_time / 1e6, load_time))
+                % (bucket, num_edges, compute_time,
+                   num_edges / compute_time / 1e6, load_time))
 
             total_bucket_stats = Stats.sum(all_bucket_stats)
             all_edge_path_stats.append(total_bucket_stats)

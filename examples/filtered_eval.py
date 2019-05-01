@@ -7,18 +7,16 @@
 # LICENSE file in the root directory of this source tree.
 
 from collections import defaultdict
-from typing import Dict, List, Union, Tuple
-
-import torch
+from typing import Dict, List, Tuple
 
 from torchbiggraph.config import ConfigSchema
-from torchbiggraph.entitylist import EntityList
+from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.fileio import EdgeReader
 from torchbiggraph.model import Scores
 from torchbiggraph.util import log
 from torchbiggraph.stats import Stats
-from torchbiggraph.types import Partition, LongTensorType
+from torchbiggraph.types import Partition
 
 
 class FilteredRankingEvaluator(RankingEvaluator):
@@ -49,14 +47,14 @@ class FilteredRankingEvaluator(RankingEvaluator):
             log("Building links map from path %s" % path)
             e_reader = EdgeReader(path)
             # Assume unpartitioned.
-            lhs, rhs, rel = e_reader.read(Partition(0), Partition(0))
-            num_edges = lhs.size(0)
-            for i in range(num_edges):
+            edges = e_reader.read(Partition(0), Partition(0))
+            for idx in range(len(edges)):
                 # Assume non-featurized.
-                cur_lhs = lhs.to_tensor()[i].item()
-                cur_rel = rel[i].item()
+                cur_lhs = int(edges.lhs.to_tensor()[idx])
+                # Assume dynamic relations.
+                cur_rel = int(edges.rel[idx])
                 # Assume non-featurized.
-                cur_rhs = rhs.to_tensor()[i].item()
+                cur_rhs = int(edges.rhs.to_tensor()[idx])
 
                 self.lhs_map[cur_lhs, cur_rel].append(cur_rhs)
                 self.rhs_map[cur_rhs, cur_rel].append(cur_lhs)
@@ -66,21 +64,17 @@ class FilteredRankingEvaluator(RankingEvaluator):
     def eval(
         self,
         scores: Scores,
-        batch_lhs: EntityList,
-        batch_rhs: EntityList,
-        batch_rel: Union[int, LongTensorType],
+        batch_edges: EdgeList,
     ) -> Stats:
-        # Assume dynamic relations.
-        assert isinstance(batch_rel, torch.LongTensor)
-
         _, _, lhs_neg_scores, rhs_neg_scores = scores
-        b = batch_lhs.size(0)
-        for idx in range(b):
+
+        for idx in range(len(batch_edges)):
             # Assume non-featurized.
-            cur_lhs = batch_lhs.to_tensor()[idx].item()
-            cur_rel = batch_rel[idx].item()
+            cur_lhs = int(batch_edges.lhs.to_tensor()[idx])
+            # Assume dynamic relations.
+            cur_rel = int(batch_edges.rel[idx])
             # Assume non-featurized.
-            cur_rhs = batch_rhs.to_tensor()[idx].item()
+            cur_rhs = int(batch_edges.rhs.to_tensor()[idx])
 
             rhs_edges_filtered = self.lhs_map[cur_lhs, cur_rel]
             lhs_edges_filtered = self.rhs_map[cur_rhs, cur_rel]
@@ -93,4 +87,4 @@ class FilteredRankingEvaluator(RankingEvaluator):
             lhs_neg_scores[idx][lhs_edges_filtered] = -1e9
             rhs_neg_scores[idx][rhs_edges_filtered] = -1e9
 
-        return super().eval(scores, batch_lhs, batch_rhs, batch_rel)
+        return super().eval(scores, batch_edges)
