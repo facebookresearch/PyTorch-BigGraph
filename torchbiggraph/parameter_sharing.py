@@ -16,10 +16,9 @@ import torch.distributed as td
 import torch.multiprocessing as mp
 import torch.nn as nn
 
-from .distributed import Startable, init_process_group
-from .types import CharTensorType, Rank, ModuleStateDict
-from .util import log
-
+from torchbiggraph.distributed import Startable, init_process_group
+from torchbiggraph.types import CharTensorType, ModuleStateDict, Rank
+from torchbiggraph.util import log
 
 ################################################################################
 # Generic parameter client-server protocol

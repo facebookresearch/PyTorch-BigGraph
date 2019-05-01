@@ -14,9 +14,9 @@ from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.fileio import EdgeReader
 from torchbiggraph.model import Scores
-from torchbiggraph.util import log
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import Partition
+from torchbiggraph.util import log
 
 
 class FilteredRankingEvaluator(RankingEvaluator):

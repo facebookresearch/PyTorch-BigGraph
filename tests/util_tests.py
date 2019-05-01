@@ -9,8 +9,8 @@
 from unittest import TestCase, main
 
 from torchbiggraph.util import (
-    split_almost_equally,
     round_up_to_nearest_multiple,
+    split_almost_equally,
 )
 
 

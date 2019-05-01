@@ -12,10 +12,10 @@ from typing import Callable, Iterable, List, Optional
 
 import torch
 
-from .edgelist import EdgeList
-from .model import MultiRelationEmbedder
-from .stats import Stats
-from .types import LongTensorType
+from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.model import MultiRelationEmbedder
+from torchbiggraph.stats import Stats
+from torchbiggraph.types import LongTensorType
 
 
 def group_by_relation_type(edges: EdgeList) -> List[EdgeList]:

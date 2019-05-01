@@ -20,10 +20,15 @@ import attr
 import h5py
 import numpy as np
 
-from torchbiggraph.config import Operator, EntitySchema, RelationSchema, ConfigSchema
+from torchbiggraph.config import (
+    ConfigSchema,
+    EntitySchema,
+    Operator,
+    RelationSchema,
+)
+from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.train import train
-from torchbiggraph.eval import do_eval
 
 
 class Dataset(NamedTuple):

@@ -21,19 +21,23 @@ import h5py
 import numpy as np
 import torch
 import torch.multiprocessing as mp
+from torch_extensions.rpc.rpc import _deserialize as torch_rpc_deserialize
+from torch_extensions.rpc.rpc import _serialize as torch_rpc_serialize
 from torch_extensions.tensorlist.tensorlist import TensorList
-from torch_extensions.rpc.rpc import (
-    _serialize as torch_rpc_serialize,
-    _deserialize as torch_rpc_deserialize,
-)
 
-from .config import ConfigSchema
-from .edgelist import EdgeList
-from .entitylist import EntityList
-from .parameter_sharing import ParameterClient
-from .types import EntityName, Partition, Rank, OptimizerStateDict, ModuleStateDict, \
-    FloatTensorType
-from .util import log, vlog, create_pool
+from torchbiggraph.config import ConfigSchema
+from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.entitylist import EntityList
+from torchbiggraph.parameter_sharing import ParameterClient
+from torchbiggraph.types import (
+    EntityName,
+    FloatTensorType,
+    ModuleStateDict,
+    OptimizerStateDict,
+    Partition,
+    Rank,
+)
+from torchbiggraph.util import create_pool, log, vlog
 
 
 def maybe_old_entity_path(path: str) -> bool:

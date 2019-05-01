@@ -10,7 +10,7 @@ from collections import defaultdict
 from statistics import mean
 from typing import Iterable, Type
 
-from .types import FloatTensorType
+from torchbiggraph.types import FloatTensorType
 
 
 def average_of_sums(*tensors: FloatTensorType) -> float:

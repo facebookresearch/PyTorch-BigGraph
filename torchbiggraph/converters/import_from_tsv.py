@@ -16,8 +16,12 @@ from typing import Counter, DefaultDict, Dict, List, Optional, Tuple
 import h5py
 import numpy as np
 
-from torchbiggraph.config import \
-    ConfigSchema, EntitySchema, RelationSchema, get_config_dict_from_module
+from torchbiggraph.config import (
+    ConfigSchema,
+    EntitySchema,
+    RelationSchema,
+    get_config_dict_from_module,
+)
 from torchbiggraph.converters.dictionary import Dictionary
 
 

@@ -13,13 +13,11 @@ from itertools import chain
 import attr
 
 import torchbiggraph.converters.utils as utils
+from filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.config import parse_config
 from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
-
-from filtered_eval import FilteredRankingEvaluator
-
 
 FB15K_URL = 'https://dl.fbaipublicfiles.com/starspace/fb15k.tgz'
 FILENAMES = {

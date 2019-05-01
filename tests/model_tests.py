@@ -18,17 +18,24 @@ from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.model import (
+    AffineDynamicOperator,
+    AffineOperator,
+    BiasedComparator,
+    ComplexDiagonalDynamicOperator,
+    ComplexDiagonalOperator,
+    CosComparator,
+    DiagonalDynamicOperator,
+    DiagonalOperator,
+    DotComparator,
+    FeaturizedEmbedding,
+    IdentityDynamicOperator,
+    IdentityOperator,
+    LinearDynamicOperator,
+    LinearOperator,
+    SimpleEmbedding,
+    TranslationDynamicOperator,
+    TranslationOperator,
     match_shape,
-    # Embeddings
-    SimpleEmbedding, FeaturizedEmbedding,
-    # Operators
-    IdentityOperator, DiagonalOperator, TranslationOperator, LinearOperator,
-    AffineOperator, ComplexDiagonalOperator,
-    # Dynamic operators
-    IdentityDynamicOperator, DiagonalDynamicOperator, TranslationDynamicOperator,
-    LinearDynamicOperator, AffineDynamicOperator, ComplexDiagonalDynamicOperator,
-    # Comparator
-    DotComparator, CosComparator, BiasedComparator,
 )
 
 

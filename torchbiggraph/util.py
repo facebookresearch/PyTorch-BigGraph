@@ -16,8 +16,8 @@ import torch
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
 
-from .config import ConfigSchema
-from .types import Side, EntityName, FloatTensorType
+from torchbiggraph.config import ConfigSchema
+from torchbiggraph.types import EntityName, FloatTensorType, Side
 
 
 def log(msg: str) -> None:

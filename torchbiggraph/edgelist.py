@@ -10,8 +10,8 @@ from typing import Any, Sequence, Union
 
 import torch
 
-from .entitylist import EntityList
-from .types import LongTensorType
+from torchbiggraph.entitylist import EntityList
+from torchbiggraph.types import LongTensorType
 
 
 class EdgeList:

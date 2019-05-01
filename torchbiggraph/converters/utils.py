@@ -8,8 +8,8 @@
 
 import gzip
 import os
-import tarfile
 import shutil
+import tarfile
 import urllib.request
 from typing import Callable, Optional
 

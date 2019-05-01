@@ -11,9 +11,9 @@ from itertools import chain
 
 import torch.distributed as td
 
-from .config import parse_config, ConfigSchema
-from .distributed import ProcessRanks, init_process_group
-from .parameter_sharing import ParameterServer
+from torchbiggraph.config import ConfigSchema, parse_config
+from torchbiggraph.distributed import ProcessRanks, init_process_group
+from torchbiggraph.parameter_sharing import ParameterServer
 
 # This is a small binary that just runs a partition server.
 # You need to run this if you run a distributed run and set

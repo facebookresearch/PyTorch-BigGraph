@@ -19,7 +19,6 @@ from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 
-
 URL = 'https://snap.stanford.edu/data/soc-LiveJournal1.txt.gz'
 FILENAMES = {
     'train': 'train.txt',

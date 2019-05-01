@@ -17,27 +17,75 @@ from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
 
 import torch
 import torch.distributed as td
-from torch.optim import Optimizer, Adagrad
+from torch.optim import Adagrad, Optimizer
 
-from .batching import call, process_in_batches, AbstractBatchProcessor
-from .bucket_scheduling import LockServer, AbstractBucketScheduler, \
-    SingleMachineBucketScheduler, DistributedBucketScheduler
-from .config import LossFunction, RelationSchema, ConfigSchema, parse_config
-from .distributed import ProcessRanks, init_process_group, start_server
-from .edgelist import EdgeList
-from .eval import RankingEvaluator
-from .fileio import CheckpointManager, EdgeReader, MetadataProvider, \
-    ConfigMetadataProvider, maybe_old_entity_path, PartitionClient
-from .losses import AbstractLoss, LogisticLoss, RankingLoss, SoftmaxLoss
-from .model import make_model, override_model, MultiRelationEmbedder
-from .parameter_sharing import ParameterServer, ParameterSharer
-from .row_adagrad import RowAdagrad
-from .stats import Stats
-from .types import Side, Bucket, Partition, EntityName, Rank, ModuleStateDict, \
-    OptimizerStateDict, FloatTensorType
-from .util import log, vlog, get_partitioned_types, create_pool, fast_approx_rand, \
-    DummyOptimizer, split_almost_equally, round_up_to_nearest_multiple, \
-    get_num_workers
+from torchbiggraph.batching import (
+    AbstractBatchProcessor,
+    call,
+    process_in_batches,
+)
+from torchbiggraph.bucket_scheduling import (
+    AbstractBucketScheduler,
+    DistributedBucketScheduler,
+    LockServer,
+    SingleMachineBucketScheduler,
+)
+from torchbiggraph.config import (
+    ConfigSchema,
+    LossFunction,
+    RelationSchema,
+    parse_config,
+)
+from torchbiggraph.distributed import (
+    ProcessRanks,
+    init_process_group,
+    start_server,
+)
+from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.eval import RankingEvaluator
+from torchbiggraph.fileio import (
+    CheckpointManager,
+    ConfigMetadataProvider,
+    EdgeReader,
+    MetadataProvider,
+    PartitionClient,
+    maybe_old_entity_path,
+)
+from torchbiggraph.losses import (
+    AbstractLoss,
+    LogisticLoss,
+    RankingLoss,
+    SoftmaxLoss,
+)
+from torchbiggraph.model import (
+    MultiRelationEmbedder,
+    make_model,
+    override_model,
+)
+from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
+from torchbiggraph.row_adagrad import RowAdagrad
+from torchbiggraph.stats import Stats
+from torchbiggraph.types import (
+    Bucket,
+    EntityName,
+    FloatTensorType,
+    ModuleStateDict,
+    OptimizerStateDict,
+    Partition,
+    Rank,
+    Side,
+)
+from torchbiggraph.util import (
+    DummyOptimizer,
+    create_pool,
+    fast_approx_rand,
+    get_num_workers,
+    get_partitioned_types,
+    log,
+    round_up_to_nearest_multiple,
+    split_almost_equally,
+    vlog,
+)
 
 
 class Trainer(AbstractBatchProcessor):

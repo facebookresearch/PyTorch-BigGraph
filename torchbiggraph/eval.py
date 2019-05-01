@@ -14,16 +14,28 @@ from typing import Generator, List, Optional, Tuple
 
 import torch
 
-from .batching import call, process_in_batches, AbstractBatchProcessor
-from .bucket_scheduling import create_buckets_ordered_lexicographically
-from .config import parse_config, ConfigSchema
-from .edgelist import EdgeList
-from .fileio import CheckpointManager, EdgeReader
-from .model import Scores, MultiRelationEmbedder, make_model
-from .stats import average_of_sums, Stats
-from .types import Side, Bucket, EntityName, Partition
-from .util import log, get_partitioned_types, create_pool, compute_randomized_auc,\
-    split_almost_equally, get_num_workers
+from torchbiggraph.batching import (
+    AbstractBatchProcessor,
+    call,
+    process_in_batches,
+)
+from torchbiggraph.bucket_scheduling import (
+    create_buckets_ordered_lexicographically
+)
+from torchbiggraph.config import ConfigSchema, parse_config
+from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.fileio import CheckpointManager, EdgeReader
+from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
+from torchbiggraph.stats import Stats, average_of_sums
+from torchbiggraph.types import Bucket, EntityName, Partition, Side
+from torchbiggraph.util import (
+    compute_randomized_auc,
+    create_pool,
+    get_num_workers,
+    get_partitioned_types,
+    log,
+    split_almost_equally,
+)
 
 
 class RankingEvaluator(AbstractBatchProcessor):

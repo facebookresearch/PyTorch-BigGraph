@@ -12,8 +12,15 @@ from unittest import TestCase, main
 
 import attr
 
-from torchbiggraph.schema import unpack_optional, Loader, Dumper, schema, Schema, \
-    extract_nested_type, inject_nested_value
+from torchbiggraph.schema import (
+    Dumper,
+    Loader,
+    Schema,
+    extract_nested_type,
+    inject_nested_value,
+    schema,
+    unpack_optional,
+)
 
 
 class TestUnpackOptional(TestCase):

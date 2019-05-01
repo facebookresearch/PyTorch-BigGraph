@@ -12,13 +12,13 @@ from unittest import TestCase, main
 
 import torch
 
+from torchbiggraph.batching import (
+    batch_edges_group_by_relation_type,
+    batch_edges_mix_relation_types,
+    group_by_relation_type,
+)
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
-from torchbiggraph.batching import (
-    group_by_relation_type,
-    batch_edges_mix_relation_types,
-    batch_edges_group_by_relation_type,
-)
 
 
 class TestGroupByRelationType(TestCase):

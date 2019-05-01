@@ -10,19 +10,34 @@ import os.path
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
-from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Type, Union
+from typing import (
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    Union,
+)
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
-from .config import Operator, Comparator, EntitySchema, RelationSchema, ConfigSchema
-from .edgelist import EdgeList
-from .entitylist import EntityList
-from .fileio import maybe_old_entity_path
-from .types import Side, FloatTensorType, LongTensorType
-from .util import log
+from torchbiggraph.config import (
+    Comparator,
+    ConfigSchema,
+    EntitySchema,
+    Operator,
+    RelationSchema,
+)
+from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.entitylist import EntityList
+from torchbiggraph.fileio import maybe_old_entity_path
+from torchbiggraph.types import FloatTensorType, LongTensorType, Side
+from torchbiggraph.util import log
 
 
 def match_shape(tensor, *expected_shape):

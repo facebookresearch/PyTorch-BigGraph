@@ -13,8 +13,8 @@ from typing import List, NamedTuple, Optional
 import torch.distributed as td
 import torch.multiprocessing as mp
 
-from .types import Rank
-from .util import log
+from torchbiggraph.types import Rank
+from torchbiggraph.util import log
 
 
 class ProcessRanks(NamedTuple):

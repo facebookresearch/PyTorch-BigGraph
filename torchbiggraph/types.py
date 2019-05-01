@@ -11,7 +11,6 @@ from typing import Any, Dict, NamedTuple, NewType, TypeVar
 
 import torch
 
-
 # torch.FloatTensor and torch.LongTensor are defined as empty subclasses of
 # torch.Tensor by PyTorch's type stub, which means that any operation on them
 # returns plain untyped torch.Tensors. This makes it impossible to use the typed

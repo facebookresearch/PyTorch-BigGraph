@@ -14,7 +14,6 @@ from typing import Any, ClassVar, Dict, List, Optional, Sized, Type, Union
 
 import attr
 
-
 # This decorator must be applied to all classes that are intended to be used as
 # schemas. It parses the class-level attributes defined as attr.ibs and produces
 # __init__, __eq__, __hash__, __str__ and other magic methods for them.

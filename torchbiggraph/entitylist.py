@@ -11,7 +11,7 @@ from typing import Any, Sequence, Union
 import torch
 from torch_extensions.tensorlist.tensorlist import TensorList
 
-from .types import LongTensorType
+from torchbiggraph.types import LongTensorType
 
 
 class EntityList:

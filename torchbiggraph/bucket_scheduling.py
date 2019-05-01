@@ -12,11 +12,10 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from torch_extensions.rpc.rpc import Client, Server
 
-from .config import BucketOrder
-from .distributed import Startable
-from .types import Bucket, EntityName, Partition, Rank, Side
-from .util import log, vlog
-
+from torchbiggraph.config import BucketOrder
+from torchbiggraph.distributed import Startable
+from torchbiggraph.types import Bucket, EntityName, Partition, Rank, Side
+from torchbiggraph.util import log, vlog
 
 ###
 ###   Bucket scheduling interface.

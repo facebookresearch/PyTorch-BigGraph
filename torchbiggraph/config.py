@@ -16,8 +16,17 @@ from typing import Any, ClassVar, Dict, List, Optional
 import attr
 from attr.validators import optional
 
-from .schema import has_origin, DeepTypeError, Schema, schema, non_negative, \
-    positive, non_empty, extract_nested_type, inject_nested_value
+from torchbiggraph.schema import (
+    DeepTypeError,
+    Schema,
+    extract_nested_type,
+    has_origin,
+    inject_nested_value,
+    non_empty,
+    non_negative,
+    positive,
+    schema,
+)
 
 
 class Operator(Enum):
@@ -433,7 +442,7 @@ def parse_config(config_filename: str, overrides: Optional[List[str]] = None) ->
         print(str(err), file=sys.stderr)
         exit(1)
     # Late import to avoid circular dependency.
-    from . import util
+    from torchbiggraph import util
     util._verbosity_level = config.verbose
     return config
 
