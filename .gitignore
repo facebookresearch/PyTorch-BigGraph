@@ -2,6 +2,9 @@
 build/
 data/
 dist/
+docs/build/
+**/.DS_Store
+.idea/
 model/
 *.pyc
 **/__pycache__/
