@@ -36,7 +36,7 @@ setup(
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     keywords="machine-learning knowledge-base graph-embedding link-prediction",
-    packages=find_packages(exclude=["docs", "tests"]),
+    packages=find_packages(exclude=["docs", "test"]),
     package_data={
         "torchbiggraph.examples": [
             "configs/*.py",
