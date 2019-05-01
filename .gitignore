@@ -1,0 +1,9 @@
+*~
+build/
+data/
+dist/
+model/
+*.pyc
+**/__pycache__/
+torchbiggraph.egg-info/
+venv/

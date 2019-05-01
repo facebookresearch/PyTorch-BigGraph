@@ -14,9 +14,12 @@ with open("README.md", "rt") as f:
 with open("requirements.txt", "rt") as f:
     requirements = f.readlines()
 
+with open("torchbiggraph/VERSION.txt", "rt") as f:
+    version = f.read().strip()
+
 setup(
     name="torchbiggraph",
-    version="1.dev",
+    version=version,
     description="A distributed system to learn embeddings of large graphs",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -36,8 +39,12 @@ setup(
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
     keywords="machine-learning knowledge-base graph-embedding link-prediction",
+    license="BSD License",
     packages=find_packages(exclude=["docs", "test"]),
     package_data={
+        "torchbiggraph": [
+            "VERSION.txt",
+        ],
         "torchbiggraph.examples": [
             "configs/*.py",
         ],
