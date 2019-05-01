@@ -6,7 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from collections import Counter
+from collections import defaultdict
 from statistics import mean
 from typing import Iterable, Type
 
@@ -39,7 +39,7 @@ class Stats:
         """Return a stats whose metrics are the sums of the given stats.
 
         """
-        total_metrics = Counter()
+        total_metrics = defaultdict(lambda: 0)
         for s in stats:
             for k, v in s.metrics.items():
                 total_metrics[k] += v
