@@ -27,7 +27,7 @@ used as an example.
 Reading the HDF5 format
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Suppose that you have completed the training of the :file:`examples/fb15k.py` script and want to now
+Suppose that you have completed the training of the ``torchbiggraph_example_fb15k`` command and want to now
 look up the embedding of some entity. For that, we'll need to read:
 
 - the embeddings, from the checkpoint files (the :file:`.h5` files in the `model/fb15k` directory, or

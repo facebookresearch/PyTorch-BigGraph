@@ -37,11 +37,18 @@ setup(
     ],
     keywords="machine-learning knowledge-base graph-embedding link-prediction",
     packages=find_packages(exclude=["docs", "tests"]),
+    package_data={
+        "torchbiggraph.examples": [
+            "configs/*.py",
+        ],
+    },
     install_requires=requirements,
     entry_points={
         "console_scripts": [
             "torchbiggraph_config=torchbiggraph.config:main",
             "torchbiggraph_eval=torchbiggraph.eval:main",
+            "torchbiggraph_example_fb15k=torchbiggraph.examples.fb15k:main",
+            "torchbiggraph_example_livejournal=torchbiggraph.examples.livejournal:main",
             "torchbiggraph_export_to_tsv=torchbiggraph.converters.export_to_tsv:main",
             "torchbiggraph_import_from_tsv=torchbiggraph.converters.import_from_tsv:main",
             "torchbiggraph_partitionserver=torchbiggraph.partitionserver:main",

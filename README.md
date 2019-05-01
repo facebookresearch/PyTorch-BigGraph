@@ -43,11 +43,11 @@ pip install -r requirements.txt
 
 ## Getting started
 
-The results of [the paper](https://www.sysml.cc/doc/2019/71.pdf) can easily be reproduced by running the sample scripts located in the [examples](examples) directory, for instance:
+The results of [the paper](https://www.sysml.cc/doc/2019/71.pdf) can easily be reproduced by running the following command (which executes [this script](torchbiggraph/examples/fb15k.py)):
 ```bash
-examples/fb15k.py
+torchbiggraph_example_fb15k
 ```
-This will download the Freebase 15k knowledge base dataset, put it into the right format, train on it using the ComplEx model and finally perform an evaluation of the learned embeddings that calculates the MRR and other metrics that should match the paper. Another script, `examples/livejournal.py`, does the same for the LiveJournal interaction graph dataset. These scripts are _not_ self-contained and are best run from a full checkout of this repository.
+This will download the Freebase 15k knowledge base dataset, put it into the right format, train on it using the ComplEx model and finally perform an evaluation of the learned embeddings that calculates the MRR and other metrics that should match the paper. Another command, `torchbiggraph_example_livejournal`, does the same for the LiveJournal interaction graph dataset. These scripts are _not_ self-contained and are best run from a full checkout of this repository.
 
 To learn how to use PBG, let us walk through what the FB15k script does.
 
@@ -76,7 +76,7 @@ Luckily, there is a command that does all of this:
 ```bash
 torchbiggraph_import_from_tsv \
   --lhs-col=0 --rel-col=1 --rhs-col=2 \
-  examples/configs/fb15k_config.py \
+  torchbiggraph/examples/configs/fb15k_config.py \
   data/FB15k/freebase_mtr100_mte100-*.txt
 ```
 The outputs will be stored next to the inputs in the `data/FB15k` directory.
@@ -88,7 +88,7 @@ This simple utility is only suitable for small graphs that fit entirely in memor
 The `torchbiggraph_train` command is used to launch training. The training parameters are tucked away in a configuration file, whose path is given to the command. They can however be overridden from the command line with the `--param` flag. The sample config is used for both training and evaluation, so we will have to use the override to specify the edge set to use.
 ```bash
 torchbiggraph_train \
-  examples/configs/fb15k_config.py \
+  torchbiggraph/examples/configs/fb15k_config.py \
   -p edge_paths=data/FB15k/freebase_mtr100_mte100-train_partitioned
 ```
 
@@ -116,7 +116,7 @@ Switching to new checkpoint version...
 Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set, as follows:
 ```bash
 torchbiggraph_eval \
-  examples/configs/fb15k_config.py \
+  torchbiggraph/examples/configs/fb15k_config.py \
   -p edge_paths=data/FB15k/freebase_mtr100_mte100-test_partitioned \
   -p relations.0.all_negs=true
 ```
@@ -127,7 +127,7 @@ Stats: pos_rank:  65.4821 , mrr:  0.789921 , r1:  0.738501 , r10:  0.876894 , r5
 ```
 The values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) should match the ones reported in [the paper](https://www.sysml.cc/doc/2019/71.pdf).
 
-The evaluation performed by the `examples/fb15k.py` script differs from the above `torchbiggraph_eval` command, in order to match the literature. It calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. This setup, called *filtered* MRR, is only used to evaluate small graphs because it scales very poorly.
+The evaluation performed by the `torchbiggraph_example_fb15k` command differs from the above `torchbiggraph_eval` command, in order to match the literature. It calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. This setup, called *filtered* MRR, is only used to evaluate small graphs because it scales very poorly.
 
 ### Converting the output
 

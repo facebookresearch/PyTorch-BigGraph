@@ -12,6 +12,7 @@ import random
 from itertools import chain
 
 import attr
+import pkg_resources
 
 import torchbiggraph.converters.utils as utils
 from torchbiggraph.config import parse_config
@@ -25,6 +26,11 @@ FILENAMES = {
     'test': 'test.txt',
 }
 TRAIN_FRACTION = 0.75
+
+# Figure out the path where the sample config was installed by the package manager.
+# This can be overridden with --config.
+DEFAULT_CONFIG = pkg_resources.resource_filename("torchbiggraph.examples",
+                                                 "configs/livejournal_config.py")
 
 
 def convert_path(fname):
@@ -72,8 +78,7 @@ def random_split_file(fpath):
 
 def main():
     parser = argparse.ArgumentParser(description='Example on Livejournal')
-    parser.add_argument('--config',
-                        default='examples/configs/livejournal_config.py',
+    parser.add_argument('--config', default=DEFAULT_CONFIG,
                         help='Path to config file')
     parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('--data_dir', default='data',

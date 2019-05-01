@@ -1,5 +1,6 @@
 attrs>=18.2.0
 h5py>=2.8.0
 numpy
+setuptools
 torch>=1.0
 tqdm

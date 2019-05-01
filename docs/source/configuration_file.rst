@@ -7,7 +7,7 @@ parameters and returns a JSON-like data structure (i.e., nested lists or dicts w
 none, booleans, integers, floats or strings). The return value will be parsed according to the configuration schema.
 The schema can be found by running the binary with the ``--help`` option, and is reported here for completeness:
 
-For some example configs, see the files inside the ``examples/configs`` directory.
+For some example configs, see the files inside the ``torchbiggraph/examples/configs`` directory.
 
 The `get_torchbiggraph_config` function takes no arguments, but may execute arbitrary Python code. Therefore, a config file may dynamically construct a config based on environment variables or other file or system information.
 
