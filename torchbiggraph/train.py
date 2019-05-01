@@ -211,6 +211,9 @@ class IterationManager(MetadataProvider):
 
 def train_and_report_stats(
     config: ConfigSchema,
+    model: Optional[MultiRelationEmbedder] = None,
+    trainer: Optional[AbstractBatchProcessor] = None,
+    evaluator: Optional[AbstractBatchProcessor] = None,
     rank: Rank = RANK_ZERO,
 ) -> Generator[Tuple[int, Optional[Stats], Stats, Optional[Stats]], None, None]:
     """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
@@ -393,17 +396,21 @@ def train_and_report_stats(
 
     log("Initializing global model...")
 
-    model = make_model(config)
-    trainer = Trainer(
-        global_optimizer=make_optimizer(model.parameters(), False),
-        loss_fn=config.loss_fn,
-        margin=config.margin,
-        relations=config.relations,
-    )
-    evaluator = TrainingRankingEvaluator(
-        override_num_batch_negs=config.eval_num_batch_negs,
-        override_num_uniform_negs=config.eval_num_uniform_negs,
-    )
+    if model is None:
+        model = make_model(config)
+    model.share_memory()
+    if trainer is None:
+        trainer = Trainer(
+            global_optimizer=make_optimizer(model.parameters(), False),
+            loss_fn=config.loss_fn,
+            margin=config.margin,
+            relations=config.relations,
+        )
+    if evaluator is None:
+        evaluator = TrainingRankingEvaluator(
+            override_num_batch_negs=config.eval_num_batch_negs,
+            override_num_uniform_negs=config.eval_num_uniform_negs,
+        )
     eval_batch_size = round_up_to_nearest_multiple(config.batch_size, config.eval_num_batch_negs)
 
     state_dict, optim_state = checkpoint_manager.maybe_read_model()
@@ -741,10 +748,13 @@ def train_and_report_stats(
 
 def train(
     config: ConfigSchema,
+    model: Optional[MultiRelationEmbedder] = None,
+    trainer: Optional[AbstractBatchProcessor] = None,
+    evaluator: Optional[AbstractBatchProcessor] = None,
     rank: Rank = RANK_ZERO,
 ) -> None:
     # Create and run the generator until exhaustion.
-    for _ in train_and_report_stats(config, rank):
+    for _ in train_and_report_stats(config, model, trainer, evaluator, rank):
         pass
 
 

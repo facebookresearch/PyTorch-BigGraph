@@ -82,7 +82,8 @@ def main():
             convert_path(os.path.join(data_dir, FILENAMES['valid'])),
             convert_path(os.path.join(data_dir, FILENAMES['train'])),
         ]
-        do_eval(eval_config, FilteredRankingEvaluator(eval_config, filter_paths))
+        do_eval(eval_config,
+                evaluator=FilteredRankingEvaluator(eval_config, filter_paths))
     else:
         do_eval(eval_config)
 

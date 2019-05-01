@@ -440,7 +440,7 @@ def instantiate_operator(
     side: Side,
     num_dynamic_rels: int,
     dim: int,
-) -> Union[AbstractOperator, AbstractDynamicOperator]:
+) -> Optional[Union[AbstractOperator, AbstractDynamicOperator]]:
     if num_dynamic_rels > 0:
         try:
             dynamic_operator_class = DYNAMIC_OPERATORS[operator]
@@ -662,13 +662,13 @@ class MultiRelationEmbedder(nn.Module):
         entities: Dict[str, EntitySchema],
         num_batch_negs: int,
         num_uniform_negs: int,
-        comparator: Comparator = Comparator.COS,
+        lhs_operators: Sequence[Optional[Union[AbstractOperator, AbstractDynamicOperator]]],
+        rhs_operators: Sequence[Optional[Union[AbstractOperator, AbstractDynamicOperator]]],
+        comparator: AbstractComparator,
         global_emb: bool = False,
         max_norm: Optional[float] = None,
-        bias: bool = False,
         num_dynamic_rels: int = 0,
     ):
-
         super().__init__()
 
         self.dim: int = dim
@@ -678,26 +678,14 @@ class MultiRelationEmbedder(nn.Module):
         self.num_dynamic_rels: int = num_dynamic_rels
         if num_dynamic_rels > 0:
             assert len(relations) == 1
-        self.lhs_operators: nn.ModuleList = nn.ModuleList()
-        self.rhs_operators: nn.ModuleList = nn.ModuleList()
-        for r in relations:
-            self.lhs_operators.append(
-                instantiate_operator(r.operator, Side.LHS, num_dynamic_rels, dim))
-            self.rhs_operators.append(
-                instantiate_operator(r.operator, Side.RHS, num_dynamic_rels, dim))
+
+        self.lhs_operators: nn.ModuleList = nn.ModuleList(lhs_operators)
+        self.rhs_operators: nn.ModuleList = nn.ModuleList(rhs_operators)
 
         self.num_batch_negs: int = num_batch_negs
         self.num_uniform_negs: int = num_uniform_negs
 
-        if comparator is Comparator.DOT:
-            self.comparator = DotComparator()
-        elif comparator is Comparator.COS:
-            self.comparator = CosComparator()
-        else:
-            raise NotImplementedError("Unknown comparator: %s" % comparator)
-
-        if bias:
-            self.comparator = BiasedComparator(self.comparator)
+        self.comparator = comparator
 
         self.lhs_embs: nn.ParameterDict = nn.ModuleDict()
         self.rhs_embs: nn.ParameterDict = nn.ModuleDict()
@@ -760,13 +748,6 @@ class MultiRelationEmbedder(nn.Module):
         embs = self.comparator.prepare(embs)
 
         return embs
-
-    def is_featurized(self, rel, side: Side):
-        if self.num_dynamic_rels > 0:
-            rel = 0
-        rel_config = self.relations[rel]
-        ent = side.pick(rel_config.lhs, rel_config.rhs)
-        return self.entities[ent].featurized
 
     def prepare_negatives(
         self,
@@ -1075,20 +1056,37 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
             (config.batch_size, config.num_batch_negs)
         )
 
-    model = MultiRelationEmbedder(
+    lhs_operators: List[Optional[Union[AbstractOperator, AbstractDynamicOperator]]] = []
+    rhs_operators: List[Optional[Union[AbstractOperator, AbstractDynamicOperator]]] = []
+    for r in config.relations:
+        lhs_operators.append(
+            instantiate_operator(r.operator, Side.LHS, num_dynamic_rels, config.dimension))
+        rhs_operators.append(
+            instantiate_operator(r.operator, Side.RHS, num_dynamic_rels, config.dimension))
+
+    if config.comparator is Comparator.DOT:
+        comparator = DotComparator()
+    elif config.comparator is Comparator.COS:
+        comparator = CosComparator()
+    else:
+        raise NotImplementedError("Unknown comparator: %s" % config.comparator)
+
+    if config.bias:
+        comparator = BiasedComparator(comparator)
+
+    return MultiRelationEmbedder(
         config.dimension,
         config.relations,
         config.entities,
         num_uniform_negs=config.num_uniform_negs,
         num_batch_negs=config.num_batch_negs,
-        comparator=config.comparator,
+        lhs_operators=lhs_operators,
+        rhs_operators=rhs_operators,
+        comparator=comparator,
         global_emb=config.global_emb,
         max_norm=config.max_norm,
-        bias=config.bias,
         num_dynamic_rels=num_dynamic_rels,
     )
-    model.share_memory()
-    return model
 
 
 @contextmanager

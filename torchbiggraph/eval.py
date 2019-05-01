@@ -65,6 +65,7 @@ class RankingEvaluator(AbstractBatchProcessor):
 
 def do_eval_and_report_stats(
     config: ConfigSchema,
+    model: Optional[MultiRelationEmbedder] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
 ) -> Generator[Tuple[Optional[int], Optional[Bucket], Stats], None, None]:
     """Computes eval metrics (mr/mrr/r1/r10/r50) for a checkpoint with trained
@@ -91,7 +92,9 @@ def do_eval_and_report_stats(
     num_workers = get_num_workers(config.workers)
     pool = create_pool(num_workers)
 
-    model = make_model(config)
+    if model is None:
+        model = make_model(config)
+    model.share_memory()
 
     state_dict, _ = checkpoint_manager.maybe_read_model()
     if state_dict is not None:
@@ -184,10 +187,11 @@ def do_eval_and_report_stats(
 
 def do_eval(
     config: ConfigSchema,
+    model: Optional[MultiRelationEmbedder] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
 ) -> None:
     # Create and run the generator until exhaustion.
-    for _ in do_eval_and_report_stats(config, evaluator):
+    for _ in do_eval_and_report_stats(config, model, evaluator):
         pass
 
 
