@@ -74,7 +74,7 @@ The latest complete checkpoint version is stored in an additional file in the sa
 Each checkpoint contains a JSON dump of the config that was used to produce it stored in the :file:`config.json` file.
 
 When a new checkpoint is saved, the previous checkpoint will automatically be
-deleted. If ``checkpoint_save_interval`` is set, every ``checkpoint_save_interval``
+deleted. If ``checkpoint_preservation_interval`` is set, every ``checkpoint_preservation_interval``
 epoch will be preserved.
 
 Model parameters

@@ -752,10 +752,10 @@ def train_and_report_stats(
         sync.barrier()
         dlog("All parts of the checkpoint have been written")
 
-        if config.checkpoint_save_interval is not None:
+        if config.checkpoint_preservation_interval is not None:
             # If it is the right interval for saving, we move the entire
             # current checkpoint into it's own separate folder
-            is_save_interval = epoch_idx % config.checkpoint_save_interval == 0
+            is_save_interval = epoch_idx % config.checkpoint_preservation_interval == 0
             if is_save_interval and iteration_manager.is_last_iteration_of_epoch():
                 checkpoint_manager.save_current_version(config, epoch_idx)
 
