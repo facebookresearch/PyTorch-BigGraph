@@ -744,28 +744,17 @@ class CheckpointManager:
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)
 
-    def save_current_version(
-        self,
-        config: ConfigSchema,
-        epoch_idx: int
-    ) -> None:
-        """
-        This function merely moves all files in current version
-        into a separate folder a symlink is left behind
-
-        ? random note: epoch_idx can be replaced with anything, here we just
-        use this as a postfix
-        """
-        save_dir = os.path.join(self.path, 'epoch_%d' % epoch_idx)
+    def preserve_old_version(self, config: ConfigSchema, epoch_idx: int) -> None:
+        old_version = self.checkpoint_version - 1
+        epoch_dir = os.path.join(self.path, 'epoch_%d' % epoch_idx)
         for entity, econf in config.entities.items():
-            for part in range(self.rank, econf.num_partitions, self.num_machines):
-                file_name = "embeddings_%s_%d.v%d.h5" % (entity, part, self.checkpoint_version)
+            for part in range(self. rank, econf.num_partitions, self.num_machines):
+                file_name = "embeddings%s_%d.v%d.h5" % (entity, part, old_version)
                 src_path = os.path.join(self.path, file_name)
-                dst_path = os.path.join(save_dir, file_name)
-                if os.path.exists(src_path) and not os.path.islink(src_path):
-                    os.makedirs(save_dir, exist_ok=True)
-                    shutil.move(src_path, dst_path)
-                    os.symlink(dst_path, src_path)
+                dst_path = os.path.join(epoch_dir, file_name)
+                if os.path.exists(src_path):
+                    os.makedirs(epoch_dir, exist_ok=True)
+                    os.symlink(src_path, dst_path)
 
     def close(self) -> None:
         if self.background:

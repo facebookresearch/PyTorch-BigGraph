@@ -752,13 +752,6 @@ def train_and_report_stats(
         sync.barrier()
         dlog("All parts of the checkpoint have been written")
 
-        if config.checkpoint_preservation_interval is not None:
-            # If it is the right interval for saving, we move the entire
-            # current checkpoint into it's own separate folder
-            is_save_interval = epoch_idx % config.checkpoint_preservation_interval == 0
-            if is_save_interval and iteration_manager.is_last_iteration_of_epoch():
-                checkpoint_manager.save_current_version(config, epoch_idx)
-
         log("Switching to new checkpoint version...")
         checkpoint_manager.switch_to_new_version()
 
@@ -769,6 +762,18 @@ def train_and_report_stats(
         # After all the machines have finished committing
         # checkpoints, we remove the old checkpoints.
         checkpoint_manager.remove_old_version(config)
+
+        # After all the machines have finished committing
+        # checkpoints, we either remove the old checkpoints
+        # or we preserve it
+        if config.checkpoint_preservation_interval is not None:
+            is_save_interval = epoch_idx % config.checkpoint_preservation_interval == 0
+            if is_save_interval and iteration_manager.is_last_iteration_of_epoch():
+                checkpoint_manager.preserve_old_version(config, epoch_idx)
+            else:
+                checkpoint_manager.remove_old_version(config)
+        else:
+            checkpoint_manager.remove_old_version(config)
 
         # now we're sure that all partition files exist,
         # so be strict about loading them
