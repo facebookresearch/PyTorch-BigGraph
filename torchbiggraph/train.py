@@ -789,8 +789,6 @@ def train_and_report_stats(
 
     sync.barrier()
 
-    # Move final epoch into it's own folder
-    checkpoint_manager.save_current_version(config, config.num_epochs)
     checkpoint_manager.close()
     if loadpath_manager is not None:
         loadpath_manager.close()
