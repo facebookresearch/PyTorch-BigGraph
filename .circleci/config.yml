@@ -1,14 +1,8 @@
-version: 2.1
-
-executors:
-  default_executor:
+jobs:
+  build:
     docker:
       - image: circleci/python:3.6
     working_directory: ~/PyTorch-BigGraph
-
-jobs:
-  build-install:
-    executor: default_executor
     steps:
       - restore_cache:
           keys:
@@ -31,28 +25,13 @@ jobs:
             python3 -m venv ~/venv
             . ~/venv/bin/activate
             pip install pip --upgrade --upgrade-strategy eager
-            pip install torch>=1.0 --no-index --find-links https://download.pytorch.org/whl/cpu/torch_stable.html --no-deps --upgrade --upgrade-strategy eager --progress-bar off
+            pip install torch --no-index --find-links https://download.pytorch.org/whl/cpu/torch_stable.html --no-deps --upgrade --upgrade-strategy eager --progress-bar off
             pip install . --upgrade --upgrade-strategy eager --progress-bar off
             pip freeze > ~/pip_freeze.txt
       - save_cache:
           key: pip-cache-v1-{{ arch }}-{{ .Branch }}-{{ checksum "~/pip_freeze.txt" }}
           paths:
             - ~/.cache/pip
-      - persist_to_workspace:
-          root: "~"
-          paths:
-            - venv
-      - persist_to_workspace:
-          root: test
-          paths:
-            - "*.py"
-  test:
-    executor: default_executor
-    steps:
-      - attach_workspace:
-          at: "~"
-      - attach_workspace:
-          at: test
       - run:
           name: Test all the things!
           command: |
@@ -70,12 +49,3 @@ jobs:
             python3 test/test_stats.py
             python3 test/test_train.py
             python3 test/test_util.py
-
-workflows:
-  version: 2
-  build-install-test:
-    jobs:
-      - build-install
-      - test:
-          requires:
-            - build-install
