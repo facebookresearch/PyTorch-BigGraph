@@ -767,13 +767,17 @@ def train_and_report_stats(
         # checkpoints, we either remove the old checkpoints
         # or we preserve it
         if config.checkpoint_preservation_interval is not None:
-            is_save_interval = epoch_idx % config.checkpoint_preservation_interval == 0
+            is_save_interval = (
+                epoch_idx != 0 and
+                epoch_idx % config.checkpoint_preservation_interval == 0
+            )
             if is_save_interval and iteration_manager.is_last_iteration_of_epoch():
                 checkpoint_manager.preserve_old_version(config, epoch_idx)
             else:
                 checkpoint_manager.remove_old_version(config)
         else:
             checkpoint_manager.remove_old_version(config)
+
 
         # now we're sure that all partition files exist,
         # so be strict about loading them
