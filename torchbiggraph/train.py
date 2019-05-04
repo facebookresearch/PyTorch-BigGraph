@@ -760,10 +760,6 @@ def train_and_report_stats(
         dlog("All workers have switched to the new checkpoint version")
 
         # After all the machines have finished committing
-        # checkpoints, we remove the old checkpoints.
-        checkpoint_manager.remove_old_version(config)
-
-        # After all the machines have finished committing
         # checkpoints, we either remove the old checkpoints
         # or we preserve it
         if config.checkpoint_preservation_interval is not None:
