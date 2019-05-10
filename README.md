@@ -37,8 +37,7 @@ pip install torchbiggraph
 
 As an alternative, one can instead install the *development* version from the repository. This may have newer features but could be more unstable. To do so, clone the repository (or download it as an archive) and, inside the top-level directory, run:
 ```bash
-pip install -r requirements.txt
-./setup.py install
+pip install .
 ```
 
 ## Getting started

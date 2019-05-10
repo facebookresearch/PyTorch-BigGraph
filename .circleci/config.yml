@@ -1,21 +1,8 @@
-version: 2.1
-
-executors:
-  default_executor:
+jobs:
+  build:
     docker:
       - image: circleci/python:3.6
     working_directory: ~/PyTorch-BigGraph
-
-commands:
-  # Need this because env vars added to the executors aren't expanded/interpolated.
-  # This means that both `~` and `$HOME` would be treated as literals.
-  export_env_vars:
-    steps:
-      - run:
-          name: Export environment variables
-          command: |
-            echo 'export PYTHONUSERBASE=~/local_python' >> $BASH_ENV
-  cached_checkout:
     steps:
       - restore_cache:
           keys:
@@ -27,78 +14,24 @@ commands:
           key: source-v1-{{ .Branch }}-{{ .Revision }}
           paths:
             - .git
-  install_dependencies:
-    parameters:
-      requirements_file:
-        type: string
-      summary_file:
-        type: string
-    steps:
       - restore_cache:
           keys:
-            - local-python-v2-{{ .Branch }}-
-            - local-python-v2-
-      - run:
-          name: Set up local Python environment
-          command: |
-            pip install --user torch>=1.0 --no-index --find-links https://download.pytorch.org/whl/cpu/torch_stable.html --upgrade --upgrade-strategy eager --progress-bar off
-            pip install --user --requirement << parameters.requirements_file >> --upgrade --upgrade-strategy eager --progress-bar off
-            pip freeze --user > << parameters.summary_file >>
-      - save_cache:
-          key: local-python-v2-{{ .Branch }}-{{ checksum "<< parameters.summary_file >>" }}
-          paths:
-            - ~/local_python
-  load_installed_dependencies:
-    parameters:
-      summary_file:
-        type: string
-    steps:
-      - restore_cache:
-          keys:
-            - local-python-v2-{{ .Branch }}-{{ checksum "<< parameters.summary_file >>" }}
-            - local-python-v2-{{ .Branch }}-
-            - local-python-v2-
-      # The cache is unreliable, so we re-install anyways: if it's full and up-to-date this will be a no-op.
-      - run:
-          name: Set up local Python environment
-          command: |
-            pip install --user torch>=1.0 --no-index --find-links https://download.pytorch.org/whl/cpu/torch_stable.html --upgrade --upgrade-strategy eager --progress-bar off
-            pip install --user --requirement << parameters.summary_file >> --upgrade --upgrade-strategy eager --progress-bar off
-
-jobs:
-  build-install:
-    executor: default_executor
-    steps:
-      - export_env_vars
-      - cached_checkout
-      - install_dependencies:
-          requirements_file: requirements.txt
-          summary_file: ~/pip_freeze.txt
+            - pip-cache-v1-{{ arch }}-{{ .Branch }}-
+            - pip-cache-v1-{{ arch }}-
+            - pip-cache-v1-
       - run:
           name: Install PyTorch-BigGraph
           command: |
-            python3 -m venv --system-site-packages ~/venv
+            python3 -m venv ~/venv
             . ~/venv/bin/activate
-            python3 setup.py install
-      - persist_to_workspace:
-          root: "~"
+            pip install pip --upgrade --upgrade-strategy eager
+            pip install torch --no-index --find-links https://download.pytorch.org/whl/cpu/torch_stable.html --no-deps --upgrade --upgrade-strategy eager --progress-bar off
+            pip install . --upgrade --upgrade-strategy eager --progress-bar off
+            pip freeze > ~/pip_freeze.txt
+      - save_cache:
+          key: pip-cache-v1-{{ arch }}-{{ .Branch }}-{{ checksum "~/pip_freeze.txt" }}
           paths:
-            - pip_freeze.txt
-            - venv
-      - persist_to_workspace:
-          root: test
-          paths:
-            - "*.py"
-  test:
-    executor: default_executor
-    steps:
-      - export_env_vars
-      - attach_workspace:
-          at: "~"
-      - load_installed_dependencies:
-          summary_file: ~/pip_freeze.txt
-      - attach_workspace:
-          at: test
+            - ~/.cache/pip
       - run:
           name: Test all the things!
           command: |
@@ -116,12 +49,3 @@ jobs:
             python3 test/test_stats.py
             python3 test/test_train.py
             python3 test/test_util.py
-
-workflows:
-  version: 2
-  build-install-test:
-    jobs:
-      - build-install
-      - test:
-          requires:
-            - build-install
