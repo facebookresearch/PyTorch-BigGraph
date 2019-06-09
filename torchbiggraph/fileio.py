@@ -521,9 +521,7 @@ class CheckpointManager:
         self.rank: Rank = rank
         self.num_machines: int = num_machines
         if self.rank == 0:
-            os.makedirs(path, exist_ok=True)
-            if not os.path.exists(os.path.join(path, VERSION_FILE)):
-                self._write_version_file(0)
+            os.makedirs(self.path, exist_ok=True)
 
         # FIXME: there's a slight danger here, say that a multi-machine job fails
         # after a few versions, and then it reruns but one of the write_version=False
@@ -531,9 +529,17 @@ class CheckpointManager:
         # will expect checkpoint_version=0 and fail.
         try:
             with open(os.path.join(self.path, VERSION_FILE), "rt") as tf:
-                self.checkpoint_version = int(tf.read().strip())
+                version_string = tf.read().strip()
         except FileNotFoundError:
             self.checkpoint_version = 0
+        else:
+            # On some distributed filesystems creating the file (with an empty
+            # content) and writing "0" to it are separate actions thus a race
+            # condition could occur where trainers see the file as empty.
+            if len(version_string) == 0:
+                self.checkpoint_version = 0
+            else:
+                self.checkpoint_version = int(version_string)
 
         self.background: bool = background
         if self.background:
