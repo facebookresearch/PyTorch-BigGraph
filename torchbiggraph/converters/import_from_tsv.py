@@ -40,8 +40,15 @@ def collect_relation_types(
         counter: Counter[str] = Counter()
         for edgepath in edge_paths:
             with open(edgepath, "rt") as tf:
-                for line in tf:
-                    counter[line.split()[rel_col]] += 1
+                for line_num, line in enumerate(tf, start=1):
+                    words = line.split()
+                    try:
+                        rel_word = words[rel_col]
+                    except IndexError:
+                        raise RuntimeError(
+                            "Line %d of %s has only %d words"
+                            % (line_num, edgepath, len(words))) from None
+                    counter[rel_word] += 1
         print("- Found %d relation types" % len(counter))
         if relation_type_min_count > 0:
             print("- Removing the ones with fewer than %d occurrences..."
@@ -79,20 +86,27 @@ def collect_entities_by_type(
     print("Searching for the entities in the edge files...")
     for edgepath in edge_paths:
         with open(edgepath, "rt") as tf:
-            for line in tf:
+            for line_num, line in enumerate(tf, start=1):
                 words = line.split()
+                try:
+                    lhs_word = words[lhs_col]
+                    rhs_word = words[rhs_col]
+                    rel_word = words[rel_col] if rel_col is not None else None
+                except IndexError:
+                    raise RuntimeError(
+                        "Line %d of %s has only %d words"
+                        % (line_num, edgepath, len(words))) from None
 
                 if dynamic_relations or rel_col is None:
                     rel_id = 0
                 else:
-                    rel = words[rel_col]
                     try:
-                        rel_id = relation_types.get_id(rel)
+                        rel_id = relation_types.get_id(rel_word)
                     except KeyError:
                         raise RuntimeError("Could not find relation type in config")
 
-                counters[relation_configs[rel_id].lhs][words[lhs_col]] += 1
-                counters[relation_configs[rel_id].rhs][words[rhs_col]] += 1
+                counters[relation_configs[rel_id].lhs][lhs_word] += 1
+                counters[relation_configs[rel_id].rhs][rhs_word] += 1
 
     entities_by_type: Dict[str, Dictionary] = {}
     for entity_name, counter in counters.items():
@@ -168,13 +182,22 @@ def generate_edge_path_files(
     skipped = 0
 
     with open(edge_file_in, "rt") as tf:
-        for line in tf:
+        for line_num, line in enumerate(tf, start=1):
             words = line.split()
+            try:
+                lhs_word = words[lhs_col]
+                rhs_word = words[rhs_col]
+                rel_word = words[rel_col] if rel_col is not None else None
+            except IndexError:
+                raise RuntimeError(
+                    "Line %d of %s has only %d words"
+                    % (line_num, edge_file_in, len(words))) from None
+
             if rel_col is None:
                 rel_id = 0
             else:
                 try:
-                    rel_id = relation_types.get_id(words[rel_col])
+                    rel_id = relation_types.get_id(rel_word)
                 except KeyError:
                     # Ignore edges whose relation type is not known.
                     skipped += 1
@@ -189,9 +212,9 @@ def generate_edge_path_files(
 
             try:
                 lhs_part, lhs_offset = \
-                    entities_by_type[lhs_type].get_partition(words[lhs_col])
+                    entities_by_type[lhs_type].get_partition(lhs_word)
                 rhs_part, rhs_offset = \
-                    entities_by_type[rhs_type].get_partition(words[rhs_col])
+                    entities_by_type[rhs_type].get_partition(rhs_word)
             except KeyError:
                 # Ignore edges whose entities are not known.
                 skipped += 1
