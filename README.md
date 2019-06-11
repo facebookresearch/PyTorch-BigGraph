@@ -152,7 +152,7 @@ More information can be found in [the full documentation](https://torchbiggraph.
 
 ## Pre-trained embeddings
 
-We trained a PBG model on the full [Wikidata](https://www.wikidata.org/) graph, using a [translation operator](https://torchbiggraph.readthedocs.io/en/latest/scoring.html#operators) to represent relations. It can be downloaded [here](https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz) (36GiB, gzip-compressed). We used the truthy version of data from [here](https://dumps.wikimedia.org/wikidatawiki/entities/) to train our model. The model file is in TSV format as described in the above section. Note that the first line of the file contains the number of entities, the number of relations and the dimension of the embeddings, separated by tabs. The model contains 78 milion entities, 4,131 relations and the dimension of the embeddings is 200.
+We trained a PBG model on the full [Wikidata](https://www.wikidata.org/) graph, using a [translation operator](https://torchbiggraph.readthedocs.io/en/latest/scoring.html#operators) to represent relations. It can be downloaded [here](https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz) (36GiB, gzip-compressed). We used the truthy version of data from [here](https://dumps.wikimedia.org/wikidatawiki/entities/) to train our model. The model file is in TSV format as described in the above section. Note that the first line of the file contains the number of entities, the number of relations and the dimension of the embeddings, separated by tabs. The model contains 78 million entities, 4,131 relations and the dimension of the embeddings is 200.
 
 ## Citation
 
