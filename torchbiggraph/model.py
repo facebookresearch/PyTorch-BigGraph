@@ -907,9 +907,9 @@ class MultiRelationEmbedder(nn.Module):
 
         if self.num_dynamic_rels == 0:
             # In this case the operator is only applied to the RHS. This means
-            # that an edge (u, r, v) is scored with m(u, f_r(v)), whereas the
+            # that an edge (u, r, v) is scored with c(u, f_r(v)), whereas the
             # negatives (u', r, v) and (u, r, v') are scored respectively with
-            # m(u', f_r(v)) and m(u, f_r(v')). Since r is always the same, each
+            # c(u', f_r(v)) and c(u, f_r(v')). Since r is always the same, each
             # positive and negative right-hand side entity is only passed once
             # through the operator.
 
@@ -947,9 +947,9 @@ class MultiRelationEmbedder(nn.Module):
             # So, instead, we duplicate all operators, creating two versions of
             # them, one for each side, and only allow one of them to be applied
             # at any given time. The edge (u, r, v) can thus be scored in two
-            # ways, either as m(g_r(u), v) or as m(u, h_r(v)). The negatives
-            # (u', r, v) and (u, r, v') are scored respectively as m(u', h_r(v))
-            # and m(g_r(u), v'). This way we only need to perform two operator
+            # ways, either as c(g_r(u), v) or as c(u, h_r(v)). The negatives
+            # (u', r, v) and (u, r, v') are scored respectively as c(u', h_r(v))
+            # and c(g_r(u), v'). This way we only need to perform two operator
             # applications for every positive input edge, one for each side.
 
             # "Forward" edges: apply operator to rhs, sample negatives on lhs.
