@@ -78,7 +78,7 @@ def main():
     train(train_config)
 
     eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
-    relations = [attr.evolve(r, num_uniform_negs = 0, all_negs=True) for r in config.relations]
+    relations = [attr.evolve(r, num_uniform_negs=0, all_negs=True) for r in config.relations]
     eval_config = attr.evolve(config, edge_paths=eval_path, relations=relations)
     if args.filtered:
         filter_paths = [
