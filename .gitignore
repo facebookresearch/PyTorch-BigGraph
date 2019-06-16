@@ -12,3 +12,5 @@ __pycache__/
 *.py[cod]
 *.so
 venv/
+.coverage*
+Pipfile
