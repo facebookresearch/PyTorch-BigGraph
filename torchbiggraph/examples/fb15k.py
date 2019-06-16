@@ -79,7 +79,7 @@ def main():
 
     eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
-    eval_config = attr.evolve(config, edge_paths=eval_path, relations=relations)
+    eval_config = attr.evolve(config, edge_paths=eval_path, relations=relations, num_uniform_negs=0)
     if args.filtered:
         filter_paths = [
             convert_path(os.path.join(data_dir, FILENAMES['test'])),
