@@ -51,6 +51,10 @@ class Comparator(Enum):
     DOT = 'dot'
     # Cosine distance.
     COS = 'cos'
+    # L2 norm.
+    L2 = 'l2'
+    # Squared L2 norm.
+    SQL2 = 'sql2'
 
 
 class LossFunction(Enum):

@@ -103,6 +103,8 @@ The available comparators are:
   embedding vectors;
 * ``cos``, the cos distance, which is the cosine of the angle between the two vectors
   or, equivalently, the dot product divided by the product of the vectors' norms.
+* ``l2``, the l2 norm also known as the Euclidean norm, which is the shortest distance to go from the point represented by the first vector to the point represented by the second vector.
+* ``sql2``, the squared l2 norm.
 
 Custom comparators need to extend the :class:`torchbiggraph.model.AbstractComparator` class
 and add an item to the :class:`torchbiggraph.config.Comparator` enum.

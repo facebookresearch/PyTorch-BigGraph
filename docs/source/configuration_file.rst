@@ -118,7 +118,7 @@ See :ref:`scoring` for more details.
 
   If enabled, add to each embedding a vector that is common to all the entities of a certain type. This vector is learned during training.
 
-- ``comparator`` (type: string, either ``"dot"`` or ``"cos"``; default: ``"cos"``)
+- ``comparator`` (type: string, can be ``"dot"``, ``"cos"``, ``"l2"`` or ``"sql2"``; default: ``"cos"``)
 
   How the embeddings of the two sides of an edge (after having already undergone some processing) are compared to each other to produce a score.
 

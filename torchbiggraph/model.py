@@ -556,7 +556,6 @@ class DotComparator(AbstractComparator):
 
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
-
 class CosComparator(AbstractComparator):
 
     def prepare(
@@ -588,6 +587,82 @@ class CosComparator(AbstractComparator):
         rhs_neg_scores = torch.bmm(lhs_pos, rhs_neg.transpose(-1, -2))
 
         return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+class L2Comparator(AbstractComparator):
+
+    def prepare(
+        self,
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
+        return embs
+
+    def batched_cdist_l2(self, x1, x2):
+        x1_norm = x1.pow(2).sum(dim=-1, keepdim=True)
+        x2_norm = x2.pow(2).sum(dim=-1, keepdim=True)
+        res = torch.baddbmm(
+            x2_norm.transpose(-2, -1),
+            x1,
+            x2.transpose(-2, -1),
+            alpha=-2
+        ).add_(x1_norm).clamp_min_(1e-30).sqrt_()
+        return res
+
+    def forward(
+        self,
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+
+        pos_scores = (lhs_pos - rhs_pos).pow_(2).sum(dim=-1).clamp_min_(1e-30).sqrt_()
+        lhs_neg_scores = self.batched_cdist_l2(rhs_pos, lhs_neg)
+        rhs_neg_scores = self.batched_cdist_l2(lhs_pos, rhs_neg)
+
+        return pos_scores.neg(), lhs_neg_scores.neg(), rhs_neg_scores.neg()
+
+
+class SQL2Comparator(AbstractComparator):
+
+    def prepare(
+        self,
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
+        return embs
+
+    def batched_cdist_sql2(self, x1, x2):
+        x1_norm = x1.pow(2).sum(dim=-1, keepdim=True)
+        x2_norm = x2.pow(2).sum(dim=-1, keepdim=True)
+        res = torch.baddbmm(
+            x2_norm.transpose(-2, -1),
+            x1,
+            x2.transpose(-2, -1),
+            alpha=-2
+        ).add_(x1_norm)
+        return res
+
+    def forward(
+        self,
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+
+        pos_scores = (lhs_pos - rhs_pos).pow_(2).sum(dim=-1)
+        lhs_neg_scores = self.batched_cdist_sql2(rhs_pos, lhs_neg)
+        rhs_neg_scores = self.batched_cdist_sql2(lhs_pos, rhs_neg)
+
+        return pos_scores.neg(), lhs_neg_scores.neg(), rhs_neg_scores.neg()
 
 
 class BiasedComparator(AbstractComparator):
@@ -1087,6 +1162,10 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
         comparator = DotComparator()
     elif config.comparator is Comparator.COS:
         comparator = CosComparator()
+    elif config.comparator is Comparator.L2:
+        comparator = L2Comparator()
+    elif config.comparator is Comparator.SQL2:
+        comparator = SQL2Comparator()
     else:
         raise NotImplementedError("Unknown comparator: %s" % config.comparator)
 
