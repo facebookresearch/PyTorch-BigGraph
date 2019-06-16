@@ -556,6 +556,7 @@ class DotComparator(AbstractComparator):
 
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
+
 class CosComparator(AbstractComparator):
 
     def prepare(
