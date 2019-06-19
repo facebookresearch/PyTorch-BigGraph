@@ -41,16 +41,4 @@ jobs:
           name: Test all the things!
           command: |
             . ~/venv/bin/activate
-            python3 test/test_batching.py
-            python3 test/test_bucket_scheduling.py
-            python3 test/test_distributed.py
-            python3 test/test_edgelist.py
-            python3 test/test_entitylist.py
-            python3 test/test_fileio.py
-            python3 test/test_functional.py
-            python3 test/test_losses.py
-            python3 test/test_model.py
-            python3 test/test_schema.py
-            python3 test/test_stats.py
-            python3 test/test_train.py
-            python3 test/test_util.py
+            python3 setup.py test
