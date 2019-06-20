@@ -247,18 +247,17 @@ def generate_edge_path_files(
 
 
 def convert_input_data(
-    config: str,
+    entity_configs: Dict[str, EntitySchema],
+    relation_configs: List[RelationSchema],
+    entity_path: str,
     edge_paths: List[str],
     lhs_col: int,
     rhs_col: int,
     rel_col: Optional[int] = None,
     entity_min_count: int = 1,
     relation_type_min_count: int = 1,
+    dynamic_relations: bool = False,
 ) -> None:
-
-    entity_configs, relation_configs, entity_path, dynamic_relations = \
-        validate_config(config)
-
     some_output_paths = []
     some_output_paths.append(os.path.join(entity_path, "dictionary.json"))
     some_output_paths.extend(
@@ -337,6 +336,8 @@ def validate_config(
     dynamic_relations = user_config.get("dynamic_relations", False)
     if not isinstance(entities_config, dict):
         raise TypeError("Config entities is not of type dict")
+    if any(not isinstance(k, str) for k in entities_config.keys()):
+        raise TypeError("Config entities has some keys that are not of type str")
     if not isinstance(relations_config, list):
         raise TypeError("Config relations is not of type list")
     if not isinstance(entity_path, str):
@@ -376,14 +377,20 @@ def main():
 
     opt = parser.parse_args()
 
+    entity_configs, relation_configs, entity_path, dynamic_relations = \
+        validate_config(opt.config)
+
     convert_input_data(
-        opt.config,
+        entity_configs,
+        relation_configs,
+        entity_path,
         opt.edge_paths,
         opt.lhs_col,
         opt.rhs_col,
         opt.rel_col,
         opt.entity_min_count,
         opt.relation_type_min_count,
+        dynamic_relations,
     )
 
 
