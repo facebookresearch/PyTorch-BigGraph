@@ -567,7 +567,7 @@ class CosComparator(AbstractComparator):
         # reciprocal of the norm costs N divisions and N * dim multiplications.
         # The latter one is faster.
         norm = embs.norm(2, dim=-1)
-        return embs * norm.reciprocal().unsqueeze(-1)
+        return embs * norm.clamp_min(1e-30).reciprocal_().unsqueeze(-1)
 
     def forward(
         self,
