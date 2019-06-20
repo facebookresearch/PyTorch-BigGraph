@@ -804,8 +804,12 @@ class MultiRelationEmbedder(nn.Module):
         if type_ is Negatives.NONE:
             neg_embs = torch.empty((num_chunks, 0, dim))
         elif type_ is Negatives.UNIFORM:
-            neg_embs = module.sample_entities(
+            uniform_neg_embs = module.sample_entities(
                 num_chunks, num_uniform_neg)
+            neg_embs = self.adjust_embs(
+                uniform_neg_embs,
+                rel, entity_type, operator,
+            )
         elif type_ is Negatives.BATCH_UNIFORM:
             neg_embs = pos_embs
             if num_uniform_neg > 0:
