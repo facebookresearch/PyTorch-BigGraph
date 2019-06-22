@@ -135,7 +135,8 @@ During preprocessing, the entities and relation types had their identifiers conv
 torchbiggraph_export_to_tsv \
   --dict data/FB15k/dictionary.json \
   --checkpoint model/fb15k \
-  --out joined_embeddings.tsv
+  --out-ent joined_embeddings.tsv
+  --out-rel joined_embeddings.tsv
 ```
 This will create the `joined_embeddings.tsv` file, which is a text file where each line contains the identifier of an entity or the name of a relation type followed respectively by its embedding or its parameters, each in a different column, all separated by tabs. For example, with each line shortened for brevity:
 ```
