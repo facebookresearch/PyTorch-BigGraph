@@ -54,6 +54,8 @@ def make_tsv(
 
             part_begin = part_begin + len(embs)
 
+    print("Done exporting entities data to %s" % getattr(ent_out_file, "name", "the output file"))
+
     # TODO Provide a better output format for relation parameters.
     print("Writing relation parameters...")
     if model.num_dynamic_rels > 0:
@@ -76,7 +78,7 @@ def make_tsv(
                 parameter.flatten() for parameter in operator.parameters()
             ], dim=0))
 
-    print("Done exporting data to %s" % getattr(ent_out_file, "name", "the output file"))
+    print("Done exporting relations data to %s" % getattr(rel_out_file, "name", "the output file"))
 
 
 def main():
