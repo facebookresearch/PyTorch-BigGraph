@@ -236,7 +236,7 @@ def generate_edge_path_files(
         for j in range(num_rhs_parts):
             print("- Writing bucket (%d, %d), containing %d edges..."
                   % (i, j, len(buckets[i, j])))
-            edges = np.asarray(buckets[i, j])
+            edges = np.array(buckets[i, j], dtype=np.int64).reshape((-1, 3))
             with h5py.File(os.path.join(
                 edge_path_out, "edges_%d_%d.h5" % (i, j)
             ), "w") as hf:
