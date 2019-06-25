@@ -79,7 +79,7 @@ def make_tsv(
                 parameter.flatten() for parameter in operator.parameters()
             ], dim=0))
 
-    relation_types_output_filename = getattr(relation_types_output_file, "name", "the output file"))
+    relation_types_output_filename = getattr(relation_types_output_file, "name", "the output file")
     print("Done exporting relations data to %s" % relation_types_output_filename)
 
 
