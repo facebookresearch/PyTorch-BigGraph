@@ -159,7 +159,7 @@ We trained a PBG model on the full [Wikidata](https://www.wikidata.org/) graph, 
 To cite this work please use:
 ```tex
 @inproceedings{pbg,
-  title={{PyTorch-BigGraph: A Large-scale Graph Embedding System}},
+  title={PyTorch-BigGraph: A Large-scale Graph Embedding System},
   author={Lerer, Adam and Wu, Ledell and Shen, Jiajun and Lacroix, Timothee and Wehrstedt, Luca and Bose, Abhijit and Peysakhovich, Alex},
   booktitle={Proceedings of the 2nd SysML Conference},
   year={2019},
