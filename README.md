@@ -112,21 +112,28 @@ Switching to new checkpoint version...
 
 ### Evaluation
 
-Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set, as follows:
+Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set. `examples/fb15k.py` runs *filtered evaluation*, which calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. Filtered evaluation is used in the literature for fb15k, but does not scale beyond small graphs.
+
+The final results should match the values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) reported in [the paper](https://www.sysml.cc/doc/2019/71.pdf).
+
+```
+Stats: pos_rank:  65.4821 , mrr:  0.789921 , r1:  0.738501 , r10:  0.876894 , r50:  0.92647 , auc:  0.989868 , count:  59071
+```
+
+You can also run eval directly from the command line as follows:
 ```bash
 torchbiggraph_eval \
   torchbiggraph/examples/configs/fb15k_config.py \
   -p edge_paths=data/FB15k/freebase_mtr100_mte100-test_partitioned \
-  -p relations.0.all_negs=true
+  -p relations.0.all_negs=true \
+  -p num_uniform_negs=0
 ```
 
-This computes a set of metrics on the quality on the embeddings and prints them out. The last line should look like:
-```
-Stats: pos_rank:  65.4821 , mrr:  0.789921 , r1:  0.738501 , r10:  0.876894 , r50:  0.92647 , auc:  0.989868 , count:  59071
-```
-The values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) should match the ones reported in [the paper](https://www.sysml.cc/doc/2019/71.pdf).
+However, you cannot perform filtered evaluation on the command line, so the reported results will not match the paper. They will be something like:
 
-The evaluation performed by the `torchbiggraph_example_fb15k` command differs from the above `torchbiggraph_eval` command, in order to match the literature. It calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. This setup, called *filtered* MRR, is only used to evaluate small graphs because it scales very poorly.
+```
+Stats: pos_rank:  234.136 , mrr:  0.239957 , r1:  0.131757 , r10:  0.485382 , r50:  0.712693 , auc:  0.989648 , count:  59071
+```
 
 ### Converting the output
 
