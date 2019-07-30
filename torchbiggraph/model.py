@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
 from typing import (
+    Callable,
     Dict,
     List,
     NamedTuple,
@@ -27,10 +28,8 @@ import torch.nn.functional as F
 from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.config import (
-    Comparator,
     ConfigSchema,
     EntitySchema,
-    Operator,
     RelationSchema,
 )
 from torchbiggraph.edgelist import EdgeList
@@ -195,6 +194,23 @@ class AbstractOperator(nn.Module, ABC):
         pass
 
 
+OPERATORS: Dict[str, Type[AbstractOperator]] = {}
+
+
+def register_operator_as(
+    name: str,
+) -> Callable[[Type[AbstractOperator]], Type[AbstractOperator]]:
+    def decorator(class_: Type[AbstractOperator]) -> Type[AbstractOperator]:
+        reg_class = OPERATORS.setdefault(name, class_)
+        if reg_class is not class_:
+            raise RuntimeError(
+                f"Attempting to re-register operator {name} which was "
+                f"already set to {reg_class!r}")
+        return class_
+    return decorator
+
+
+@register_operator_as("none")
 class IdentityOperator(AbstractOperator):
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
@@ -202,6 +218,7 @@ class IdentityOperator(AbstractOperator):
         return embeddings
 
 
+@register_operator_as("diagonal")
 class DiagonalOperator(AbstractOperator):
 
     def __init__(self, dim: int):
@@ -213,6 +230,7 @@ class DiagonalOperator(AbstractOperator):
         return self.diagonal * embeddings
 
 
+@register_operator_as("translation")
 class TranslationOperator(AbstractOperator):
 
     def __init__(self, dim: int):
@@ -224,6 +242,7 @@ class TranslationOperator(AbstractOperator):
         return embeddings + self.translation
 
 
+@register_operator_as("linear")
 class LinearOperator(AbstractOperator):
 
     def __init__(self, dim: int):
@@ -237,6 +256,7 @@ class LinearOperator(AbstractOperator):
                             embeddings.unsqueeze(-1)).squeeze(-1)
 
 
+@register_operator_as("affine")
 class AffineOperator(AbstractOperator):
 
     def __init__(self, dim: int):
@@ -261,6 +281,7 @@ class AffineOperator(AbstractOperator):
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
+@register_operator_as("complex_diagonal")
 class ComplexDiagonalOperator(AbstractOperator):
 
     def __init__(self, dim: int):
@@ -279,16 +300,6 @@ class ComplexDiagonalOperator(AbstractOperator):
         prod[..., :self.dim // 2] = real * self.real - imag * self.imag
         prod[..., self.dim // 2:] = real * self.imag + imag * self.real
         return prod
-
-
-OPERATORS: Dict[Operator, Type[AbstractOperator]] = {
-    Operator.NONE: IdentityOperator,
-    Operator.DIAGONAL: DiagonalOperator,
-    Operator.TRANSLATION: TranslationOperator,
-    Operator.LINEAR: LinearOperator,
-    Operator.AFFINE: AffineOperator,
-    Operator.COMPLEX_DIAGONAL: ComplexDiagonalOperator,
-}
 
 
 class AbstractDynamicOperator(nn.Module, ABC):
@@ -320,6 +331,25 @@ class AbstractDynamicOperator(nn.Module, ABC):
         pass
 
 
+DYNAMIC_OPERATORS: Dict[str, Type[AbstractDynamicOperator]] = {}
+
+
+def register_dynamic_operator_as(
+    name: str,
+) -> Callable[[Type[AbstractDynamicOperator]], Type[AbstractDynamicOperator]]:
+    def decorator(
+        class_: Type[AbstractDynamicOperator],
+    ) -> Type[AbstractDynamicOperator]:
+        reg_class = DYNAMIC_OPERATORS.setdefault(name, class_)
+        if reg_class is not class_:
+            raise RuntimeError(
+                f"Attempting to re-register dynamic operator {name} which was "
+                f"already set to {reg_class!r}")
+        return class_
+    return decorator
+
+
+@register_dynamic_operator_as("none")
 class IdentityDynamicOperator(AbstractDynamicOperator):
 
     def forward(
@@ -332,6 +362,7 @@ class IdentityDynamicOperator(AbstractDynamicOperator):
         return embeddings
 
 
+@register_dynamic_operator_as("diagonal")
 class DiagonalDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
@@ -348,6 +379,7 @@ class DiagonalDynamicOperator(AbstractDynamicOperator):
         return self.diagonals[operator_idxs] * embeddings
 
 
+@register_dynamic_operator_as("translation")
 class TranslationDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
@@ -364,6 +396,7 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
         return embeddings + self.translations[operator_idxs]
 
 
+@register_dynamic_operator_as("linear")
 class LinearDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
@@ -383,6 +416,7 @@ class LinearDynamicOperator(AbstractDynamicOperator):
                             embeddings.unsqueeze(-1)).squeeze(-1)
 
 
+@register_dynamic_operator_as("affine")
 class AffineDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
@@ -413,6 +447,7 @@ class AffineDynamicOperator(AbstractDynamicOperator):
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
+@register_dynamic_operator_as("complex_diagonal")
 class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
 
     def __init__(self, dim: int, num_operations: int):
@@ -440,18 +475,8 @@ class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
         return prod
 
 
-DYNAMIC_OPERATORS: Dict[Operator, Type[AbstractDynamicOperator]] = {
-    Operator.NONE: IdentityDynamicOperator,
-    Operator.DIAGONAL: DiagonalDynamicOperator,
-    Operator.TRANSLATION: TranslationDynamicOperator,
-    Operator.LINEAR: LinearDynamicOperator,
-    Operator.AFFINE: AffineDynamicOperator,
-    Operator.COMPLEX_DIAGONAL: ComplexDiagonalDynamicOperator,
-}
-
-
 def instantiate_operator(
-    operator: Operator,
+    operator: str,
     side: Side,
     num_dynamic_rels: int,
     dim: int,
@@ -460,8 +485,7 @@ def instantiate_operator(
         try:
             dynamic_operator_class = DYNAMIC_OPERATORS[operator]
         except KeyError:
-            raise NotImplementedError(
-                "Unknown operator for dynamic rels: %s" % operator)
+            raise NotImplementedError("Unknown dynamic operator: %s" % operator)
         return dynamic_operator_class(dim, num_dynamic_rels)
     elif side is Side.LHS:
         return None
@@ -528,6 +552,23 @@ class AbstractComparator(nn.Module, ABC):
         pass
 
 
+COMPARATORS: Dict[str, Type[AbstractComparator]] = {}
+
+
+def register_comparator_as(
+    name: str,
+) -> Callable[[Type[AbstractComparator]], Type[AbstractComparator]]:
+    def decorator(class_: Type[AbstractComparator]) -> Type[AbstractComparator]:
+        reg_class = COMPARATORS.setdefault(name, class_)
+        if reg_class is not class_:
+            raise RuntimeError(
+                f"Attempting to re-register comparator {name} which was "
+                f"already set to {reg_class!r}")
+        return class_
+    return decorator
+
+
+@register_comparator_as("dot")
 class DotComparator(AbstractComparator):
 
     def prepare(
@@ -557,6 +598,7 @@ class DotComparator(AbstractComparator):
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
+@register_comparator_as("cos")
 class CosComparator(AbstractComparator):
 
     def prepare(
@@ -687,7 +729,7 @@ class MultiRelationEmbedder(nn.Module):
         global_emb: bool = False,
         max_norm: Optional[float] = None,
         num_dynamic_rels: int = 0,
-    ):
+    ) -> None:
         super().__init__()
 
         self.dim: int = dim
@@ -1087,12 +1129,11 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
         rhs_operators.append(
             instantiate_operator(r.operator, Side.RHS, num_dynamic_rels, config.dimension))
 
-    if config.comparator is Comparator.DOT:
-        comparator = DotComparator()
-    elif config.comparator is Comparator.COS:
-        comparator = CosComparator()
-    else:
+    try:
+        comparator_class = COMPARATORS[config.comparator]
+    except KeyError:
         raise NotImplementedError("Unknown comparator: %s" % config.comparator)
+    comparator = comparator_class()
 
     if config.bias:
         comparator = BiasedComparator(comparator)

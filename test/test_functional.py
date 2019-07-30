@@ -23,7 +23,6 @@ import numpy as np
 from torchbiggraph.config import (
     ConfigSchema,
     EntitySchema,
-    Operator,
     RelationSchema,
 )
 from torchbiggraph.eval import do_eval
@@ -409,7 +408,7 @@ class TestFunctional(TestCase):
             name="r",
             lhs=entity_name,
             rhs=entity_name,
-            operator=Operator.LINEAR,  # To exercise the parameter server.
+            operator="linear",  # To exercise the parameter server.
         )
         base_config = ConfigSchema(
             dimension=10,

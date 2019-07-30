@@ -106,9 +106,10 @@ induce no loss).
 Ranking loss
 ^^^^^^^^^^^^
 
-The ranking loss compares each positive score with each of its corresponding negatives. For each such comparison, it
-calculates how much the positive score is above the negative one. If this distance is larger than a given target margin,
-no loss is introduced. Otherwise, the loss caused by this pair of scores is the amount by which this margin is violated.
+The ranking loss compares each positive score with each of its corresponding negatives. For each such pair, no loss is
+introduced if the positive score is greater than the negative one by at least a given margin. Otherwise the incurred loss
+is the amount by which that inequality is violated. This is the hinge loss on the difference between the positive and
+negative score.
 Formally, for a margin :math:`m`, a positive score :math:`s_i` and a negative score :math:`t_{i,j}`, the loss is
 :math:`\max(0, m - s_i + t_{i,j})`. The total loss is the sum of the losses over all pairs of positive and negative
 scores, i.e., over all :math:`i` and :math:`j`.
@@ -126,7 +127,8 @@ The logistic loss instead interprets the scores as the probabilities that the ed
 each score (whose domain is the entire real line) through the logistic function (:math:`x \mapsto 1 / (1 + e^{-x})`,
 which maps it to a value between 0 and 1). This value is taken as the probability :math:`p` and the loss will be its
 binary cross entropy with the "target" probability, i.e., 1 for positive edges and 0 for negative ones. In formulas, the
-loss for positives is :math:`- \log p` whereas for negatives it's :math:`- \log (1 - p)`.
+loss for positives is :math:`- \log p` whereas for negatives it's :math:`- \log (1 - p)`. The total loss of due to the
+negatives is renormalized so it compares with the one of the positives.
 
 One can see this as the cross entropy between two distributions on the values "edge exists" and "edge doesn't exist".
 One is given by the score (passed through the logistic function), the other has all the mass on "exists" for positives

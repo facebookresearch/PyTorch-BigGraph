@@ -9,6 +9,7 @@
 import argparse
 import importlib.util
 import sys
+import uuid
 from enum import Enum
 from itertools import chain
 from typing import Any, ClassVar, Dict, List, Optional
@@ -27,47 +28,6 @@ from torchbiggraph.schema import (
     positive,
     schema,
 )
-
-
-class Operator(Enum):
-    # No-op.
-    NONE = 'none'
-    # Add a vector of same dimension.
-    TRANSLATION = 'translation'
-    # Multiply by a diagonal matrix.
-    DIAGONAL = 'diagonal'
-    # Multiply by a full square matrix.
-    LINEAR = 'linear'
-    # Multiply by a full square matrix, then translate.
-    AFFINE = 'affine'
-    # Treat the D-dimensional embedding as D/2 complex numbers (the half of the
-    # vector is their real parts, the second half their imaginary parts) and
-    # multiply them pointwise by another vector of D/2 complex numbers.
-    COMPLEX_DIAGONAL = 'complex_diagonal'
-
-
-class Comparator(Enum):
-    # Dot product.
-    DOT = 'dot'
-    # Cosine distance.
-    COS = 'cos'
-
-
-class LossFunction(Enum):
-    # No loss if the positive score is greater than the negative score by at
-    # least the given margin, otherwise the loss is the amount by which that
-    # inequality is violated. This is the hinge loss on the difference between
-    # positive and negative scores.
-    RANKING = 'ranking'
-    # The loss is the cross entropy between the probabilities of the edge
-    # existing in the model (its score, passed through the logistic function)
-    # and in the training set (1 for positives, 0 for negatives). The loss of
-    # the negatives is renormalized so it compares with the positive loss.
-    LOGISTIC = 'logistic'
-    # For each positive and its corresponding negatives, their probabilities are
-    # computed as a softmax, and the loss is the cross entropy between them and
-    # the "target" distribution (1 for the positive, 0 for the negatives).
-    SOFTMAX = 'softmax'
 
 
 class BucketOrder(Enum):
@@ -129,8 +89,8 @@ class RelationSchema(Schema):
         metadata={'help': "The weight by which the loss induced by edges of "
                           "this relation type will be multiplied."},
     )
-    operator: Operator = attr.ib(
-        default=Operator.NONE,
+    operator: str = attr.ib(
+        default="none",
         metadata={'help': "The transformation to apply to the embedding of one "
                           "of the sides of the edge (typically the right-hand "
                           "one) before comparing it with the other one."},
@@ -190,8 +150,8 @@ class ConfigSchema(Schema):
                           "common to all the entities of a certain type. This "
                           "vector is learned during training."},
     )
-    comparator: Comparator = attr.ib(
-        default=Comparator.COS,
+    comparator: str = attr.ib(
+        default="cos",
         metadata={'help': "How the embeddings of the two sides of an edge "
                           "(after having already undergone some processing) "
                           "are compared to each other to produce a score."},
@@ -203,8 +163,8 @@ class ConfigSchema(Schema):
                           "as a bias, adding back to the score. Makes sense "
                           "for logistic and softmax loss functions."},
     )
-    loss_fn: LossFunction = attr.ib(
-        default=LossFunction.RANKING,
+    loss_fn: str = attr.ib(
+        default="ranking",
         metadata={'help': "How the scores of positive edges and their "
                           "corresponding negatives are evaluated."},
     )
@@ -394,14 +354,26 @@ class ConfigSchema(Schema):
                                  "relation type must be defined.")
         # TODO Check that all partitioned entity types have the same number of partitions
         # TODO Check that the batch size is a multiple of the batch negative number
-        if self.loss_fn is LossFunction.LOGISTIC and self.comparator is Comparator.COS:
+        if self.loss_fn == "logistic" and self.comparator == "cos":
             print("WARNING: You have logistic loss and cosine distance. Are you sure?")
 
 
 def get_config_dict_from_module(config_filename: str) -> Any:
-    spec = importlib.util.spec_from_file_location("config_module", config_filename)
+    module_name = f"torchbiggraph_config_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, config_filename)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # This is a nasty hack which is needed for models which contain custom
+    # operators, comparators, loss function, ... to be able to send them to the
+    # worker processes. This is because the model gets pickled when transferred
+    # and pickle expects to find all the objects in the module they declare to
+    # live in, and expects all modules to be importable from their name. In the
+    # workers the config module cannot automatically be imported by pickle as it
+    # doesn't know its path. However, we can import and register it ourselves,
+    # and then pickle will just use it. Or, since the workers are forked off the
+    # main process, we can import and register the module there and the children
+    # will just inherit it.
+    sys.modules[module_name] = module
     config_dict = module.get_torchbiggraph_config()
     if config_dict is None:
         raise RuntimeError("Config module %s didn't return anything" % config_filename)

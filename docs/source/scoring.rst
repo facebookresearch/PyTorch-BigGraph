@@ -77,20 +77,25 @@ The operators that are currently provided are:
 
 * ``none``, no-op, which leaves the embeddings unchanged;
 * ``translation``, which adds to the embedding a vector of the same dimension;
-* ``diagonal``, multiplication of each dimension by a different coefficient
+* ``diagonal``, which multiplies each dimension by a different coefficient
   (equivalent to multiplying by a diagonal matrix);
-* ``linear``, linear map, i.e., multiplication by a full square matrix
-* ``affine``, affine transformation, i.e., multiplication by a full square
-  matrix plus addition of a vector.
+* ``linear``, which applies a linear map, i.e., multiplies by a full square matrix
+* ``affine``, which applies a affine transformation, i.e., ``linear`` followed by
+  ``translation``.
 * ``complex_diagonal``, which interprets the :math:`D`-dimensional real vector as a
-  :math:`D/2`-dimensional complex vector (:math:`D` must be even) and then multiplies
-  each entry by a different complex parameter.
+  :math:`D/2`-dimensional complex vector (:math:`D` must be even; the first half of the
+  vector are the real parts, the second half the imaginary parts) and then multiplies
+  each entry by a different complex parameter, just like ``diagonal``.
 
 All the operators' parameters are learned during training.
 
 To define an additional operator, one must subclass the :class:`torchbiggraph.model.AbstractOperator` class
-(or the :class:`torchbiggraph.model.AbstractDynamicOperator` one when using :ref:`dynamic relations <dynamic-relations>`)
-and add an entry to the :class:`torchbiggraph.config.Operator` enum.
+(or the :class:`torchbiggraph.model.AbstractDynamicOperator` one when using :ref:`dynamic relations <dynamic-relations>`;
+their docstrings explain what must be implemented) and decorate it with the :func:`torchbiggraph.model.register_operator_as`
+decorator (respectively the :func:`torchbiggraph.model.register_dynamic_operator_as` one), specifying a new
+name that can then be used in the config to select that comparator.
+All of the above can be done inside the config file itself.
+
 
 .. _comparators:
 
@@ -105,7 +110,9 @@ The available comparators are:
   or, equivalently, the dot product divided by the product of the vectors' norms.
 
 Custom comparators need to extend the :class:`torchbiggraph.model.AbstractComparator` class
-and add an item to the :class:`torchbiggraph.config.Comparator` enum.
+(its docstring explains how) and decorate it with the :func:`torchbiggraph.model.register_comparator_as`
+decorator, specifying a new name that can then be used in the config to select that comparator.
+All of the above can be done inside the config file itself.
 
 Bias
 ----

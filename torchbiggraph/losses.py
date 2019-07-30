@@ -7,6 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 from abc import ABC, abstractmethod
+from typing import Callable, Dict, Type
 
 import torch
 from torch import nn as nn
@@ -16,7 +17,7 @@ from torchbiggraph.model import match_shape
 from torchbiggraph.types import FloatTensorType
 
 
-class AbstractLoss(nn.Module, ABC):
+class AbstractLossFunction(nn.Module, ABC):
 
     """Calculate weighted loss of scores for positive and negative pairs.
 
@@ -39,7 +40,24 @@ class AbstractLoss(nn.Module, ABC):
         pass
 
 
-class LogisticLoss(AbstractLoss):
+LOSS_FUNCTIONS: Dict[str, Type[AbstractLossFunction]] = {}
+
+
+def register_loss_function_as(
+    name: str,
+) -> Callable[[Type[AbstractLossFunction]], Type[AbstractLossFunction]]:
+    def decorator(class_: Type[AbstractLossFunction]) -> Type[AbstractLossFunction]:
+        reg_class = LOSS_FUNCTIONS.setdefault(name, class_)
+        if reg_class is not class_:
+            raise RuntimeError(
+                f"Attempting to re-register loss function {name} which was "
+                f"already set to {reg_class!r}")
+        return class_
+    return decorator
+
+
+@register_loss_function_as("logistic")
+class LogisticLossFunction(AbstractLossFunction):
 
     def forward(
         self,
@@ -65,7 +83,8 @@ class LogisticLoss(AbstractLoss):
         return loss
 
 
-class RankingLoss(AbstractLoss):
+@register_loss_function_as("ranking")
+class RankingLossFunction(AbstractLossFunction):
 
     def __init__(self, margin):
         super().__init__()
@@ -94,7 +113,8 @@ class RankingLoss(AbstractLoss):
         return loss
 
 
-class SoftmaxLoss(AbstractLoss):
+@register_loss_function_as("softmax")
+class SoftmaxLossFunction(AbstractLossFunction):
 
     def forward(
         self,

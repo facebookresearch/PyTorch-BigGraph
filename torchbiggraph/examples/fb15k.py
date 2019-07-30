@@ -15,10 +15,7 @@ import pkg_resources
 
 import torchbiggraph.converters.utils as utils
 from torchbiggraph.config import parse_config
-from torchbiggraph.converters.import_from_tsv import (
-    convert_input_data,
-    validate_config,
-)
+from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.train import train
@@ -64,21 +61,19 @@ def main():
     utils.extract_tar(fpath)
     print('Downloaded and extracted file.')
 
-    entity_configs, relation_configs, entity_path, dynamic_relations = \
-        validate_config(args.config)
+    config = parse_config(args.config, overrides)
     edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
+
     convert_input_data(
-        entity_configs,
-        relation_configs,
-        entity_path,
+        config.entities,
+        config.relations,
+        config.entity_path,
         edge_paths,
         lhs_col=0,
         rhs_col=2,
         rel_col=1,
-        dynamic_relations=dynamic_relations,
+        dynamic_relations=config.dynamic_relations,
     )
-
-    config = parse_config(args.config, overrides)
 
     train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
     train_config = attr.evolve(config, edge_paths=train_path)

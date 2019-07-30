@@ -32,7 +32,6 @@ from torchbiggraph.bucket_scheduling import (
 )
 from torchbiggraph.config import (
     ConfigSchema,
-    LossFunction,
     RelationSchema,
     parse_config,
 )
@@ -51,12 +50,7 @@ from torchbiggraph.fileio import (
     PartitionClient,
     maybe_old_entity_path,
 )
-from torchbiggraph.losses import (
-    AbstractLoss,
-    LogisticLoss,
-    RankingLoss,
-    SoftmaxLoss,
-)
+from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
     MultiRelationEmbedder,
     make_model,
@@ -90,12 +84,12 @@ from torchbiggraph.util import (
 
 class Trainer(AbstractBatchProcessor):
 
-    loss_fn: AbstractLoss
+    loss_fn: AbstractLossFunction
 
     def __init__(
         self,
         global_optimizer: Optimizer,
-        loss_fn: LossFunction,
+        loss_fn: str,
         margin: float,
         relations: List[RelationSchema],
     ) -> None:
@@ -103,14 +97,15 @@ class Trainer(AbstractBatchProcessor):
         self.global_optimizer = global_optimizer
         self.entity_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
 
-        if loss_fn is LossFunction.LOGISTIC:
-            self.loss_fn = LogisticLoss()
-        elif loss_fn is LossFunction.RANKING:
-            self.loss_fn = RankingLoss(margin)
-        elif loss_fn is LossFunction.SOFTMAX:
-            self.loss_fn = SoftmaxLoss()
-        else:
+        try:
+            loss_fn_class = LOSS_FUNCTIONS[loss_fn]
+        except KeyError:
             raise NotImplementedError("Unknown loss function: %s" % loss_fn)
+        # TODO This is awful! Can we do better?
+        if loss_fn == "ranking":
+            self.loss_fn = loss_fn_class(margin)
+        else:
+            self.loss_fn = loss_fn_class()
 
         self.relations = relations
 
