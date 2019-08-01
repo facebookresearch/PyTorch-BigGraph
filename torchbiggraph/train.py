@@ -48,7 +48,6 @@ from torchbiggraph.fileio import (
     EdgeReader,
     MetadataProvider,
     PartitionClient,
-    maybe_old_entity_path,
 )
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
@@ -267,9 +266,6 @@ def train_and_report_stats(
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     log("Loading entity counts...")
-    if maybe_old_entity_path(config.entity_path):
-        log("WARNING: It may be that your entity path contains files using the "
-            "old format. See D14241362 for how to update them.")
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []

@@ -14,7 +14,6 @@ import os.path
 import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from glob import glob
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import h5py
@@ -40,24 +39,6 @@ from torchbiggraph.types import (
 from torchbiggraph.util import create_pool, log, vlog
 
 
-def maybe_old_entity_path(path: str) -> bool:
-    # We used to store them as pickles.
-    return (bool(glob(os.path.join(path, "entity_count_*.pt")))
-            or bool(glob(os.path.join(path, "dynamic_rel_count.pt"))))
-
-
-def maybe_old_edge_path(path: str) -> bool:
-    # We used to have 1-based indexing.
-    return (os.path.exists(os.path.join(path, "edges_1_1.h5"))
-            and not os.path.exists(os.path.join(path, "edges_0_0.h5")))
-
-
-def maybe_old_checkpoint_path(path: str) -> bool:
-    # We used to store them as pickles.
-    return (bool(glob(os.path.join(path, "*CHECKPOINT_VERSION*")))
-            or bool(glob(os.path.join(path, "*.pt*"))))
-
-
 class EdgeReader:
     """Reads partitioned edgelists from disk, in the format
     created by edge_downloader.py.
@@ -71,9 +52,6 @@ class EdgeReader:
     def __init__(self, path: str) -> None:
         if not os.path.isdir(path):
             raise RuntimeError("Invalid edge dir: %s" % path)
-        if maybe_old_edge_path(path):
-            log("WARNING: It may be that one of your edge paths contains files "
-                "using the old format. See D14241362 for how to update them.")
         self.path: str = path
 
     def read(
@@ -86,11 +64,7 @@ class EdgeReader:
         file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhs_p, rhs_p))
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as hf:
-            if FORMAT_VERSION_ATTR not in hf.attrs:
-                log("WARNING: It may be that one of your edge paths contains "
-                    "files using the old format. See D14241362 for how to "
-                    "update them.")
-            elif hf.attrs[FORMAT_VERSION_ATTR] != FORMAT_VERSION:
+            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                 raise RuntimeError("Version mismatch in edge file %s" % file_path)
             lhs_ds = hf['lhs']
             rhs_ds = hf['rhs']
@@ -510,12 +484,6 @@ class CheckpointManager:
           - background: if True, will do prefetch and store in a background
                         process
         """
-
-        if maybe_old_checkpoint_path(path):
-            log("WARNING: It may be that your checkpoint path (or your init "
-                "path) contains files using the old format. See D14241362 for "
-                "how to update them.")
-
         self.path: str = path
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.rank: Rank = rank

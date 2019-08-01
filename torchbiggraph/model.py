@@ -34,7 +34,6 @@ from torchbiggraph.config import (
 )
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
-from torchbiggraph.fileio import maybe_old_entity_path
 from torchbiggraph.types import FloatTensorType, LongTensorType, Side
 from torchbiggraph.util import log
 
@@ -1101,9 +1100,6 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
                 "Dynamic relations are enabled, so there should only be one "
                 "entry in config.relations with config for all relations."
             )
-        if maybe_old_entity_path(config.entity_path):
-            log("WARNING: It may be that your entity path contains files using "
-                "the old format. See D14241362 for how to update them.")
         try:
             with open(os.path.join(config.entity_path, "dynamic_rel_count.txt"), "rt") as tf:
                 num_dynamic_rels = int(tf.read().strip())
