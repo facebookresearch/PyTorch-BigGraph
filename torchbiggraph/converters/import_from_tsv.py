@@ -11,16 +11,16 @@ import json
 import os
 import os.path
 import random
-from typing import Counter, DefaultDict, Dict, List, Optional, Tuple
+from typing import Any, Counter, DefaultDict, Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
 
 from torchbiggraph.config import (
+    ConfigFileLoader,
     ConfigSchema,
     EntitySchema,
     RelationSchema,
-    get_config_dict_from_module,
 )
 from torchbiggraph.converters.dictionary import Dictionary
 
@@ -324,16 +324,13 @@ def convert_input_data(
         )
 
 
-def validate_config(
-    config: str,
+def parse_config_partial(
+    config_dict: Any,
 ) -> Tuple[Dict[str, EntitySchema], List[RelationSchema], str, bool]:
-    user_config = get_config_dict_from_module(config)
-
-    # validate entites and relations config
-    entities_config = user_config.get("entities")
-    relations_config = user_config.get("relations")
-    entity_path = user_config.get("entity_path")
-    dynamic_relations = user_config.get("dynamic_relations", False)
+    entities_config = config_dict.get("entities")
+    relations_config = config_dict.get("relations")
+    entity_path = config_dict.get("entity_path")
+    dynamic_relations = config_dict.get("dynamic_relations", False)
     if not isinstance(entities_config, dict):
         raise TypeError("Config entities is not of type dict")
     if any(not isinstance(k, str) for k in entities_config.keys()):
@@ -374,11 +371,13 @@ def main():
                         help='Min count for relation types')
     parser.add_argument('--entity-min-count', type=int, default=1,
                         help='Min count for entities')
-
     opt = parser.parse_args()
 
+    loader = ConfigFileLoader()
+    config_dict = loader.load_raw_config(opt.config)
+
     entity_configs, relation_configs, entity_path, dynamic_relations = \
-        validate_config(opt.config)
+        parse_config_partial(config_dict)
 
     convert_input_data(
         entity_configs,

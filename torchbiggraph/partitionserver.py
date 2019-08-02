@@ -7,12 +7,13 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
+from functools import partial
 from itertools import chain
 from typing import Callable, Optional
 
 import torch.distributed as td
 
-from torchbiggraph.config import ConfigSchema, parse_config
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.distributed import ProcessRanks, init_process_group
 from torchbiggraph.parameter_sharing import ParameterServer
 from torchbiggraph.types import Rank
@@ -68,9 +69,14 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-    config = parse_config(opt.config, overrides)
+    loader = ConfigFileLoader()
+    config = loader.load_config(opt.config, overrides)
 
-    run_partition_server(config, opt.rank)
+    run_partition_server(
+        config,
+        opt.rank,
+        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
+    )
 
 
 if __name__ == '__main__':

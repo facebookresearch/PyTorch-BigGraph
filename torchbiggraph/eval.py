@@ -22,7 +22,7 @@ from torchbiggraph.batching import (
 from torchbiggraph.bucket_scheduling import (
     create_buckets_ordered_lexicographically
 )
-from torchbiggraph.config import ConfigSchema, parse_config
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.fileio import CheckpointManager, EdgeReader
 from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
@@ -223,9 +223,10 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-    config = parse_config(opt.config, overrides)
+    loader = ConfigFileLoader()
+    config = loader.load_config(opt.config, overrides)
 
-    do_eval(config)
+    do_eval(config, subprocess_init=partial(add_to_sys_path, loader.config_dir.name))
 
 
 if __name__ == '__main__':

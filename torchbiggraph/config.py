@@ -7,8 +7,11 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-import importlib.util
+import importlib
+import os.path
+import shutil
 import sys
+import tempfile
 import uuid
 from enum import Enum
 from itertools import chain
@@ -358,28 +361,6 @@ class ConfigSchema(Schema):
             print("WARNING: You have logistic loss and cosine distance. Are you sure?")
 
 
-def get_config_dict_from_module(config_filename: str) -> Any:
-    module_name = f"torchbiggraph_config_{uuid.uuid4().hex}"
-    spec = importlib.util.spec_from_file_location(module_name, config_filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    # This is a nasty hack which is needed for models which contain custom
-    # operators, comparators, loss function, ... to be able to send them to the
-    # worker processes. This is because the model gets pickled when transferred
-    # and pickle expects to find all the objects in the module they declare to
-    # live in, and expects all modules to be importable from their name. In the
-    # workers the config module cannot automatically be imported by pickle as it
-    # doesn't know its path. However, we can import and register it ourselves,
-    # and then pickle will just use it. Or, since the workers are forked off the
-    # main process, we can import and register the module there and the children
-    # will just inherit it.
-    sys.modules[module_name] = module
-    config_dict = module.get_torchbiggraph_config()
-    if config_dict is None:
-        raise RuntimeError("Config module %s didn't return anything" % config_filename)
-    return config_dict
-
-
 # TODO make this a non-inplace operation
 def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
     for override in overrides:
@@ -403,10 +384,7 @@ def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
     return config_dict
 
 
-def parse_config(config_filename: str, overrides: Optional[List[str]] = None) -> ConfigSchema:
-    config_dict = get_config_dict_from_module(config_filename)
-    if overrides is not None:
-        config_dict = override_config_dict(config_dict, overrides)
+def parse_config(config_dict: Any) -> ConfigSchema:
     try:
         config = ConfigSchema.from_dict(config_dict)
     except DeepTypeError as err:
@@ -417,6 +395,56 @@ def parse_config(config_filename: str, overrides: Optional[List[str]] = None) ->
     from torchbiggraph import util
     util._verbosity_level = config.verbose
     return config
+
+
+class ConfigFileLoader:
+    """Load configs from source files, after setting them up as modules.
+
+    In order to support configs defined in Python files whose paths are passed
+    on the command line, we need to first load those files as modules (using
+    eval is for savages). If those files define classes or functions that need
+    to be pickled to be sent to the workers (say, custom operators, comparators,
+    ...) then their modules need to be "normally" importable: their filename
+    must match their module name and they must reside in a standard location
+    (i.e., a directory in the path).
+
+    All the above is taken care of by this class, which creates a temporary
+    directory in which to copy over the configs, with unique names, and then
+    imports them from there.
+    """
+
+    def __init__(self) -> None:
+        self.config_dir = tempfile.TemporaryDirectory(prefix="torchbiggraph_config_")
+        # Hold a reference because at destruction time it may not be available anymore.
+        self.sys_path = sys.path
+        self.sys_path.append(self.config_dir.name)
+
+    def __del__(self) -> None:
+        self.sys_path.remove(self.config_dir.name)
+        self.config_dir.cleanup()
+
+    def load_raw_config(self, path: str) -> Any:
+        module_name = f"torchbiggraph_config_{uuid.uuid4().hex}"
+        shutil.copyfile(path, os.path.join(self.config_dir.name, f"{module_name}.py"))
+        importlib.invalidate_caches()
+        module = importlib.import_module(module_name)
+        raw_config = module.get_torchbiggraph_config()
+        return raw_config
+
+    def load_config(
+        self,
+        path: str,
+        overrides: Optional[List[str]] = None,
+    ) -> ConfigSchema:
+        config_dict = self.load_raw_config(path)
+        if overrides is not None:
+            config_dict = override_config_dict(config_dict, overrides)
+        config = parse_config(config_dict)
+        return config
+
+
+def add_to_sys_path(path: str) -> None:
+    sys.path.append(path)
 
 
 def main():
@@ -430,7 +458,8 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-    config = parse_config(opt.config, overrides)
+    loader = ConfigFileLoader()
+    config = loader.load_config(opt.config, overrides)
 
     print(config[opt.query])
 

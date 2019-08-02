@@ -8,13 +8,14 @@
 
 import argparse
 import os
+from functools import partial
 from itertools import chain
 
 import attr
 import pkg_resources
 
 import torchbiggraph.converters.utils as utils
-from torchbiggraph.config import parse_config
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.filtered_eval import FilteredRankingEvaluator
@@ -61,7 +62,8 @@ def main():
     utils.extract_tar(fpath)
     print('Downloaded and extracted file.')
 
-    config = parse_config(args.config, overrides)
+    loader = ConfigFileLoader()
+    config = loader.load_config(args.config, overrides)
     edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
 
     convert_input_data(
@@ -78,7 +80,10 @@ def main():
     train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
     train_config = attr.evolve(config, edge_paths=train_path)
 
-    train(train_config)
+    train(
+        train_config,
+        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
+    )
 
     eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
@@ -89,10 +94,16 @@ def main():
             convert_path(os.path.join(data_dir, FILENAMES['valid'])),
             convert_path(os.path.join(data_dir, FILENAMES['train'])),
         ]
-        do_eval(eval_config,
-                evaluator=FilteredRankingEvaluator(eval_config, filter_paths))
+        do_eval(
+            eval_config,
+            evaluator=FilteredRankingEvaluator(eval_config, filter_paths),
+            subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
+        )
     else:
-        do_eval(eval_config)
+        do_eval(
+            eval_config,
+            subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
+        )
 
 
 if __name__ == "__main__":

@@ -31,9 +31,10 @@ from torchbiggraph.bucket_scheduling import (
     SingleMachineBucketScheduler,
 )
 from torchbiggraph.config import (
+    add_to_sys_path,
+    ConfigFileLoader,
     ConfigSchema,
     RelationSchema,
-    parse_config,
 )
 from torchbiggraph.distributed import (
     ProcessRanks,
@@ -820,9 +821,14 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
     else:
         overrides = None
-    config = parse_config(opt.config, overrides)
+    loader = ConfigFileLoader()
+    config = loader.load_config(opt.config, overrides)
 
-    train(config, rank=Rank(opt.rank))
+    train(
+        config,
+        rank=Rank(opt.rank),
+        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
+    )
 
 
 if __name__ == '__main__':
