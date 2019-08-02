@@ -112,7 +112,7 @@ def create_pool(num_workers: int) -> mp.Pool:
     # https://github.com/pytorch/pytorch/issues/17199 for some more information
     # and discussion.
     torch.set_num_threads(1)
-    return mp.Pool(num_workers, initializer=_pool_init)
+    return mp.get_context("spawn").Pool(num_workers, initializer=_pool_init)
 
 
 # config routines

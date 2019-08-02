@@ -8,10 +8,10 @@
 
 import json
 import logging
+import multiprocessing as mp
 import os.path
 import random
 import time
-from multiprocessing import Process
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, NamedTuple, Tuple
 from unittest import TestCase, main
@@ -253,6 +253,7 @@ class TestFunctional(TestCase):
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4, 0.2]
@@ -287,6 +288,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             num_epochs=2,
             num_edge_chunks=2,
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4, 0.4]
@@ -316,6 +318,7 @@ class TestFunctional(TestCase):
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4]
@@ -346,6 +349,7 @@ class TestFunctional(TestCase):
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4, 0.2]
@@ -380,6 +384,7 @@ class TestFunctional(TestCase):
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4, 0.2]
@@ -419,6 +424,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             num_machines=2,
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4]
@@ -430,10 +436,10 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[0].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        trainer0 = Process(
+        trainer0 = mp.get_context("spawn").Process(
             name="trainer#0",
             target=train, args=(train_config,), kwargs={"rank": 0})
-        trainer1 = Process(
+        trainer1 = mp.get_context("spawn").Process(
             name="trainer#1",
             target=train, args=(train_config,), kwargs={"rank": 1})
         # FIXME In Python 3.7 use kill here.
@@ -468,6 +474,7 @@ class TestFunctional(TestCase):
             num_machines=2,
             num_partition_servers=1,
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
+            workers=2,
         )
         dataset = generate_dataset(
             base_config, num_entities=100, fractions=[0.4]
@@ -479,13 +486,13 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[0].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        trainer0 = Process(
+        trainer0 = mp.get_context("spawn").Process(
             name="trainer#0",
             target=train, args=(train_config,), kwargs={"rank": 0})
-        trainer1 = Process(
+        trainer1 = mp.get_context("spawn").Process(
             name="trainer#1",
             target=train, args=(train_config,), kwargs={"rank": 1})
-        partition_server = Process(
+        partition_server = mp.get_context("spawn").Process(
             name="partition server#0",
             target=run_partition_server, args=(train_config,), kwargs={"rank": 0})
         # FIXME In Python 3.7 use kill here.
@@ -527,6 +534,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             dynamic_relations=True,
             global_emb=False,  # Must be off for dynamic relations.
+            workers=2,
         )
         gen_config = attr.evolve(
             base_config,

@@ -403,9 +403,9 @@ class ParameterSharer:
         world_size: int,
         groups: List[List[Rank]],
     ) -> None:
-        self.q = mp.Queue()
-        self.errq = mp.Queue()
-        self.p = mp.Process(
+        self.q = mp.get_context("spawn").Queue()
+        self.errq = mp.get_context("spawn").Queue()
+        self.p = mp.get_context("spawn").Process(
             name="ParameterClient-%d" % client_rank,
             target=_client_thread_loop,
             args=(client_rank, all_server_ranks, self.q, self.errq, init_method, world_size, groups)

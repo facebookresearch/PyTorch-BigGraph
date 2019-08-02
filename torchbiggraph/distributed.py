@@ -120,7 +120,7 @@ def start_server(
     server_rank: Rank,
     groups: List[List[Rank]],
 ) -> mp.Process:
-    p = mp.Process(
+    p = mp.get_context("spawn").Process(
         name="%s-%d" % (type(server).__name__, server_rank),
         target=_server_init,
         args=(server, init_method, world_size, server_rank, groups),
