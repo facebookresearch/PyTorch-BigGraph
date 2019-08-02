@@ -6,12 +6,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import multiprocessing as mp
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from typing import Callable, List, NamedTuple, Optional
 
 import torch.distributed as td
-import torch.multiprocessing as mp
+import torch.multiprocessing
 
 from torchbiggraph.types import Rank
 from torchbiggraph.util import log

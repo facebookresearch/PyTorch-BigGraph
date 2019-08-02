@@ -31,6 +31,7 @@ from torchbiggraph.types import Bucket, EntityName, Partition, Side
 from torchbiggraph.util import (
     compute_randomized_auc,
     create_pool,
+    get_async_result,
     get_num_workers,
     get_partitioned_types,
     log,
@@ -151,7 +152,7 @@ def do_eval_and_report_stats(
             load_time = time.time() - tic
             tic = time.time()
             # log("%s: Launching and waiting for workers" % (bucket,))
-            all_bucket_stats = pool.map(call, [
+            future_all_bucket_stats = pool.map_async(call, [
                 partial(
                     process_in_batches,
                     batch_size=config.batch_size,
@@ -161,6 +162,8 @@ def do_eval_and_report_stats(
                 )
                 for s in split_almost_equally(num_edges, num_parts=num_workers)
             ])
+            all_bucket_stats = \
+                get_async_result(future_all_bucket_stats, pool)
 
             compute_time = time.time() - tic
             log("%s: Processed %d edges in %.2g s (%.2gM/sec); load time: %.2g s"

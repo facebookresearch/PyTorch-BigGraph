@@ -6,14 +6,16 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import multiprocessing as mp
+import multiprocessing.pool  # noqa: F401
 import os
 import os.path
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple, TypeVar
 
 import torch
-import torch.multiprocessing as mp
+import torch.multiprocessing
 from torch.optim import Optimizer
 
 from torchbiggraph.config import ConfigSchema
@@ -120,6 +122,38 @@ def create_pool(
     return mp.get_context("spawn").Pool(
         num_workers, initializer=_pool_init, initargs=(subprocess_init,)
     )
+
+
+T = TypeVar("T")
+
+
+def get_async_result(
+    future_res: "mp.pool.AsyncResult[T]",
+    pool: mp.Pool,
+    health_check_interval: float = 1.0,
+) -> T:
+    """Wait for an AsyncResult while checking the health of the pool.
+
+    If the processes of an mp.Pool die unexpectedly, the pool will respawn them
+    over and over (https://bugs.python.org/issue22393). This hacky function
+    (which accesses a private attribute) tries to make up for that by storing
+    the initial set of processes and repeatedly polling their health.
+    In Python 3.7 we can switch to concurrent.futures.ProcessPoolExecutor, where
+    this issue has already been fixed (https://bugs.python.org/issue9205). We
+    can't use it now because we need the mp_context and initializer arguments.
+    """
+    processes = list(pool._pool)
+    while True:
+        try:
+            res = future_res.get(health_check_interval)
+        except mp.TimeoutError:
+            pass
+        else:
+            return res
+        for p in processes:
+            if not p.is_alive():
+                raise RuntimeError(
+                    f"A subprocess exited unexpectedly with status {p.exitcode}")
 
 
 # config routines

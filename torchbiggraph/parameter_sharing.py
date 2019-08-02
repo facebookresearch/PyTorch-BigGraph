@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import multiprocessing as mp
 import queue
 import time
 import traceback
@@ -13,7 +14,7 @@ from typing import Callable, Dict, List, Optional, Set
 
 import torch
 import torch.distributed as td
-import torch.multiprocessing as mp
+import torch.multiprocessing
 import torch.nn as nn
 
 from torchbiggraph.distributed import Startable, init_process_group

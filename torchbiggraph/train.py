@@ -73,6 +73,7 @@ from torchbiggraph.util import (
     DummyOptimizer,
     create_pool,
     fast_approx_rand,
+    get_async_result,
     get_num_workers,
     get_partitioned_types,
     log,
@@ -655,7 +656,7 @@ def train_and_report_stats(
             eval_stats_before: Optional[Stats] = None
             if num_eval_edges > 0:
                 log_status("Waiting for workers to perform evaluation")
-                all_eval_stats_before = pool.map(call, [
+                future_all_eval_stats_before = pool.map_async(call, [
                     partial(
                         process_in_batches,
                         batch_size=eval_batch_size,
@@ -667,6 +668,8 @@ def train_and_report_stats(
                     for s in split_almost_equally(eval_edge_perm.size(0),
                                                   num_parts=num_workers)
                 ])
+                all_eval_stats_before = \
+                    get_async_result(future_all_eval_stats_before, pool)
                 eval_stats_before = Stats.sum(all_eval_stats_before).average()
                 log("stats before %s: %s" % (cur_b, eval_stats_before))
 
@@ -675,7 +678,7 @@ def train_and_report_stats(
             # HOGWILD training
             log_status("Waiting for workers to perform training")
             # FIXME should we only delay if iteration_idx == 0?
-            all_stats = pool.map(call, [
+            future_all_stats = pool.map_async(call, [
                 partial(
                     process_in_batches,
                     batch_size=config.batch_size,
@@ -688,6 +691,7 @@ def train_and_report_stats(
                 for rank, s in enumerate(split_almost_equally(edge_perm.size(0),
                                                               num_parts=num_workers))
             ])
+            all_stats = get_async_result(future_all_stats, pool)
             stats = Stats.sum(all_stats).average()
             compute_time = time.time() - tic
 
@@ -704,7 +708,7 @@ def train_and_report_stats(
             eval_stats_after: Optional[Stats] = None
             if num_eval_edges > 0:
                 log_status("Waiting for workers to perform evaluation")
-                all_eval_stats_after = pool.map(call, [
+                future_all_eval_stats_after = pool.map_async(call, [
                     partial(
                         process_in_batches,
                         batch_size=eval_batch_size,
@@ -716,6 +720,8 @@ def train_and_report_stats(
                     for s in split_almost_equally(eval_edge_perm.size(0),
                                                   num_parts=num_workers)
                 ])
+                all_eval_stats_after = \
+                    get_async_result(future_all_eval_stats_after, pool)
                 eval_stats_after = Stats.sum(all_eval_stats_after).average()
                 log("stats after %s: %s" % (cur_b, eval_stats_after))
 

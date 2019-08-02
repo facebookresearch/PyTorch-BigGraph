@@ -9,6 +9,8 @@
 import errno
 import io
 import json
+import multiprocessing as mp
+import multiprocessing.pool  # noqa: F401
 import os
 import os.path
 import re
@@ -19,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import h5py
 import numpy as np
 import torch
-import torch.multiprocessing as mp
+import torch.multiprocessing
 from torch_extensions.rpc.rpc import _deserialize as torch_rpc_deserialize
 from torch_extensions.rpc.rpc import _serialize as torch_rpc_serialize
 from torch_extensions.tensorlist.tensorlist import TensorList
@@ -36,7 +38,7 @@ from torchbiggraph.types import (
     Partition,
     Rank,
 )
-from torchbiggraph.util import create_pool, log, vlog
+from torchbiggraph.util import create_pool, get_async_result, log, vlog
 
 
 class EdgeReader:
@@ -512,7 +514,7 @@ class CheckpointManager:
 
         self.background: bool = background
         if self.background:
-            self.pool: mp.Pool = create_pool(1, subprocess_init=subprocess_init)
+            self.pool: mp.pool.Pool = create_pool(1, subprocess_init=subprocess_init)
             # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
             self.outstanding: OrderedDict = OrderedDict()
             self.prefetched: Dict[str, Tuple[FloatTensorType, Optional[OptimizerStateDict]]] = {}
@@ -548,7 +550,7 @@ class CheckpointManager:
         vlog("outstanding= %s" % set(self.outstanding))
         while len(self.outstanding) > 0:
             path, future_res = self.outstanding.popitem(last=False)
-            res = future_res.get()
+            res = get_async_result(future_res, self.pool)
 
             if res is not None:
                 log("Setting prefetched %s; %d outstanding" %
