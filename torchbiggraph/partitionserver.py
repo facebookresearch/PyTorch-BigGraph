@@ -8,19 +8,28 @@
 
 import argparse
 from itertools import chain
+from typing import Callable, Optional
 
 import torch.distributed as td
 
 from torchbiggraph.config import ConfigSchema, parse_config
 from torchbiggraph.distributed import ProcessRanks, init_process_group
 from torchbiggraph.parameter_sharing import ParameterServer
+from torchbiggraph.types import Rank
 
 # This is a small binary that just runs a partition server.
 # You need to run this if you run a distributed run and set
 # num_partition_servers > 1.
 
 
-def run_partition_server(config, rank=0):
+RANK_ZERO = Rank(0)
+
+
+def run_partition_server(
+    config: ConfigSchema,
+    rank: Rank = RANK_ZERO,
+    subprocess_init: Optional[Callable[[], None]] = None,
+) -> None:
     if config.num_partition_servers <= 0:
         raise RuntimeError("Config doesn't require explicit partition servers")
     if not 0 <= rank < config.num_partition_servers:
@@ -30,6 +39,8 @@ def run_partition_server(config, rank=0):
                            "distributed training capabilities.")
     ranks = ProcessRanks.from_num_invocations(
         config.num_machines, config.num_partition_servers)
+    if subprocess_init is not None:
+        subprocess_init()
     init_process_group(
         rank=ranks.partition_servers[rank],
         world_size=ranks.world_size,

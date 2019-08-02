@@ -13,7 +13,7 @@ import time
 from abc import ABC, abstractmethod
 from functools import partial
 from itertools import chain
-from typing import Any, Dict, Generator, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Tuple
 
 import torch
 import torch.distributed as td
@@ -256,6 +256,7 @@ def train_and_report_stats(
     trainer: Optional[AbstractBatchProcessor] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
     rank: Rank = RANK_ZERO,
+    subprocess_init: Optional[Callable[[], None]] = None,
 ) -> Generator[Tuple[int, Optional[Stats], Stats, Optional[Stats]], None, None]:
     """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
     from disk, runs HOGWILD training on them, and writes partitions back to disk.
@@ -310,6 +311,7 @@ def train_and_report_stats(
                 world_size=ranks.world_size,
                 init_method=config.distributed_init_method,
                 groups=[ranks.trainers],
+                subprocess_init=subprocess_init,
             )
 
         bucket_scheduler = DistributedBucketScheduler(
@@ -324,6 +326,7 @@ def train_and_report_stats(
             init_method=config.distributed_init_method,
             world_size=ranks.world_size,
             groups=[ranks.trainers],
+            subprocess_init=subprocess_init,
         )
 
         parameter_sharer = ParameterSharer(
@@ -332,6 +335,7 @@ def train_and_report_stats(
             init_method=config.distributed_init_method,
             world_size=ranks.world_size,
             groups=[ranks.trainers],
+            subprocess_init=subprocess_init,
         )
 
         if config.num_partition_servers == -1:
@@ -341,6 +345,7 @@ def train_and_report_stats(
                 world_size=ranks.world_size,
                 init_method=config.distributed_init_method,
                 groups=[ranks.trainers],
+                subprocess_init=subprocess_init,
             )
 
         if len(ranks.partition_servers) > 0:
@@ -369,7 +374,7 @@ def train_and_report_stats(
     # fork early for HOGWILD threads
     log("Creating workers...")
     num_workers = get_num_workers(config.workers)
-    pool = create_pool(num_workers)
+    pool = create_pool(num_workers, subprocess_init=subprocess_init)
 
     def make_optimizer(params: Iterable[torch.nn.Parameter], is_emb: bool) -> Optimizer:
         params = list(params)
@@ -395,6 +400,7 @@ def train_and_report_stats(
         rank=rank,
         num_machines=config.num_machines,
         partition_client=partition_client,
+        subprocess_init=subprocess_init,
     )
     checkpoint_manager.register_metadata_provider(ConfigMetadataProvider(config))
     checkpoint_manager.write_config(config)
@@ -790,9 +796,10 @@ def train(
     trainer: Optional[AbstractBatchProcessor] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
     rank: Rank = RANK_ZERO,
+    subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
     # Create and run the generator until exhaustion.
-    for _ in train_and_report_stats(config, model, trainer, evaluator, rank):
+    for _ in train_and_report_stats(config, model, trainer, evaluator, rank, subprocess_init):
         pass
 
 

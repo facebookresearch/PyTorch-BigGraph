@@ -10,7 +10,7 @@ import os
 import os.path
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple
 
 import torch
 import torch.multiprocessing as mp
@@ -93,12 +93,17 @@ class DummyOptimizer(Optimizer):
 
 # HOGWILD
 
-def _pool_init():
+def _pool_init(subprocess_init: Optional[Callable[[], None]] = None) -> None:
     torch.set_num_threads(1)
     torch.manual_seed(os.getpid())
+    if subprocess_init is not None:
+        subprocess_init()
 
 
-def create_pool(num_workers: int) -> mp.Pool:
+def create_pool(
+    num_workers: int,
+    subprocess_init: Optional[Callable[[], None]] = None,
+) -> mp.Pool:
     # PyTorch relies on OpenMP, which by default parallelizes operations by
     # implicitly spawning as many threads as there are cores, and synchronizing
     # them with each other. This interacts poorly with Hogwild!-style subprocess
@@ -112,7 +117,9 @@ def create_pool(num_workers: int) -> mp.Pool:
     # https://github.com/pytorch/pytorch/issues/17199 for some more information
     # and discussion.
     torch.set_num_threads(1)
-    return mp.get_context("spawn").Pool(num_workers, initializer=_pool_init)
+    return mp.get_context("spawn").Pool(
+        num_workers, initializer=_pool_init, initargs=(subprocess_init,)
+    )
 
 
 # config routines

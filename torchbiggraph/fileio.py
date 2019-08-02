@@ -14,7 +14,7 @@ import os.path
 import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import h5py
 import numpy as np
@@ -477,6 +477,7 @@ class CheckpointManager:
         num_machines: int = 1,
         background: bool = False,
         partition_client: Optional[PartitionClient] = None,
+        subprocess_init: Optional[Callable[[], None]] = None,
     ) -> None:
         """
         Args:
@@ -511,7 +512,7 @@ class CheckpointManager:
 
         self.background: bool = background
         if self.background:
-            self.pool: mp.Pool = create_pool(1)
+            self.pool: mp.Pool = create_pool(1, subprocess_init=subprocess_init)
             # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
             self.outstanding: OrderedDict = OrderedDict()
             self.prefetched: Dict[str, Tuple[FloatTensorType, Optional[OptimizerStateDict]]] = {}

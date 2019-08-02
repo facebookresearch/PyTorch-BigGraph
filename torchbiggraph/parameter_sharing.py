@@ -9,7 +9,7 @@
 import queue
 import time
 import traceback
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 import torch
 import torch.distributed as td
@@ -323,10 +323,13 @@ def _client_thread_loop(
     init_method: Optional[str],
     world_size: int,
     groups: List[List[Rank]],
+    subprocess_init: Optional[Callable[[], None]] = None,
     max_bandwidth: float = 1e8,
     min_sleep_time: float = 0.01,
 ) -> None:
     try:
+        if subprocess_init is not None:
+            subprocess_init()
         init_process_group(
             rank=client_rank,
             init_method=init_method,
@@ -402,13 +405,23 @@ class ParameterSharer:
         init_method: Optional[str],
         world_size: int,
         groups: List[List[Rank]],
+        subprocess_init: Optional[Callable[[], None]] = None,
     ) -> None:
         self.q = mp.get_context("spawn").Queue()
         self.errq = mp.get_context("spawn").Queue()
         self.p = mp.get_context("spawn").Process(
             name="ParameterClient-%d" % client_rank,
             target=_client_thread_loop,
-            args=(client_rank, all_server_ranks, self.q, self.errq, init_method, world_size, groups)
+            args=(
+                client_rank,
+                all_server_ranks,
+                self.q,
+                self.errq,
+                init_method,
+                world_size,
+                groups,
+                subprocess_init,
+            ),
         )
         self.p.daemon = True
         self.p.start()

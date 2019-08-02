@@ -8,7 +8,7 @@
 
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import List, NamedTuple, Optional
+from typing import Callable, List, NamedTuple, Optional
 
 import torch.distributed as td
 import torch.multiprocessing as mp
@@ -103,7 +103,10 @@ def _server_init(
     world_size: int,
     server_rank: Rank,
     groups: List[List[Rank]],
+    subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
+    if subprocess_init is not None:
+        subprocess_init()
     init_process_group(
         init_method=init_method,
         world_size=world_size,
@@ -119,11 +122,12 @@ def start_server(
     world_size: int,
     server_rank: Rank,
     groups: List[List[Rank]],
+    subprocess_init: Optional[Callable[[], None]] = None,
 ) -> mp.Process:
     p = mp.get_context("spawn").Process(
         name="%s-%d" % (type(server).__name__, server_rank),
         target=_server_init,
-        args=(server, init_method, world_size, server_rank, groups),
+        args=(server, init_method, world_size, server_rank, groups, subprocess_init),
     )
     p.daemon = True
     p.start()

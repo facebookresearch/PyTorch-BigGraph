@@ -10,7 +10,7 @@ import argparse
 import time
 from functools import partial
 from itertools import chain
-from typing import Generator, List, Optional, Tuple
+from typing import Callable, Generator, List, Optional, Tuple
 
 import torch
 
@@ -78,6 +78,7 @@ def do_eval_and_report_stats(
     config: ConfigSchema,
     model: Optional[MultiRelationEmbedder] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
+    subprocess_init: Optional[Callable[[], None]] = None,
 ) -> Generator[Tuple[Optional[int], Optional[Bucket], Stats], None, None]:
     """Computes eval metrics (mr/mrr/r1/r10/r50) for a checkpoint with trained
        embeddings.
@@ -101,7 +102,7 @@ def do_eval_and_report_stats(
     nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
 
     num_workers = get_num_workers(config.workers)
-    pool = create_pool(num_workers)
+    pool = create_pool(num_workers, subprocess_init=subprocess_init)
 
     if model is None:
         model = make_model(config)
@@ -200,9 +201,10 @@ def do_eval(
     config: ConfigSchema,
     model: Optional[MultiRelationEmbedder] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
+    subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
     # Create and run the generator until exhaustion.
-    for _ in do_eval_and_report_stats(config, model, evaluator):
+    for _ in do_eval_and_report_stats(config, model, evaluator, subprocess_init):
         pass
 
 
