@@ -631,6 +631,100 @@ class CosComparator(AbstractComparator):
         return pos_scores, lhs_neg_scores, rhs_neg_scores
 
 
+def batched_all_pairs_squared_l2_dist(
+    a: FloatTensorType,
+    b: FloatTensorType,
+) -> FloatTensorType:
+    """For each batch, return the squared L2 distance between each pair of vectors
+
+    Let A and B be tensors of shape NxM_AxD and NxM_BxD, each containing N*M_A
+    and N*M_B vectors of dimension D grouped in N batches of size M_A and M_B.
+    For each batch, for each vector of A and each vector of B, return the sum
+    of the squares of the differences of their components.
+
+    """
+    num_chunks, num_a, dim = match_shape(a, -1, -1, -1)
+    num_b = match_shape(b, num_chunks, -1, dim)
+    a_squared = a.norm(dim=-1).pow(2)
+    b_squared = b.norm(dim=-1).pow(2)
+    # Calculate res_i,k = sum_j((a_i,j - b_k,j)^2) for each i and k as
+    # sum_j(a_i,j^2) - 2 sum_j(a_i,j b_k,j) + sum_j(b_k,j^2), by using a matrix
+    # multiplication for the ab part, adding the b^2 as part of the baddbmm call
+    # and the a^2 afterwards.
+    res = torch.baddbmm(
+        b_squared.unsqueeze(-2), a, b.transpose(-2, -1), alpha=-2
+    ).add_(a_squared.unsqueeze(-1))
+    match_shape(res, num_chunks, num_a, num_b)
+    return res
+
+
+def batched_all_pairs_l2_dist(
+    a: FloatTensorType,
+    b: FloatTensorType,
+) -> FloatTensorType:
+    squared_res = batched_all_pairs_squared_l2_dist(a, b)
+    res = squared_res.clamp_min_(1e-30).sqrt_()
+    return res
+
+
+@register_comparator_as("l2")
+class L2Comparator(AbstractComparator):
+
+    def prepare(
+        self,
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
+        return embs
+
+    def forward(
+        self,
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+
+        # Smaller distances are higher scores, so take their negatives.
+        pos_scores = (lhs_pos - rhs_pos).pow_(2).sum(dim=-1).clamp_min_(1e-30).sqrt_().neg()
+        lhs_neg_scores = batched_all_pairs_l2_dist(rhs_pos, lhs_neg).neg()
+        rhs_neg_scores = batched_all_pairs_l2_dist(lhs_pos, rhs_neg).neg()
+
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+@register_comparator_as("squared_l2")
+class SquaredL2Comparator(AbstractComparator):
+
+    def prepare(
+        self,
+        embs: FloatTensorType,
+    ) -> FloatTensorType:
+        return embs
+
+    def forward(
+        self,
+        lhs_pos: FloatTensorType,
+        rhs_pos: FloatTensorType,
+        lhs_neg: FloatTensorType,
+        rhs_neg: FloatTensorType,
+    ) -> Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+
+        # Smaller distances are higher scores, so take their negatives.
+        pos_scores = (lhs_pos - rhs_pos).pow_(2).sum(dim=-1).neg()
+        lhs_neg_scores = batched_all_pairs_squared_l2_dist(rhs_pos, lhs_neg).neg()
+        rhs_neg_scores = batched_all_pairs_squared_l2_dist(lhs_pos, rhs_neg).neg()
+
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
 class BiasedComparator(AbstractComparator):
 
     def __init__(self, base_comparator):

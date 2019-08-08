@@ -108,6 +108,9 @@ The available comparators are:
   embedding vectors;
 * ``cos``, the cos distance, which is the cosine of the angle between the two vectors
   or, equivalently, the dot product divided by the product of the vectors' norms.
+* ``l2``, the *negative* L2 distance, a.k.a. the Euclidean distance (negative because
+  smaller distances should get higher scores).
+* ``squared_l2``, the *negative* squared L2 distance.
 
 Custom comparators need to extend the :class:`torchbiggraph.model.AbstractComparator` class
 (its docstring explains how) and decorate it with the :func:`torchbiggraph.model.register_comparator_as`

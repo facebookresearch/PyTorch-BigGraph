@@ -30,9 +30,11 @@ from torchbiggraph.model import (
     FeaturizedEmbedding,
     IdentityDynamicOperator,
     IdentityOperator,
+    L2Comparator,
     LinearDynamicOperator,
     LinearOperator,
     SimpleEmbedding,
+    SquaredL2Comparator,
     TranslationDynamicOperator,
     TranslationOperator,
     match_shape,
@@ -798,6 +800,188 @@ class TestCosComparator(TensorTestCase):
             torch.tensor([
                 [[0.8354, 0.6406]],
                 [[0.7648, 0.7810]],
+            ]))
+        (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
+        self.assertTrue((lhs_pos.grad != 0).any())
+        self.assertTrue((rhs_pos.grad != 0).any())
+        self.assertTrue((lhs_neg.grad != 0).any())
+        self.assertTrue((rhs_neg.grad != 0).any())
+
+
+class TestL2Comparator(TensorTestCase):
+
+    def test_forward_one_batch(self):
+        comparator = L2Comparator()
+        lhs_pos = torch.tensor([[
+            [0.8931, 0.2241, 0.4241],
+            [0.6557, 0.2492, 0.4157],
+        ]], requires_grad=True)
+        rhs_pos = torch.tensor([[
+            [0.9220, 0.2892, 0.7408],
+            [0.1476, 0.6079, 0.1835],
+        ]], requires_grad=True)
+        lhs_neg = torch.tensor([[
+            [0.3836, 0.7648, 0.0965],
+            [0.8929, 0.8947, 0.4877],
+            [0.4754, 0.3163, 0.3422],
+            [0.7967, 0.6736, 0.2966],
+        ]], requires_grad=True)
+        rhs_neg = torch.tensor([[
+            [0.6116, 0.6010, 0.9500],
+            [0.2541, 0.7715, 0.7477],
+            [0.2360, 0.5923, 0.7536],
+            [0.1290, 0.3088, 0.2731],
+        ]], requires_grad=True)
+        pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
+            comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
+            comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
+        self.assertTensorEqual(pos_scores, torch.tensor([[-0.3246, -0.6639]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[-0.9650, -0.6569, -0.5992, -0.6006],
+                 [-0.2965, -0.8546, -0.4666, -0.6621]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[-0.7056, -0.9015, -0.8221, -0.7835],
+                 [-0.6412, -0.7378, -0.6388, -0.5489]],
+            ]))
+        (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
+        self.assertTrue((lhs_pos.grad != 0).any())
+        self.assertTrue((rhs_pos.grad != 0).any())
+        self.assertTrue((lhs_neg.grad != 0).any())
+        self.assertTrue((rhs_neg.grad != 0).any())
+
+    def test_forward_two_batches(self):
+        comparator = L2Comparator()
+        lhs_pos = torch.tensor([
+            [[0.8931, 0.2241, 0.4241]],
+            [[0.6557, 0.2492, 0.4157]],
+        ], requires_grad=True)
+        rhs_pos = torch.tensor([
+            [[0.9220, 0.2892, 0.7408]],
+            [[0.1476, 0.6079, 0.1835]],
+        ], requires_grad=True)
+        lhs_neg = torch.tensor([
+            [[0.3836, 0.7648, 0.0965],
+             [0.8929, 0.8947, 0.4877]],
+            [[0.4754, 0.3163, 0.3422],
+             [0.7967, 0.6736, 0.2966]],
+        ], requires_grad=True)
+        rhs_neg = torch.tensor([
+            [[0.6116, 0.6010, 0.9500],
+             [0.2541, 0.7715, 0.7477]],
+            [[0.2360, 0.5923, 0.7536],
+             [0.1290, 0.3088, 0.2731]],
+        ], requires_grad=True)
+        pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
+            comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
+            comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
+        self.assertTensorEqual(pos_scores, torch.tensor([[-0.3246], [-0.6639]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[-0.9650, -0.6569]],
+                [[-0.4666, -0.6621]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[-0.7056, -0.9015]],
+                [[-0.6388, -0.5489]],
+            ]))
+        (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
+        self.assertTrue((lhs_pos.grad != 0).any())
+        self.assertTrue((rhs_pos.grad != 0).any())
+        self.assertTrue((lhs_neg.grad != 0).any())
+        self.assertTrue((rhs_neg.grad != 0).any())
+
+
+class TestSquaredL2Comparator(TensorTestCase):
+
+    def test_forward_one_batch(self):
+        comparator = SquaredL2Comparator()
+        lhs_pos = torch.tensor([[
+            [0.8931, 0.2241, 0.4241],
+            [0.6557, 0.2492, 0.4157],
+        ]], requires_grad=True)
+        rhs_pos = torch.tensor([[
+            [0.9220, 0.2892, 0.7408],
+            [0.1476, 0.6079, 0.1835],
+        ]], requires_grad=True)
+        lhs_neg = torch.tensor([[
+            [0.3836, 0.7648, 0.0965],
+            [0.8929, 0.8947, 0.4877],
+            [0.4754, 0.3163, 0.3422],
+            [0.7967, 0.6736, 0.2966],
+        ]], requires_grad=True)
+        rhs_neg = torch.tensor([[
+            [0.6116, 0.6010, 0.9500],
+            [0.2541, 0.7715, 0.7477],
+            [0.2360, 0.5923, 0.7536],
+            [0.1290, 0.3088, 0.2731],
+        ]], requires_grad=True)
+        pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
+            comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
+            comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
+        self.assertTensorEqual(pos_scores, torch.tensor([[-0.1054, -0.4407]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[-0.9312, -0.4315, -0.3591, -0.3608],
+                 [-0.0879, -0.7303, -0.2177, -0.4384]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[-0.4979, -0.8127, -0.6759, -0.6138],
+                 [-0.4112, -0.5443, -0.4080, -0.3013]],
+            ]))
+        (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
+        self.assertTrue((lhs_pos.grad != 0).any())
+        self.assertTrue((rhs_pos.grad != 0).any())
+        self.assertTrue((lhs_neg.grad != 0).any())
+        self.assertTrue((rhs_neg.grad != 0).any())
+
+    def test_forward_two_batches(self):
+        comparator = SquaredL2Comparator()
+        lhs_pos = torch.tensor([
+            [[0.8931, 0.2241, 0.4241]],
+            [[0.6557, 0.2492, 0.4157]],
+        ], requires_grad=True)
+        rhs_pos = torch.tensor([
+            [[0.9220, 0.2892, 0.7408]],
+            [[0.1476, 0.6079, 0.1835]],
+        ], requires_grad=True)
+        lhs_neg = torch.tensor([
+            [[0.3836, 0.7648, 0.0965],
+             [0.8929, 0.8947, 0.4877]],
+            [[0.4754, 0.3163, 0.3422],
+             [0.7967, 0.6736, 0.2966]],
+        ], requires_grad=True)
+        rhs_neg = torch.tensor([
+            [[0.6116, 0.6010, 0.9500],
+             [0.2541, 0.7715, 0.7477]],
+            [[0.2360, 0.5923, 0.7536],
+             [0.1290, 0.3088, 0.2731]],
+        ], requires_grad=True)
+        pos_scores, lhs_neg_scores, rhs_neg_scores = comparator(
+            comparator.prepare(lhs_pos), comparator.prepare(rhs_pos),
+            comparator.prepare(lhs_neg), comparator.prepare(rhs_neg))
+        self.assertTensorEqual(pos_scores, torch.tensor([[-0.1054], [-0.4407]]))
+        self.assertTensorEqual(
+            lhs_neg_scores,
+            torch.tensor([
+                [[-0.9312, -0.4315]],
+                [[-0.2177, -0.4384]],
+            ]))
+        self.assertTensorEqual(
+            rhs_neg_scores,
+            torch.tensor([
+                [[-0.4979, -0.8127]],
+                [[-0.4080, -0.3013]],
             ]))
         (pos_scores.sum() + lhs_neg_scores.sum() + rhs_neg_scores.sum()).backward()
         self.assertTrue((lhs_pos.grad != 0).any())
