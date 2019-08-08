@@ -11,6 +11,7 @@ import json
 import os
 import os.path
 import random
+from itertools import chain
 from typing import Any, Counter, DefaultDict, Dict, List, Optional, Tuple
 
 import h5py
@@ -21,6 +22,7 @@ from torchbiggraph.config import (
     ConfigSchema,
     EntitySchema,
     RelationSchema,
+    override_config_dict,
 )
 from torchbiggraph.converters.dictionary import Dictionary
 
@@ -360,6 +362,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('config', help='Path to config file')
+    parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('edge_paths', nargs='*', help='Input file paths')
     parser.add_argument('-l', '--lhs-col', type=int, required=True,
                         help='Column index for source entity')
@@ -375,6 +378,12 @@ def main():
 
     loader = ConfigFileLoader()
     config_dict = loader.load_raw_config(opt.config)
+
+    if opt.param is not None:
+        overrides = chain.from_iterable(opt.param)  # flatten
+    else:
+        overrides = None
+    config_dict = override_config_dict(config_dict, overrides)
 
     entity_configs, relation_configs, entity_path, dynamic_relations = \
         parse_config_partial(config_dict)

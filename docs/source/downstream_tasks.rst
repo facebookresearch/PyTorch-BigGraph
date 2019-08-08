@@ -52,24 +52,33 @@ The embedding of, say, entity ``/m/05hf_5`` can be found as follows::
 The HDF5 format allows partial reads so, in the example above, we only load from disk the data we actually
 need. If we wanted to load the entire embedding table we could use ``embeddings = hf["embeddings"][...]``.
 
+.. _tsv-format:
+
 Reading from the TSV format
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Suppose that, instead, you just have the TSV format produced by ``torchbiggraph_export_to_tsv``. For example
-because you downloaded the :ref:`pre-trained Wikidata embeddings <wiki-data>` (available
-`here <https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz>`_ gzipped).
-This format is textual (i.e., ASCII-encoded). Each line contains first a string and then a series of real
-numbers (in floating-point decimal form), all separated by tabs.
+Suppose that, instead, you just have the TSV format produced by ``torchbiggraph_export_to_tsv``.
+This format is textual (i.e., ASCII-encoded). It consists of two files:
 
-- First come the entities' embeddings, with the string being the entity name and the rest being the
-  entity's embedding.
-- Then come the parameters of the relation types' operators, with the string being the relation type name
-  and the rest being a flattened view of the parameters.
-- Then, if :ref:`dynamic relations <dynamic-relations>` are used, come the parameters for the automatically-generated
-  reversed relation types.
+- One file contains the embedding vectors of the entities. Each line contains first the identifier of one
+  entity and then a series of real numbers (in floating-point decimal form), all separated by tabs, which
+  are the components of the vector.
+- The other file contains the parameters of the operators of the relation types. Here each line starts
+  with several text columns, all separated by tabs, which contain, in order, the name of a relation type,
+  a side (i.e., ``lhs`` or ``rhs``), the name of the operator for the relation type on that side, the
+  name of a parameter of that operator, the shape of the parameter (as integers separated by ``x``, for
+  example ``2x3x5``) and finally a series of real numbers, also tab-separated, which are the components
+  of the flattened parameter.
 
-In the Wikidata embeddings (and _not_ in other TSV files) the first line contains a comment listing the entity count,
-the relation count and the dimension.
+The :ref:`pre-trained Wikidata embeddings <wiki-data>` (available
+`here <https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz>`_ gzipped) use an
+older version of this format. They consist of a single file, which starts with a comment line listing the
+entity count, the relation type count and the dimension (of both the embeddings and the parameters, as it
+happens to be the same). It then contains the entity embeddings, in the format described above. The
+relation type parameters, however, are appended after the embeddings and use a simpler format consisting
+of a single text column (followed, as usual, by the real values of the parameter). First come the right-hand
+side parameters, and the text column contains the relation name. The come the left-hand side parameters,
+and the text column contains the relation name suffixed with ``_reverse_relation``.
 
 If one wants to load the data of such a file from disk into a NumPy array (just the embeddings, without the labels)
 one can use the following command::

@@ -71,8 +71,8 @@ The embeddings were trained with the following configuration::
 The output embeddings are available in various formats:
 
 - `wikidata_translation_v1.tsv.gz <https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz>`_ (36GiB),
-  a gzipped TSV (tab-separated value) file similar to the one produced by ``torchbiggraph_export_to_tsv`` except with an extra line at the beginning,
-  starting with a ``#`` followed by the entity count, the relation type count and the dimension.
+  a gzipped TSV (tab-separated value) file in an old format produced by ``torchbiggraph_export_to_tsv``
+  (see :ref:`here <tsv-format>` for how to parse it).
 - `wikidata_translation_v1_names.json.gz <https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1_names.json.gz>`_ (378MiB),
   a gzipped JSON-encoded list of all the keys in the first column of the TSV file.
 - `wikidata_translation_v1_vectors.npy.gz <https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1_vectors.npy.gz>`_ (39.9GiB),

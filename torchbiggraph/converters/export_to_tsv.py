@@ -8,90 +8,156 @@
 
 import argparse
 import json
-from typing import Dict, IO, Iterable, List, TextIO
+from itertools import chain
+from typing import Dict, Iterable, List, TextIO
 
-import torch
-
+from torchbiggraph.config import ConfigFileLoader, ConfigSchema
 from torchbiggraph.fileio import CheckpointManager
-from torchbiggraph.model import make_model
+from torchbiggraph.model import MultiRelationEmbedder, make_model
 
 
-def write(outf: TextIO, word: str, emb: Iterable[float]) -> None:
-    outf.write("%s\t%s\n" % (word, "\t".join("%.9f" % x for x in emb)))
+def write(outf: TextIO, key: Iterable[str], value: Iterable[float]) -> None:
+    outf.write("%s\t%s\n" % ("\t".join(key), "\t".join("%.9f" % x for x in value)))
 
 
 def make_tsv(
+    config: ConfigSchema,
     checkpoint: str,
-    relation_types: List[str],
     entities_by_type: Dict[str, List[str]],
-    output_file: IO[str],
+    relation_types: List[str],
+    entities_tf: TextIO,
+    relation_types_tf: TextIO,
 ) -> None:
+    print("Initializing model...")
+    model = make_model(config)
+
     print("Loading model check point...")
     checkpoint_manager = CheckpointManager(checkpoint)
-    config = checkpoint_manager.read_config()
     state_dict, _ = checkpoint_manager.read_model()
-    model = make_model(config)
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
 
-    for entity_name, entity in config.entities.items():
-        entities = entities_by_type[entity_name]
-        part_begin = 0
-        for part in range(entity.num_partitions):
-            print("Writing embeddings for entity type %s partition %d..."
-                  % (entity_name, part))
-            embs, _ = checkpoint_manager.read(entity_name, part)
+    make_tsv_for_entities(
+        model,
+        checkpoint_manager,
+        entities_by_type,
+        entities_tf,
+    )
+    make_tsv_for_relation_types(
+        model,
+        relation_types,
+        relation_types_tf,
+    )
+
+
+def make_tsv_for_entities(
+    model: MultiRelationEmbedder,
+    checkpoint_manager: CheckpointManager,
+    entities_by_type: Dict[str, List[str]],
+    entities_tf: TextIO,
+) -> None:
+    print("Writing entity embeddings...")
+    for ent_t_name, ent_t_config in model.entities.items():
+        entities = entities_by_type[ent_t_name]
+        partition_offset = 0
+        for partition in range(ent_t_config.num_partitions):
+            print(f"Reading embeddings for entity type {ent_t_name} partition "
+                  f"{partition} from checkpoint...")
+            embeddings, _ = checkpoint_manager.read(ent_t_name, partition)
 
             if model.global_embs is not None:
-                embs += model.global_embs[model.EMB_PREFIX + entity_name]
+                embeddings += model.global_embs[model.EMB_PREFIX + ent_t_name]
 
-            for ix in range(len(embs)):
-                write(output_file, entities[part_begin + ix], embs[ix])
+            print(f"Writing embeddings for entity type {ent_t_name} partition "
+                  f"{partition} to output file...")
+            for ix in range(len(embeddings)):
+                write(entities_tf, (entities[partition_offset + ix],), embeddings[ix])
                 if (ix + 1) % 5000 == 0:
-                    print("- Processed %d entities so far..." % (ix + 1))
-            print("- Processed %d entities in total" % len(embs))
+                    print(f"- Processed {ix+1}/{len(embeddings)} entities so far...")
+            print(f"- Processed all {len(embeddings)} entities")
 
-            part_begin = part_begin + len(embs)
+            partition_offset += len(embeddings)
 
-    # TODO Provide a better output format for relation parameters.
-    print("Writing relation parameters...")
+    entities_output_filename = getattr(entities_tf, "name", "the output file")
+    print(f"Done exporting entity data to {entities_output_filename}")
+
+
+def make_tsv_for_relation_types(
+    model: MultiRelationEmbedder,
+    relation_types: List[str],
+    relation_types_tf: TextIO,
+) -> None:
+    print("Writing relation type parameters...")
     if model.num_dynamic_rels > 0:
-        lhs_parameters = torch.cat([
-            parameter.view(model.num_dynamic_rels, -1)
-            for parameter in model.lhs_operators[0].parameters()
-        ], dim=1)
-        for rel_idx, rel_name in enumerate(relation_types):
-            write(output_file, rel_name, lhs_parameters[rel_idx])
-
-        rhs_parameters = torch.cat([
-            parameter.view(model.num_dynamic_rels, -1)
-            for parameter in model.rhs_operators[0].parameters()
-        ], dim=1)
-        for rel_idx, rel_name in enumerate(relation_types):
-            write(output_file, rel_name + "_reverse_relation", rhs_parameters[rel_idx])
+        rel_t_config, = model.relations
+        op_name = rel_t_config.operator
+        lhs_operator, = model.lhs_operators
+        rhs_operator, = model.rhs_operators
+        for side, operator in [("lhs", lhs_operator), ("rhs", rhs_operator)]:
+            for param_name, all_params in operator.named_parameters():
+                for rel_t_name, param in zip(relation_types, all_params):
+                    shape = "x".join(f"{d}" for d in param.shape)
+                    write(
+                        relation_types_tf,
+                        (rel_t_name, side, op_name, param_name, shape),
+                        param,
+                    )
     else:
-        for rel_name, operator in zip(relation_types, model.rhs_operators):
-            write(output_file, rel_name, torch.cat([
-                parameter.flatten() for parameter in operator.parameters()
-            ], dim=0))
+        for rel_t_name, rel_t_config, operator \
+                in zip(relation_types, model.relations, model.rhs_operators):
+            if rel_t_name != rel_t_config.name:
+                raise ValueError(
+                    f"Mismatch in relations names: got {rel_t_name} in the "
+                    f"dictionary and {rel_t_config.name} in the config.")
+            op_name = rel_t_config.operator
+            for param_name, param in operator.named_parameters():
+                shape = "x".join(f"{d}" for d in param.shape)
+                write(
+                    relation_types_tf,
+                    (rel_t_name, "rhs", op_name, param_name, shape),
+                    param,
+                )
 
-    print("Done exporting data to %s" % getattr(output_file, "name", "the output file"))
+    relation_types_output_filename = getattr(relation_types_tf, "name", "the output file")
+    print(f"Done exporting relation type data to {relation_types_output_filename}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Convert Data for PBG')
+    config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
+    parser = argparse.ArgumentParser(
+        epilog=config_help,
+        # Needed to preserve line wraps in epilog.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('config', help="Path to config file")
+    parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('--checkpoint')
     parser.add_argument('--dict', required=True)
-    parser.add_argument('--out', required=True)
+    parser.add_argument('--entities-output', required=True)
+    parser.add_argument('--relation-types-output', required=True)
+    opt = parser.parse_args()
 
-    args = parser.parse_args()
+    if opt.param is not None:
+        overrides = chain.from_iterable(opt.param)  # flatten
+    else:
+        overrides = None
+    loader = ConfigFileLoader()
+    config = loader.load_config(opt.config, overrides)
 
     print("Loading relation types and entities...")
-    with open(args.dict, "rt") as tf:
+    with open(opt.dict, "rt") as tf:
         dump = json.load(tf)
 
-    with open(args.out, "wt") as out_tf:
-        make_tsv(args.checkpoint, dump["relations"], dump["entities"], out_tf)
+    with open(opt.entities_output, "xt") as entities_tf, \
+            open(opt.relation_types_output, "xt") as relation_types_tf:
+        make_tsv(
+            config,
+            opt.checkpoint,
+            dump["entities"],
+            dump["relations"],
+            entities_tf,
+            relation_types_tf,
+        )
 
 
 if __name__ == "__main__":
