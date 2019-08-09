@@ -40,6 +40,10 @@ See :ref:`io-format` for more details.
 
   If set, it must be a path to a directory that contains initial values for the embeddings of all the entities of some types.
 
+- ``checkpoint_preservation_interval`` (type: integer or null; default: ``null``)
+
+  If set, every so many epochs a snapshot of the checkpoint will be archived. The snapshot will be located inside a :samp:`epoch_{N}` sub-directory of the checkpoint directory, and will contain symbolic links to the original checkpoint files, which will not be cleaned-up as it would normally happen.
+
 Graph structure
 ^^^^^^^^^^^^^^^
 

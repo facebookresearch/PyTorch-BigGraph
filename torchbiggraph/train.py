@@ -235,7 +235,7 @@ class IterationManager(MetadataProvider):
     def edge_chunk_idx(self) -> int:
         return self.iteration_idx % self.num_edge_chunks
 
-    def remaining_iterations(self) -> Iterable[Tuple[int, int, int]]:
+    def __iter__(self) -> Iterable[Tuple[int, int, int]]:
         while self.epoch_idx < self.num_epochs:
             yield self.epoch_idx, self.edge_path_idx, self.edge_chunk_idx
             self.iteration_idx += 1
@@ -250,6 +250,33 @@ class IterationManager(MetadataProvider):
             "iteration/num_edge_chunks": self.num_edge_chunks,
             "iteration/edge_chunk_idx": self.edge_chunk_idx,
         }
+
+    def __add__(self, delta: int) -> "IterationManager":
+        return IterationManager(
+            self.num_epochs,
+            self.edge_paths,
+            self.num_edge_chunks,
+            iteration_idx=self.iteration_idx + delta,
+        )
+
+
+def should_preserve_old_checkpoint(
+    iteration_manager: IterationManager,
+    interval: Optional[int],
+) -> bool:
+    """Whether the checkpoint consumed by the current iteration should be kept
+
+    Given the period, in number of epochs, at which to snapshot checkpoints,
+    determinen whether the checkpoint that is used as input by the current
+    iteration (as determined by the given manager) should be preserved rather
+    than getting cleaned up.
+    """
+    if interval is None:
+        return False
+    is_checkpoint_epoch = iteration_manager.epoch_idx % interval == 0
+    is_first_edge_path = iteration_manager.edge_path_idx == 0
+    is_first_edge_chunk = iteration_manager.edge_chunk_idx == 0
+    return is_checkpoint_epoch and is_first_edge_path and is_first_edge_chunk
 
 
 def train_and_report_stats(
@@ -572,8 +599,7 @@ def train_and_report_stats(
         return io_bytes
 
     # Start of the main training loop.
-    for epoch_idx, edge_path_idx, edge_chunk_idx \
-            in iteration_manager.remaining_iterations():
+    for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
         log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
             (epoch_idx + 1, iteration_manager.num_epochs,
              edge_path_idx + 1, iteration_manager.num_edge_paths,
@@ -733,6 +759,16 @@ def train_and_report_stats(
         # Distributed Processing: all machines can leave the barrier now.
         sync.barrier()
 
+        # Preserving a checkpoint requires two steps:
+        # - create a snapshot (w/ symlinks) after it's first written;
+        # - don't delete it once the following one is written.
+        # These two happen in two successive iterations of the main loop: the
+        # one just before and the one just after the epoch boundary.
+        preserve_old_checkpoint = should_preserve_old_checkpoint(
+            iteration_manager, config.checkpoint_preservation_interval)
+        preserve_new_checkpoint = should_preserve_old_checkpoint(
+            iteration_manager + 1, config.checkpoint_preservation_interval)
+
         # Write metadata: for multiple machines, write from rank-0
         log("Finished epoch %d path %d pass %d; checkpointing global state."
             % (epoch_idx + 1, edge_path_idx + 1, edge_chunk_idx + 1))
@@ -775,8 +811,13 @@ def train_and_report_stats(
         dlog("All workers have switched to the new checkpoint version")
 
         # After all the machines have finished committing
-        # checkpoints, we remove the old checkpoints.
-        checkpoint_manager.remove_old_version(config)
+        # checkpoints, we either remove the old checkpoints
+        # or we preserve it
+        if preserve_new_checkpoint:
+            # Add 1 so the index is a multiple of the interval, it looks nicer.
+            checkpoint_manager.preserve_current_version(config, epoch_idx + 1)
+        if not preserve_old_checkpoint:
+            checkpoint_manager.remove_old_version(config)
 
         # now we're sure that all partition files exist,
         # so be strict about loading them

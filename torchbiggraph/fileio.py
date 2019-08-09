@@ -54,7 +54,7 @@ class EdgeReader:
     def __init__(self, path: str) -> None:
         if not os.path.isdir(path):
             raise RuntimeError("Invalid edge dir: %s" % path)
-        self.path: str = path
+        self.path: str = os.path.abspath(path)
 
     def read(
         self,
@@ -63,7 +63,7 @@ class EdgeReader:
         chunk_idx: int = 0,
         num_chunks: int = 1,
     ) -> EdgeList:
-        file_path = os.path.join(self.path, "edges_%d_%d.h5" % (lhs_p, rhs_p))
+        file_path = os.path.join(self.path, f"edges_{lhs_p}_{rhs_p}.h5")
         assert os.path.exists(file_path), "%s does not exist" % file_path
         with h5py.File(file_path, 'r') as hf:
             if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
@@ -487,7 +487,7 @@ class CheckpointManager:
           - background: if True, will do prefetch and store in a background
                         process
         """
-        self.path: str = path
+        self.path: str = os.path.abspath(path)
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.rank: Rank = rank
         self.num_machines: int = num_machines
@@ -568,7 +568,7 @@ class CheckpointManager:
 
     def _file_path(self, entity: EntityName, part: Partition) -> str:
         version = self._version((entity, part) in self.dirty)
-        file_path = os.path.join(self.path, "embeddings_%s_%d.v%d.h5" % (entity, part, version))
+        file_path = os.path.join(self.path, f"embeddings_{entity}_{part}.v{version}.h5")
         return file_path
 
     def write(
@@ -658,7 +658,7 @@ class CheckpointManager:
         optim_state: Optional[OptimizerStateDict],
     ) -> None:
         version = self._version(True)
-        file_path = os.path.join(self.path, "model.v%d.h5" % version)
+        file_path = os.path.join(self.path, f"model.v{version}.h5")
         metadata = self.collect_metadata()
         save_model(file_path, model_state, optim_state, metadata)
 
@@ -666,7 +666,7 @@ class CheckpointManager:
         self,
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         version = self._version(False)
-        file_path = os.path.join(self.path, "model.v%d.h5" % version)
+        file_path = os.path.join(self.path, f"model.v{version}.h5")
         return load_model(file_path)
 
     def maybe_read_model(
@@ -704,7 +704,7 @@ class CheckpointManager:
                         self.partition_client.get(EntityName(entity), Partition(part))
                     vlog("Rank %d: saving %s %d to disk" % (self.rank, entity, part))
                     new_file_path = os.path.join(
-                        self.path, "embeddings_%s_%d.v%d.h5" % (entity, part, new_version))
+                        self.path, f"embeddings_{entity}_{part}.v{new_version}.h5")
                     save_entity_partition(new_file_path, embs, optim_state, metadata)
 
     def switch_to_new_version(self) -> None:
@@ -720,10 +720,39 @@ class CheckpointManager:
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 old_file_path = os.path.join(
-                    self.path, "embeddings_%s_%d.v%d.h5" % (entity, part, old_version))
+                    self.path, f"embeddings_{entity}_{part}.v{old_version}.h5")
                 vlog("%d os.remove %s" % (self.rank, old_file_path))
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)
+        if self.rank == 0:
+            old_file_path = os.path.join(self.path, f"model.v{old_version}.h5")
+            if self.checkpoint_version > 1 or os.path.exists(old_file_path):
+                os.remove(old_file_path)
+
+    def preserve_current_version(self, config: ConfigSchema, epoch_idx: int) -> None:
+        """Create a snapshot (made of symlinks) of the current checkpoint
+
+        In order to "archive" a checkpoint version this function creates a
+        subdirectory (named after the given epoch) and recreates the current
+        checkpoint using symlinks to the originals (they cannot be moved as they
+        may still be needed, and copying would take long and waste space).
+        """
+        version = self.checkpoint_version
+        dst_dir = os.path.join(self.path, f"epoch_{epoch_idx}")
+        os.makedirs(dst_dir, exist_ok=True)
+        for entity, econf in config.entities.items():
+            for part in range(self.rank, econf.num_partitions, self.num_machines):
+                file_name = f"embeddings_{entity}_{part}.v{version}.h5"
+                src_file_path = os.path.join(self.path, file_name)
+                dst_file_path = os.path.join(dst_dir, file_name)
+                os.symlink(src_file_path, dst_file_path)
+        if self.rank == 0:
+            file_name = f"model.v{version}.h5"
+            src_file_path = os.path.join(self.path, file_name)
+            dst_file_path = os.path.join(dst_dir, file_name)
+            os.symlink(src_file_path, dst_file_path)
+            with open(os.path.join(dst_dir, VERSION_FILE), "xt") as tf:
+                tf.write(f"{version}")
 
     def close(self) -> None:
         if self.background:

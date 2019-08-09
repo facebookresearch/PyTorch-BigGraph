@@ -17,20 +17,20 @@ class TestIterationManager(TestCase):
     def test_full(self):
         im = IterationManager(
             num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4)
-        self.assertEqual(list(im.remaining_iterations()),
+        self.assertEqual(list(im),
                          list(product(range(2), range(3), range(4))))
 
     def test_partial(self):
         im = IterationManager(
             num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4,
             iteration_idx=(1 * 3 + 2) * 4 + 3)
-        self.assertEqual(list(im.remaining_iterations()),
+        self.assertEqual(list(im),
                          [(1, 2, 3)])
 
     def test_tampering(self):
         im = IterationManager(
             num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4)
-        it = iter(im.remaining_iterations())
+        it = iter(im)
         self.assertEqual(next(it), (0, 0, 0))
         im.iteration_idx = (0 * 3 + 1) * 4 + 1
         # When calling next it gets incremented.

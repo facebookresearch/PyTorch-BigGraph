@@ -200,6 +200,15 @@ class ConfigSchema(Schema):
                           "contains initial values for the embeddings of all "
                           "the entities of some types."},
     )
+    checkpoint_preservation_interval: Optional[int] = attr.ib(
+        default=None,
+        metadata={'help': "If set, every so many epochs a snapshot of the "
+                          "checkpoint will be archived. The snapshot will be "
+                          "located inside a `epoch_{N}` sub-directory of the "
+                          "checkpoint directory, and will contain symbolic "
+                          "links to the original checkpoint files, which will "
+                          "not be cleaned-up as it would normally happen."},
+    )
 
     # training config
 
