@@ -9,6 +9,7 @@
 import errno
 import io
 import json
+import logging
 import multiprocessing as mp
 import multiprocessing.pool  # noqa: F401
 import os
@@ -38,7 +39,10 @@ from torchbiggraph.types import (
     Partition,
     Rank,
 )
-from torchbiggraph.util import create_pool, get_async_result, log, vlog
+from torchbiggraph.util import create_pool, get_async_result
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class EdgeReader:
@@ -312,7 +316,7 @@ def save_entity_partition(
     optim_state: Optional[OptimizerStateDict],
     metadata: Dict[str, Any],
 ) -> None:
-    vlog("Saving to %s" % path)
+    logger.debug(f"Saving to {path}")
     with h5py.File(path, "w") as hf:
         hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
         for k, v in metadata.items():
@@ -320,7 +324,7 @@ def save_entity_partition(
         save_embeddings(hf, embs)
         save_optimizer_state_dict(hf, optim_state)
         hf.flush()
-    vlog("Done saving to %s" % path)
+    logger.debug(f"Done saving to {path}")
 
 
 def save_model(
@@ -329,7 +333,7 @@ def save_model(
     optim_state: Optional[OptimizerStateDict],
     metadata: Dict[str, Any],
 ) -> None:
-    vlog("Saving to %s" % path)
+    logger.debug(f"Saving to {path}")
     with h5py.File(path, "w") as hf:
         hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
         for k, v in metadata.items():
@@ -337,17 +341,17 @@ def save_model(
         save_model_state_dict(hf, state_dict)
         save_optimizer_state_dict(hf, optim_state)
         hf.flush()
-    vlog("Done saving to %s" % path)
+    logger.debug(f"Done saving to {path}")
 
 
 def load_entity_partition(
     path: str,
 ) -> Tuple[FloatTensorType, Optional[OptimizerStateDict]]:
-    vlog("Loading from %s" % path)
+    logger.debug(f"Loading from {path}")
     try:
         with h5py.File(path, "r") as hf:
-            if hf.attrs[FORMAT_VERSION_ATTR] != FORMAT_VERSION:
-                raise RuntimeError("Version mismatch in embeddings file %s")
+            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                raise RuntimeError(f"Version mismatch in embeddings file {path}")
             embs = load_embeddings(hf)
             optim_state = load_optimizer_state_dict(hf)
     except OSError as err:
@@ -356,18 +360,18 @@ def load_entity_partition(
         if "errno = %d" % errno.ENOENT in str(err):
             raise FileNotFoundError() from err
         raise err
-    vlog("Done loading from %s" % path)
+    logger.debug(f"Done loading from {path}")
     return embs, optim_state
 
 
 def load_model(
     path: str,
 ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
-    vlog("Loading from %s" % path)
+    logger.debug(f"Loading from {path}")
     try:
         with h5py.File(path, "r") as hf:
-            if hf.attrs[FORMAT_VERSION_ATTR] != FORMAT_VERSION:
-                raise RuntimeError("Version mismatch in model file %s")
+            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                raise RuntimeError(f"Version mismatch in model file {path}")
             state_dict = load_model_state_dict(hf)
             optim_state = load_optimizer_state_dict(hf)
     except OSError as err:
@@ -376,7 +380,7 @@ def load_model(
         if "errno = %d" % errno.ENOENT in str(err):
             raise FileNotFoundError() from err
         raise err
-    vlog("Done loading from %s" % path)
+    logger.debug(f"Done loading from {path}")
     return state_dict, optim_state
 
 
@@ -479,6 +483,7 @@ class CheckpointManager:
         num_machines: int = 1,
         background: bool = False,
         partition_client: Optional[PartitionClient] = None,
+        subprocess_name: Optional[str] = None,
         subprocess_init: Optional[Callable[[], None]] = None,
     ) -> None:
         """
@@ -514,7 +519,11 @@ class CheckpointManager:
 
         self.background: bool = background
         if self.background:
-            self.pool: mp.pool.Pool = create_pool(1, subprocess_init=subprocess_init)
+            self.pool: mp.pool.Pool = create_pool(
+                1,
+                subprocess_name=subprocess_name,
+                subprocess_init=subprocess_init,
+            )
             # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
             self.outstanding: OrderedDict = OrderedDict()
             self.prefetched: Dict[str, Tuple[FloatTensorType, Optional[OptimizerStateDict]]] = {}
@@ -546,15 +555,15 @@ class CheckpointManager:
 
     def _sync(self, sync_path: Optional[str] = None) -> None:
         assert self.background
-        vlog("CheckpointManager=>_sync( %s )" % sync_path)
-        vlog("outstanding= %s" % set(self.outstanding))
+        logger.debug(f"CheckpointManager=>_sync( {sync_path} )")
+        logger.debug(f"outstanding= {set(self.outstanding)}")
         while len(self.outstanding) > 0:
             path, future_res = self.outstanding.popitem(last=False)
             res = get_async_result(future_res, self.pool)
 
             if res is not None:
-                log("Setting prefetched %s; %d outstanding" %
-                    (path, len(self.outstanding)))
+                logger.info(
+                    f"Setting prefetched {path}; {len(self.outstanding)} outstanding")
                 self.prefetched[path] = res
 
             if sync_path is not None and path == sync_path:
@@ -646,7 +655,7 @@ class CheckpointManager:
 
         file_path = self._file_path(entity, part)
         if file_path in self.outstanding or file_path in self.prefetched:
-            vlog("Bailing from prefetch of %s" % file_path)
+            logger.debug(f"Bailing from prefetch of {file_path}")
             return
         if os.path.exists(file_path):
             future_res = self.pool.apply_async(load_entity_partition, (file_path,))
@@ -699,21 +708,23 @@ class CheckpointManager:
         if self.partition_client is not None:
             for entity, econf in config.entities.items():
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
-                    vlog("Rank %d: getting %s %d" % (self.rank, entity, part))
+                    logger.debug(f"Getting {entity} {part}")
                     embs, optim_state = \
                         self.partition_client.get(EntityName(entity), Partition(part))
-                    vlog("Rank %d: saving %s %d to disk" % (self.rank, entity, part))
+                    logger.debug(f"Done getting {entity} {part}")
                     new_file_path = os.path.join(
                         self.path, f"embeddings_{entity}_{part}.v{new_version}.h5")
+                    logger.debug(f"Saving {entity} {part} to {new_file_path}")
                     save_entity_partition(new_file_path, embs, optim_state, metadata)
+                    logger.debug(f"Done saving {entity} {part} to {new_file_path}")
 
     def switch_to_new_version(self) -> None:
         self.dirty.clear()
         self.checkpoint_version += 1
         if self.rank == 0:
-            vlog("Rank 0: write version file")
+            logger.debug("Writing version file")
             self._write_version_file(self.checkpoint_version)
-            vlog("Rank 0: done")
+            logger.debug("Written version file")
 
     def remove_old_version(self, config: ConfigSchema) -> None:
         old_version = self.checkpoint_version - 1
@@ -721,13 +732,15 @@ class CheckpointManager:
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 old_file_path = os.path.join(
                     self.path, f"embeddings_{entity}_{part}.v{old_version}.h5")
-                vlog("%d os.remove %s" % (self.rank, old_file_path))
                 if self.checkpoint_version > 1 or os.path.exists(old_file_path):
                     os.remove(old_file_path)
+                    logger.debug(f"Done deleting {old_file_path}")
         if self.rank == 0:
             old_file_path = os.path.join(self.path, f"model.v{old_version}.h5")
             if self.checkpoint_version > 1 or os.path.exists(old_file_path):
+                logger.debug(f"Deleting {old_file_path}")
                 os.remove(old_file_path)
+                logger.debug(f"Done deleting {old_file_path}")
 
     def preserve_current_version(self, config: ConfigSchema, epoch_idx: int) -> None:
         """Create a snapshot (made of symlinks) of the current checkpoint

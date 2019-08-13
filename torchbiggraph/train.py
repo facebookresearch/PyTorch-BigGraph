@@ -7,8 +7,8 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
+import logging
 import os.path
-import sys
 import time
 from abc import ABC, abstractmethod
 from functools import partial
@@ -70,17 +70,25 @@ from torchbiggraph.types import (
     Side,
 )
 from torchbiggraph.util import (
+    BucketLogger,
     DummyOptimizer,
     create_pool,
     fast_approx_rand,
     get_async_result,
     get_num_workers,
     get_partitioned_types,
-    log,
+    hide_distributed_logging,
     round_up_to_nearest_multiple,
+    set_logging_verbosity,
+    setup_logging,
     split_almost_equally,
-    vlog,
+    SubprocessInitializer,
+    tag_logs_with_process_name,
 )
+
+
+logger = logging.getLogger("torchbiggraph")
+dist_logger = logging.LoggerAdapter(logger, {"distributed": True})
 
 
 class Trainer(AbstractBatchProcessor):
@@ -171,7 +179,7 @@ def init_embs(
     """Initialize embeddings of size entity_count x dim.
     """
     # FIXME: Use multi-threaded instead of fast_approx_rand
-    vlog("Initializing %s" % entity)
+    logger.debug(f"Initializing {entity}")
     return fast_approx_rand(entity_count * dim).view(entity_count, dim).mul_(scale), None
 
 
@@ -290,12 +298,13 @@ def train_and_report_stats(
     """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
     from disk, runs HOGWILD training on them, and writes partitions back to disk.
     """
+    tag_logs_with_process_name(f"Trainer-{rank}")
 
     if config.verbose > 0:
         import pprint
         pprint.PrettyPrinter().pprint(config.to_dict())
 
-    log("Loading entity counts...")
+    logger.info("Loading entity counts...")
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
@@ -308,8 +317,9 @@ def train_and_report_stats(
     # Figure out how many lhs and rhs partitions we need
     nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
     nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
-    vlog("nparts %d %d types %s %s" %
-         (nparts_lhs, nparts_rhs, lhs_partitioned_types, rhs_partitioned_types))
+    logger.debug(
+        f"nparts {nparts_lhs} {nparts_rhs} "
+        f"types {lhs_partitioned_types} {rhs_partitioned_types}")
     total_buckets = nparts_lhs * nparts_rhs
 
     sync: AbstractSynchronizer
@@ -326,7 +336,7 @@ def train_and_report_stats(
             config.num_machines, config.num_partition_servers)
 
         if rank == RANK_ZERO:
-            log("Setup lock server...")
+            logger.info("Setup lock server...")
             start_server(
                 LockServer(
                     num_clients=len(ranks.trainers),
@@ -336,9 +346,10 @@ def train_and_report_stats(
                     lock_rhs=len(rhs_partitioned_types) > 0,
                     init_tree=config.distributed_tree_init_order,
                 ),
-                server_rank=ranks.lock_server,
-                world_size=ranks.world_size,
+                process_name="LockServer",
                 init_method=config.distributed_init_method,
+                world_size=ranks.world_size,
+                server_rank=ranks.lock_server,
                 groups=[ranks.trainers],
                 subprocess_init=subprocess_init,
             )
@@ -348,17 +359,19 @@ def train_and_report_stats(
             client_rank=ranks.trainers[rank],
         )
 
-        log("Setup param server...")
+        logger.info("Setup param server...")
         start_server(
             ParameterServer(num_clients=len(ranks.trainers)),
-            server_rank=ranks.parameter_servers[rank],
+            process_name=f"ParamS-{rank}",
             init_method=config.distributed_init_method,
             world_size=ranks.world_size,
+            server_rank=ranks.parameter_servers[rank],
             groups=[ranks.trainers],
             subprocess_init=subprocess_init,
         )
 
         parameter_sharer = ParameterSharer(
+            process_name=f"ParamC-{rank}",
             client_rank=ranks.parameter_clients[rank],
             all_server_ranks=ranks.parameter_servers,
             init_method=config.distributed_init_method,
@@ -370,9 +383,10 @@ def train_and_report_stats(
         if config.num_partition_servers == -1:
             start_server(
                 ParameterServer(num_clients=len(ranks.trainers)),
-                server_rank=ranks.partition_servers[rank],
-                world_size=ranks.world_size,
+                process_name=f"PartS-{rank}",
                 init_method=config.distributed_init_method,
+                world_size=ranks.world_size,
+                server_rank=ranks.partition_servers[rank],
                 groups=[ranks.trainers],
                 subprocess_init=subprocess_init,
             )
@@ -390,7 +404,6 @@ def train_and_report_stats(
         )
         trainer_group, = groups
         sync = DistributedSynchronizer(trainer_group)
-        dlog = log
 
     else:
         sync = DummySynchronizer()
@@ -398,12 +411,16 @@ def train_and_report_stats(
             nparts_lhs, nparts_rhs, config.bucket_order)
         parameter_sharer = None
         partition_client = None
-        dlog = lambda msg: None
+        hide_distributed_logging()
 
     # fork early for HOGWILD threads
-    log("Creating workers...")
+    logger.info("Creating workers...")
     num_workers = get_num_workers(config.workers)
-    pool = create_pool(num_workers, subprocess_init=subprocess_init)
+    pool = create_pool(
+        num_workers,
+        subprocess_name=f"TWorker-{rank}",
+        subprocess_init=subprocess_init,
+    )
 
     def make_optimizer(params: Iterable[torch.nn.Parameter], is_emb: bool) -> Optimizer:
         params = list(params)
@@ -429,6 +446,7 @@ def train_and_report_stats(
         rank=rank,
         num_machines=config.num_machines,
         partition_client=partition_client,
+        subprocess_name=f"BackgRW-{rank}",
         subprocess_init=subprocess_init,
     )
     checkpoint_manager.register_metadata_provider(ConfigMetadataProvider(config))
@@ -467,7 +485,7 @@ def train_and_report_stats(
         assert embs.is_shared()
         return torch.nn.Parameter(embs), optim_state
 
-    log("Initializing global model...")
+    logger.info("Initializing global model...")
 
     if model is None:
         model = make_model(config)
@@ -495,7 +513,7 @@ def train_and_report_stats(
     if optim_state is not None:
         trainer.global_optimizer.load_state_dict(optim_state)
 
-    vlog("Loading unpartitioned entities...")
+    logger.debug("Loading unpartitioned entities...")
     for entity, econfig in config.entities.items():
         if econfig.num_partitions == 1:
             embs, optim_state = load_embeddings(entity, Partition(0))
@@ -520,7 +538,7 @@ def train_and_report_stats(
         #    track of old and new embedding (entity, part) tuples
 
         io_bytes = 0
-        log("Swapping partitioned embeddings %s %s" % (old_b, new_b))
+        logger.info(f"Swapping partitioned embeddings {old_b} {new_b}")
 
         types = ([(e, Side.LHS) for e in lhs_partitioned_types]
                  + [(e, Side.RHS) for e in rhs_partitioned_types])
@@ -535,11 +553,11 @@ def train_and_report_stats(
         # 1. checkpoint embeddings that will not be used in the next pair
         #
         if old_b is not None:  # there are previous embeddings to checkpoint
-            log("Writing partitioned embeddings")
+            logger.info("Writing partitioned embeddings")
             for entity, part in to_checkpoint:
                 side = old_parts[(entity, part)]
-                vlog("Checkpointing (%s %d %s)" %
-                     (entity, part, side.pick("lhs", "rhs")))
+                side_name = side.pick("lhs", "rhs")
+                logger.debug(f"Checkpointing ({entity} {part} {side_name})")
                 embs = model.get_embeddings(entity, side)
                 optim_key = (entity, part)
                 optim_state = OptimizerStateDict(trainer.entity_optimizers[optim_key].state_dict())
@@ -565,18 +583,20 @@ def train_and_report_stats(
         if new_b is None:  # there are no new embeddings to load
             return io_bytes
 
+        bucket_logger = BucketLogger(logger, bucket=new_b)
+
         # 3. load new embeddings into the model/optimizer, either from disk
         #    or the temporary dictionary
         #
-        log("Loading entities")
+        bucket_logger.info("Loading entities")
         for entity, side in types:
             part = new_b.get_partition(side)
             part_key = (entity, part)
             if part_key in tmp_emb:
-                vlog("Loading (%s, %d) from preserved" % (entity, part))
+                bucket_logger.debug(f"Loading ({entity}, {part}) from preserved")
                 embs, optim_state = tmp_emb[part_key], None
             else:
-                vlog("Loading (%s, %d)" % (entity, part))
+                bucket_logger.debug(f"Loading ({entity}, {part})")
 
                 force_dirty = bucket_scheduler.check_and_set_dirty(entity, part)
                 embs, optim_state = load_embeddings(
@@ -588,10 +608,10 @@ def train_and_report_stats(
 
             optim_key = (entity, part)
             if optim_key not in trainer.entity_optimizers:
-                vlog("Resetting optimizer %s" % (optim_key,))
+                bucket_logger.debug(f"Resetting optimizer {optim_key}")
                 optimizer = make_optimizer([embs], True)
                 if optim_state is not None:
-                    vlog("Setting optim state")
+                    bucket_logger.debug("Setting optim state")
                     optimizer.load_state_dict(optim_state)
 
                 trainer.entity_optimizers[optim_key] = optimizer
@@ -600,15 +620,15 @@ def train_and_report_stats(
 
     # Start of the main training loop.
     for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
-        log("Starting epoch %d / %d edge path %d / %d edge chunk %d / %d" %
-            (epoch_idx + 1, iteration_manager.num_epochs,
-             edge_path_idx + 1, iteration_manager.num_edge_paths,
-             edge_chunk_idx + 1, iteration_manager.num_edge_chunks))
+        logger.info(
+            f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
+            f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
+            f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
         edge_reader = EdgeReader(iteration_manager.edge_path)
-        log("edge_path= %s" % iteration_manager.edge_path)
+        logger.info(f"Edge path: {iteration_manager.edge_path}")
 
         sync.barrier()
-        dlog("Lock client new epoch...")
+        dist_logger.info("Lock client new epoch...")
         bucket_scheduler.new_pass(is_first=iteration_manager.iteration_idx == 0)
         sync.barrier()
 
@@ -619,7 +639,7 @@ def train_and_report_stats(
             io_time = 0.
             io_bytes = 0
             cur_b, remaining = bucket_scheduler.acquire_bucket()
-            print('still in queue: %d' % remaining, file=sys.stderr)
+            logger.info(f"still in queue: {remaining}")
             if cur_b is None:
                 if old_b is not None:
                     # if you couldn't get a new pair, release the lock
@@ -630,9 +650,7 @@ def train_and_report_stats(
                 time.sleep(1)  # don't hammer td
                 continue
 
-            def log_status(msg, always=False):
-                f = log if always else vlog
-                f("%s: %s" % (cur_b, msg))
+            bucket_logger = BucketLogger(logger, bucket=cur_b)
 
             tic = time.time()
 
@@ -646,7 +664,7 @@ def train_and_report_stats(
                 # Ensure the previous bucket finished writing to disk.
                 checkpoint_manager.wait_for_marker(current_index - 1)
 
-                log_status("Prefetching")
+                bucket_logger.debug("Prefetching")
                 for entity in lhs_partitioned_types:
                     checkpoint_manager.prefetch(entity, next_b.lhs)
                 for entity in rhs_partitioned_types:
@@ -654,7 +672,7 @@ def train_and_report_stats(
 
                 checkpoint_manager.record_marker(current_index)
 
-            log_status("Loading edges")
+            bucket_logger.debug("Loading edges")
             edges = edge_reader.read(
                 cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
             num_edges = len(edges)
@@ -663,7 +681,7 @@ def train_and_report_stats(
             io_bytes += edges.rhs.tensor.numel() * edges.rhs.tensor.element_size()
             io_bytes += edges.rel.numel() * edges.rel.element_size()
 
-            log_status("Shuffling edges")
+            bucket_logger.debug("Shuffling edges")
             # Fix a seed to get the same permutation every time; have it
             # depend on all and only what affects the set of edges.
             g = torch.Generator()
@@ -681,7 +699,7 @@ def train_and_report_stats(
             # HOGWILD evaluation before training
             eval_stats_before: Optional[Stats] = None
             if num_eval_edges > 0:
-                log_status("Waiting for workers to perform evaluation")
+                bucket_logger.debug("Waiting for workers to perform evaluation")
                 future_all_eval_stats_before = pool.map_async(call, [
                     partial(
                         process_in_batches,
@@ -697,12 +715,12 @@ def train_and_report_stats(
                 all_eval_stats_before = \
                     get_async_result(future_all_eval_stats_before, pool)
                 eval_stats_before = Stats.sum(all_eval_stats_before).average()
-                log("stats before %s: %s" % (cur_b, eval_stats_before))
+                bucket_logger.info(f"Stats before training: {eval_stats_before}")
 
             io_time += time.time() - tic
             tic = time.time()
             # HOGWILD training
-            log_status("Waiting for workers to perform training")
+            bucket_logger.debug("Waiting for workers to perform training")
             # FIXME should we only delay if iteration_idx == 0?
             future_all_stats = pool.map_async(call, [
                 partial(
@@ -721,19 +739,17 @@ def train_and_report_stats(
             stats = Stats.sum(all_stats).average()
             compute_time = time.time() - tic
 
-            log_status(
-                "bucket %d / %d : Processed %d edges in %.2f s "
-                "( %.2g M/sec ); io: %.2f s ( %.2f MB/sec )" %
-                (total_buckets - remaining, total_buckets,
-                 num_edges, compute_time, num_edges / compute_time / 1e6,
-                 io_time, io_bytes / io_time / 1e6),
-                always=True)
-            log_status("%s" % stats, always=True)
+            bucket_logger.info(
+                f"bucket {total_buckets - remaining} / {total_buckets} : "
+                f"Processed {num_edges} edges in {compute_time:.2f} s "
+                f"( {num_edges / compute_time / 1e6:.2g} M/sec ); "
+                f"io: {io_time:.2f} s ( {io_bytes / io_time / 1e6:.2f} MB/sec )")
+            bucket_logger.info(f"{stats}")
 
             # HOGWILD eval after training
             eval_stats_after: Optional[Stats] = None
             if num_eval_edges > 0:
-                log_status("Waiting for workers to perform evaluation")
+                bucket_logger.debug("Waiting for workers to perform evaluation")
                 future_all_eval_stats_after = pool.map_async(call, [
                     partial(
                         process_in_batches,
@@ -749,7 +765,7 @@ def train_and_report_stats(
                 all_eval_stats_after = \
                     get_async_result(future_all_eval_stats_after, pool)
                 eval_stats_after = Stats.sum(all_eval_stats_after).average()
-                log("stats after %s: %s" % (cur_b, eval_stats_after))
+                bucket_logger.info(f"Stats after training: {eval_stats_after}")
 
             # Add train/eval metrics to queue
             yield current_index, eval_stats_before, stats, eval_stats_after
@@ -770,9 +786,10 @@ def train_and_report_stats(
             iteration_manager + 1, config.checkpoint_preservation_interval)
 
         # Write metadata: for multiple machines, write from rank-0
-        log("Finished epoch %d path %d pass %d; checkpointing global state."
-            % (epoch_idx + 1, edge_path_idx + 1, edge_chunk_idx + 1))
-        log("My rank: %d" % rank)
+        logger.info(
+            f"Finished epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
+            f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
+            f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
         if rank == 0:
             for entity, econfig in config.entities.items():
                 if econfig.num_partitions == 1:
@@ -790,25 +807,25 @@ def train_and_report_stats(
                     continue
                 sanitized_state_dict[k] = v
 
-            log("Writing metadata...")
+            logger.info("Writing the metadata")
             checkpoint_manager.write_model(
                 sanitized_state_dict,
                 OptimizerStateDict(trainer.global_optimizer.state_dict()),
             )
 
-        log("Writing the checkpoint...")
+        logger.info("Writing the checkpoint")
         checkpoint_manager.write_new_version(config)
 
-        dlog("Waiting for other workers to write their parts of the checkpoint: rank %d" % rank)
+        dist_logger.info("Waiting for other workers to write their parts of the checkpoint")
         sync.barrier()
-        dlog("All parts of the checkpoint have been written")
+        dist_logger.info("All parts of the checkpoint have been written")
 
-        log("Switching to new checkpoint version...")
+        logger.info("Switching to the new checkpoint version")
         checkpoint_manager.switch_to_new_version()
 
-        dlog("Waiting for other workers to switch to the new checkpoint version: rank %d" % rank)
+        dist_logger.info("Waiting for other workers to switch to the new checkpoint version")
         sync.barrier()
-        dlog("All workers have switched to the new checkpoint version")
+        dist_logger.info("All workers have switched to the new checkpoint version")
 
         # After all the machines have finished committing
         # checkpoints, we either remove the old checkpoints
@@ -835,7 +852,7 @@ def train_and_report_stats(
 
     # FIXME join distributed workers (not really necessary)
 
-    log("Exiting")
+    logger.info("Exiting")
 
 
 def train(
@@ -852,6 +869,7 @@ def train(
 
 
 def main():
+    setup_logging()
     config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
@@ -870,12 +888,12 @@ def main():
         overrides = None
     loader = ConfigFileLoader()
     config = loader.load_config(opt.config, overrides)
+    set_logging_verbosity(config.verbose)
+    subprocess_init = SubprocessInitializer()
+    subprocess_init.register(setup_logging, config.verbose)
+    subprocess_init.register(add_to_sys_path, loader.config_dir.name)
 
-    train(
-        config,
-        rank=Rank(opt.rank),
-        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
-    )
+    train(config, rank=Rank(opt.rank), subprocess_init=subprocess_init)
 
 
 if __name__ == '__main__':

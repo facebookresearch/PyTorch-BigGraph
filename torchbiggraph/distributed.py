@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import logging
 import multiprocessing as mp
 from abc import ABC, abstractmethod
 from datetime import timedelta
@@ -15,7 +16,10 @@ import torch.distributed as td
 import torch.multiprocessing
 
 from torchbiggraph.types import Rank
-from torchbiggraph.util import log
+from torchbiggraph.util import tag_logs_with_process_name
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class ProcessRanks(NamedTuple):
@@ -75,7 +79,7 @@ def init_process_group(
     # implementation we do have to take timeouts into account. To simulate
     # the old behavior we use a ridiculously high default timeout.
     timeout = timedelta(days=365)
-    log("init_process_group start")
+    logger.info("init_process_group start")
     if init_method is None:
         raise RuntimeError("distributed_init_method must be set when num_machines > 1")
     td.init_process_group(backend,
@@ -83,11 +87,11 @@ def init_process_group(
                           world_size=world_size,
                           rank=rank,
                           timeout=timeout)
-    log("init_process_group creating groups")
+    logger.info("init_process_group creating groups")
     group_objs = []
     for group in groups:
         group_objs.append(td.new_group(group, timeout=timeout))
-    log("init_process_group done")
+    logger.info("init_process_group done")
     return group_objs
 
 
@@ -100,12 +104,14 @@ class Startable(ABC):
 
 def _server_init(
     server: Startable,
+    process_name: str,
     init_method: Optional[str],
     world_size: int,
     server_rank: Rank,
     groups: List[List[Rank]],
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
+    tag_logs_with_process_name(process_name)
     if subprocess_init is not None:
         subprocess_init()
     init_process_group(
@@ -119,6 +125,7 @@ def _server_init(
 
 def start_server(
     server: Startable,
+    process_name: str,
     init_method: Optional[str],
     world_size: int,
     server_rank: Rank,
@@ -126,9 +133,17 @@ def start_server(
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> mp.Process:
     p = mp.get_context("spawn").Process(
-        name="%s-%d" % (type(server).__name__, server_rank),
+        name=process_name,
         target=_server_init,
-        args=(server, init_method, world_size, server_rank, groups, subprocess_init),
+        args=(
+            server,
+            process_name,
+            init_method,
+            world_size,
+            server_rank,
+            groups,
+            subprocess_init,
+        ),
     )
     p.daemon = True
     p.start()

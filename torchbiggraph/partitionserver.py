@@ -7,7 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-from functools import partial
+import logging
 from itertools import chain
 from typing import Callable, Optional
 
@@ -17,6 +17,16 @@ from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.distributed import ProcessRanks, init_process_group
 from torchbiggraph.parameter_sharing import ParameterServer
 from torchbiggraph.types import Rank
+from torchbiggraph.util import (
+    set_logging_verbosity,
+    setup_logging,
+    SubprocessInitializer,
+    tag_logs_with_process_name,
+)
+
+
+logger = logging.getLogger("torchbiggraph")
+
 
 # This is a small binary that just runs a partition server.
 # You need to run this if you run a distributed run and set
@@ -31,6 +41,7 @@ def run_partition_server(
     rank: Rank = RANK_ZERO,
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
+    tag_logs_with_process_name(f"PartS-{rank}")
     if config.num_partition_servers <= 0:
         raise RuntimeError("Config doesn't require explicit partition servers")
     if not 0 <= rank < config.num_partition_servers:
@@ -53,6 +64,7 @@ def run_partition_server(
 
 
 def main():
+    setup_logging()
     config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
@@ -71,12 +83,12 @@ def main():
         overrides = None
     loader = ConfigFileLoader()
     config = loader.load_config(opt.config, overrides)
+    set_logging_verbosity(config.verbose)
+    subprocess_init = SubprocessInitializer()
+    subprocess_init.register(setup_logging, config.verbose)
+    subprocess_init.register(add_to_sys_path, loader.config_dir.name)
 
-    run_partition_server(
-        config,
-        opt.rank,
-        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
-    )
+    run_partition_server(config, opt.rank, subprocess_init=subprocess_init)
 
 
 if __name__ == '__main__':

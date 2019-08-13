@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import logging
 import random
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Set, Tuple
@@ -15,7 +16,10 @@ from torch_extensions.rpc.rpc import Client, Server
 from torchbiggraph.config import BucketOrder
 from torchbiggraph.distributed import Startable
 from torchbiggraph.types import Bucket, EntityName, Partition, Rank, Side
-from torchbiggraph.util import log, vlog
+
+
+logger = logging.getLogger("torchbiggraph")
+
 
 ###
 ###   Bucket scheduling interface.
@@ -265,10 +269,10 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
         )
 
         # Print buckets
-        vlog('\nPartition pairs:')
+        logger.debug("Partition pairs:")
         for bucket in self.buckets:
-            vlog("%s" % (bucket,))
-        vlog('')
+            logger.debug(f"{bucket}")
+        logger.debug("")
 
     def acquire_bucket(self) -> Tuple[Optional[Bucket], int]:
         try:
@@ -395,7 +399,7 @@ class LockServer(Server, Startable):
                 if self.initialized_partitions is not None:
                     self.initialized_partitions.add(pair.lhs)
                     self.initialized_partitions.add(pair.rhs)
-                log("lockserver %d acquire %s: active= %s" % (rank, pair, self.active))
+                logger.info(f"Bucket {pair} acquired by trainer {rank}: active= {self.active}")
                 return pair, remaining
 
         return None, remaining
@@ -406,7 +410,7 @@ class LockServer(Server, Startable):
         """
         if bucket.lhs is not None:
             self.active.pop(bucket)
-            log("lockserver release %s: active= %s" % (bucket, self.active))
+            logger.info(f"Bucket {bucket} released: active= {self.active}")
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         """

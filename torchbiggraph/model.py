@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import logging
 import os.path
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -35,7 +36,9 @@ from torchbiggraph.config import (
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.types import FloatTensorType, LongTensorType, Side
-from torchbiggraph.util import log
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 def match_shape(tensor, *expected_shape):
@@ -984,8 +987,8 @@ class MultiRelationEmbedder(nn.Module):
             )
 
             if num_uniform_neg > 0:
-                log("WARNING: Adding uniform negatives makes no sense "
-                    "when already using all negatives")
+                logger.warning("Adding uniform negatives makes no sense "
+                               "when already using all negatives")
 
             chunk_indices = torch.arange(chunk_size, dtype=torch.long)
             last_chunk_indices = chunk_indices[:last_chunk_size]

@@ -8,6 +8,7 @@
 
 import argparse
 import importlib
+import logging
 import os.path
 import shutil
 import sys
@@ -31,6 +32,9 @@ from torchbiggraph.schema import (
     positive,
     schema,
 )
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class BucketOrder(Enum):
@@ -367,7 +371,7 @@ class ConfigSchema(Schema):
         # TODO Check that all partitioned entity types have the same number of partitions
         # TODO Check that the batch size is a multiple of the batch negative number
         if self.loss_fn == "logistic" and self.comparator == "cos":
-            print("WARNING: You have logistic loss and cosine distance. Are you sure?")
+            logger.warning("You have logistic loss and cosine distance. Are you sure?")
 
 
 # TODO make this a non-inplace operation
@@ -397,12 +401,9 @@ def parse_config(config_dict: Any) -> ConfigSchema:
     try:
         config = ConfigSchema.from_dict(config_dict)
     except DeepTypeError as err:
-        print("Error in the configuration file, aborting.", file=sys.stderr)
-        print(str(err), file=sys.stderr)
-        exit(1)
-    # Late import to avoid circular dependency.
-    from torchbiggraph import util
-    util._verbosity_level = config.verbose
+        logger.critical("Error in the configuration file, aborting.")
+        logger.critical(f"{err}")
+        raise SystemExit(1)
     return config
 
 
@@ -457,6 +458,9 @@ def add_to_sys_path(path: str) -> None:
 
 
 def main():
+    # Late import to avoid circular dependency.
+    from torchbiggraph.util import set_logging_verbosity, setup_logging
+    setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument('config', help="Path to config file")
     parser.add_argument('query', help="Name of param to retrieve")
@@ -469,6 +473,7 @@ def main():
         overrides = None
     loader = ConfigFileLoader()
     config = loader.load_config(opt.config, overrides)
+    set_logging_verbosity(config.verbose)
 
     print(config[opt.query])
 

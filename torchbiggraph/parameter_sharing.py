@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import logging
 import multiprocessing as mp
 import queue
 import time
@@ -19,7 +20,11 @@ import torch.nn as nn
 
 from torchbiggraph.distributed import Startable, init_process_group
 from torchbiggraph.types import CharTensorType, ModuleStateDict, Rank
-from torchbiggraph.util import log
+from torchbiggraph.util import tag_logs_with_process_name
+
+
+logger = logging.getLogger("torchbiggraph")
+
 
 ################################################################################
 # Generic parameter client-server protocol
@@ -246,8 +251,9 @@ class ParameterClient:
                     self.server_rank)
         td.send(src, self.server_rank)
         td.recv(dst, src=self.server_rank)
-        # log("Swapped %d bytes to %d in %g s" %
-        #     (src.numel() * src.element_size(), self.server_rank, time.time() - tic))
+        # logger.info(
+        #     f"Swapped {src.numel() * src.element_size()} bytes to "
+        #     f"{self.server_rank} in {time.time() - tic:g} s")
 
     def join(self) -> None:
         """All clients should call join at the end, which will allow the server
@@ -317,6 +323,7 @@ MIN_BYTES_TO_SHARD = 1e7  # only shard parameters above 10MB
 
 
 def _client_thread_loop(
+    process_name: str,
     client_rank: Rank,
     all_server_ranks: List[Rank],
     q: mp.Queue,
@@ -329,6 +336,7 @@ def _client_thread_loop(
     min_sleep_time: float = 0.01,
 ) -> None:
     try:
+        tag_logs_with_process_name(process_name)
         if subprocess_init is not None:
             subprocess_init()
         init_process_group(
@@ -378,9 +386,10 @@ def _client_thread_loop(
             log_rounds += 1
             log_delta = time.time() - log_time
             if params and log_delta > 60:
-                log("Parameter client synced %d rounds %g GB in %g s ( %g s/round , %g GB/s)" %
-                    (log_rounds, log_bytes / 1e9, log_delta,
-                     log_delta / log_rounds, log_bytes / log_delta / 1e9))
+                logger.info(
+                    f"Parameter client synced {log_rounds} rounds {log_bytes / 1e9:g} "
+                    f"GB in {log_delta:g} s ({log_delta / log_rounds:g} s/round, "
+                    f"{log_bytes / log_delta / 1e9:g} GB/s)")
                 log_time, log_rounds, log_bytes = time.time(), 0, 0
 
             comm_time = time.time() - tic
@@ -401,6 +410,7 @@ class ParameterSharer:
 
     def __init__(
         self,
+        process_name: str,
         client_rank: Rank,
         all_server_ranks: List[Rank],
         init_method: Optional[str],
@@ -411,9 +421,10 @@ class ParameterSharer:
         self.q = mp.get_context("spawn").Queue()
         self.errq = mp.get_context("spawn").Queue()
         self.p = mp.get_context("spawn").Process(
-            name="ParameterClient-%d" % client_rank,
+            name=process_name,
             target=_client_thread_loop,
             args=(
+                process_name,
                 client_rank,
                 all_server_ranks,
                 self.q,
@@ -446,5 +457,5 @@ class ParameterSharer:
         for k, v in ModuleStateDict(model.state_dict()).items():
             if v._cdata not in shared_parameters:
                 shared_parameters.add(v._cdata)
-                log("Adding %s (%d params) to parameter server" % (k, v.numel()))
+                logger.info(f"Adding {k} ({v.numel()} params) to parameter server")
                 self.set_param(k, v.data)

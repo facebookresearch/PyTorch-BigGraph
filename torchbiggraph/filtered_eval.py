@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import logging
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
@@ -16,7 +17,9 @@ from torchbiggraph.fileio import EdgeReader
 from torchbiggraph.model import Scores
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import Partition
-from torchbiggraph.util import log
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class FilteredRankingEvaluator(RankingEvaluator):
@@ -44,7 +47,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
         self.lhs_map: Dict[Tuple[int, int], List[int]] = defaultdict(list)
         self.rhs_map: Dict[Tuple[int, int], List[int]] = defaultdict(list)
         for path in filter_paths:
-            log("Building links map from path %s" % path)
+            logger.info(f"Building links map from path {path}")
             e_reader = EdgeReader(path)
             # Assume unpartitioned.
             edges = e_reader.read(Partition(0), Partition(0))
@@ -59,7 +62,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
                 self.lhs_map[cur_lhs, cur_rel].append(cur_rhs)
                 self.rhs_map[cur_rhs, cur_rel].append(cur_lhs)
 
-            log("Done building links map from path %s" % path)
+            logger.info(f"Done building links map from path {path}")
 
     def eval(
         self,

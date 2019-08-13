@@ -8,7 +8,6 @@
 
 import argparse
 import os
-from functools import partial
 from itertools import chain
 
 import attr
@@ -20,6 +19,12 @@ from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.train import train
+from torchbiggraph.util import (
+    set_logging_verbosity,
+    setup_logging,
+    SubprocessInitializer,
+)
+
 
 FB15K_URL = 'https://dl.fbaipublicfiles.com/starspace/fb15k.tgz'
 FILENAMES = {
@@ -41,6 +46,7 @@ def convert_path(fname):
 
 
 def main():
+    setup_logging()
     parser = argparse.ArgumentParser(description='Example on FB15k')
     parser.add_argument('--config', default=DEFAULT_CONFIG,
                         help='Path to config file')
@@ -64,6 +70,10 @@ def main():
 
     loader = ConfigFileLoader()
     config = loader.load_config(args.config, overrides)
+    set_logging_verbosity(config.verbose)
+    subprocess_init = SubprocessInitializer()
+    subprocess_init.register(setup_logging, config.verbose)
+    subprocess_init.register(add_to_sys_path, loader.config_dir.name)
     edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
 
     convert_input_data(
@@ -80,10 +90,7 @@ def main():
     train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
     train_config = attr.evolve(config, edge_paths=train_path)
 
-    train(
-        train_config,
-        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
-    )
+    train(train_config, subprocess_init=subprocess_init)
 
     eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
@@ -97,13 +104,10 @@ def main():
         do_eval(
             eval_config,
             evaluator=FilteredRankingEvaluator(eval_config, filter_paths),
-            subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
+            subprocess_init=subprocess_init,
         )
     else:
-        do_eval(
-            eval_config,
-            subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
-        )
+        do_eval(eval_config, subprocess_init=subprocess_init)
 
 
 if __name__ == "__main__":

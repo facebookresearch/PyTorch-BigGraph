@@ -95,32 +95,31 @@ This will read data from the `entity_path` directory specified in the configurat
 
 Training will proceed for 50 epochs in total, with the progress and some statistics logged to the console, for example:
 ```
-Starting epoch 1 / 50 edge path 1 / 1 edge chunk 1 / 1
-edge_path= data/FB15k/freebase_mtr100_mte100-train_partitioned
+Starting epoch 1 / 50, edge path 1 / 1, edge chunk 1 / 1
+Edge path: data/FB15k/freebase_mtr100_mte100-train_partitioned
+still in queue: 0
 Swapping partitioned embeddings None ( 0 , 0 )
-Loading entities
-( 0 , 0 ): bucket 1 / 1 : Processed 483142 edges in 20.58 s ( 0.023 M/sec ); io: 0.02 s ( 296.64 MB/sec )
-( 0 , 0 ): loss:  6663.96 , violators_lhs:  0 , violators_rhs:  0 , count:  483142
+( 0 , 0 ): Loading entities
+( 0 , 0 ): bucket 1 / 1 : Processed 483142 edges in 17.36 s ( 0.028 M/sec ); io: 0.02 s ( 542.52 MB/sec )
+( 0 , 0 ): loss:  309.695 , violators_lhs:  171.846 , violators_rhs:  165.525 , count:  483142
 Swapping partitioned embeddings ( 0 , 0 ) None
 Writing partitioned embeddings
-Finished epoch 1 path 1 pass 1; checkpointing global state.
-My rank: 0
-Writing metadata...
-Writing the checkpoint...
-Switching to new checkpoint version...
+Finished epoch 1 / 50, edge path 1 / 1, edge chunk 1 / 1
+Writing the metadata
+Writing the checkpoint
+Switching to the new checkpoint version
 ```
 
 ### Evaluation
 
-Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set. `examples/fb15k.py` runs *filtered evaluation*, which calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. Filtered evaluation is used in the literature for fb15k, but does not scale beyond small graphs.
+Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set. The `torchbiggraph_example_fb15k` command performs a *filtered* evaluation, which calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. Filtered evaluation is used in the literature for FB15k, but does not scale beyond small graphs.
 
-The final results should match the values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) reported in [the paper](https://www.sysml.cc/doc/2019/71.pdf).
-
+The final results should match the values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) reported in [the paper](https://www.sysml.cc/doc/2019/71.pdf):
 ```
 Stats: pos_rank:  65.4821 , mrr:  0.789921 , r1:  0.738501 , r10:  0.876894 , r50:  0.92647 , auc:  0.989868 , count:  59071
 ```
 
-You can also run eval directly from the command line as follows:
+Evaluation can also be run directly from the command line as follows:
 ```bash
 torchbiggraph_eval \
   torchbiggraph/examples/configs/fb15k_config.py \
@@ -129,8 +128,7 @@ torchbiggraph_eval \
   -p num_uniform_negs=0
 ```
 
-However, you cannot perform filtered evaluation on the command line, so the reported results will not match the paper. They will be something like:
-
+However, *filtered* evaluation *cannot* be performed on the command line, so the reported results will not match the paper. They will be something like:
 ```
 Stats: pos_rank:  234.136 , mrr:  0.239957 , r1:  0.131757 , r10:  0.485382 , r50:  0.712693 , auc:  0.989648 , count:  59071
 ```

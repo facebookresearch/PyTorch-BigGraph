@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from inspect import isclass
 from itertools import chain
-from typing import Any, ClassVar, Dict, List, Optional, Sized, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, Sized, Type, TypeVar, Union
 
 import attr
 
@@ -247,6 +247,9 @@ class Dumper(Mapper):
         return result
 
 
+TSchema = TypeVar("TSchema", bound="Schema")
+
+
 @schema
 class Schema:
     """A class representing a configuration as a set of keys and values.
@@ -321,7 +324,7 @@ class Schema:
         return list(chain(*(subschema.help() for subschema in subschemas), lines))
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls: Type[TSchema], data: Dict[str, Any]) -> TSchema:
         return Loader().map_with_type(data, cls)
 
     def to_dict(self) -> Dict[str, Any]:

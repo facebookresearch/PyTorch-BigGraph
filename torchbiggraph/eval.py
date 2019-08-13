@@ -7,6 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
+import logging
 import time
 from functools import partial
 from itertools import chain
@@ -34,9 +35,15 @@ from torchbiggraph.util import (
     get_async_result,
     get_num_workers,
     get_partitioned_types,
-    log,
+    set_logging_verbosity,
+    setup_logging,
     split_almost_equally,
+    SubprocessInitializer,
+    tag_logs_with_process_name,
 )
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class RankingEvaluator(AbstractBatchProcessor):
@@ -84,6 +91,7 @@ def do_eval_and_report_stats(
     """Computes eval metrics (mr/mrr/r1/r10/r50) for a checkpoint with trained
        embeddings.
     """
+    tag_logs_with_process_name(f"Evaluator")
 
     if evaluator is None:
         evaluator = RankingEvaluator()
@@ -103,7 +111,11 @@ def do_eval_and_report_stats(
     nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
 
     num_workers = get_num_workers(config.workers)
-    pool = create_pool(num_workers, subprocess_init=subprocess_init)
+    pool = create_pool(
+        num_workers,
+        subprocess_name="EvalWorker",
+        subprocess_init=subprocess_init,
+    )
 
     if model is None:
         model = make_model(config)
@@ -123,15 +135,16 @@ def do_eval_and_report_stats(
 
     all_stats: List[Stats] = []
     for edge_path_idx, edge_path in enumerate(config.edge_paths):
-        log("Starting edge path %d / %d (%s)"
-            % (edge_path_idx + 1, len(config.edge_paths), edge_path))
+        logger.info(
+            f"Starting edge path {edge_path_idx + 1} / {len(config.edge_paths)} "
+            f"({edge_path})")
         edge_reader = EdgeReader(edge_path)
 
         all_edge_path_stats = []
         last_lhs, last_rhs = None, None
         for bucket in create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs):
             tic = time.time()
-            # log("%s: Loading entities" % (bucket,))
+            # logger.info(f"{bucket}: Loading entities")
 
             if last_lhs != bucket.lhs:
                 for e in lhs_partitioned_types:
@@ -145,13 +158,13 @@ def do_eval_and_report_stats(
                     model.set_embeddings(e, embs, Side.RHS)
             last_lhs, last_rhs = bucket.lhs, bucket.rhs
 
-            # log("%s: Loading edges" % (bucket,))
+            # logger.info(f"{bucket}: Loading edges")
             edges = edge_reader.read(bucket.lhs, bucket.rhs)
             num_edges = len(edges)
 
             load_time = time.time() - tic
             tic = time.time()
-            # log("%s: Launching and waiting for workers" % (bucket,))
+            # logger.info(f"{bucket}: Launching and waiting for workers")
             future_all_bucket_stats = pool.map_async(call, [
                 partial(
                     process_in_batches,
@@ -166,33 +179,35 @@ def do_eval_and_report_stats(
                 get_async_result(future_all_bucket_stats, pool)
 
             compute_time = time.time() - tic
-            log("%s: Processed %d edges in %.2g s (%.2gM/sec); load time: %.2g s"
-                % (bucket, num_edges, compute_time,
-                   num_edges / compute_time / 1e6, load_time))
+            logger.info(
+                f"{bucket}: Processed {num_edges} edges in {compute_time:.2g} s "
+                f"({num_edges / compute_time / 1e6:.2g}M/sec); "
+                f"load time: {load_time:.2g} s")
 
             total_bucket_stats = Stats.sum(all_bucket_stats)
             all_edge_path_stats.append(total_bucket_stats)
             mean_bucket_stats = total_bucket_stats.average()
-            log("Stats for edge path %d / %d, bucket %s: %s"
-                % (edge_path_idx + 1, len(config.edge_paths), bucket,
-                   mean_bucket_stats))
+            logger.info(
+                f"Stats for edge path {edge_path_idx + 1} / {len(config.edge_paths)}, "
+                f"bucket {bucket}: {mean_bucket_stats}")
 
             yield edge_path_idx, bucket, mean_bucket_stats
 
         total_edge_path_stats = Stats.sum(all_edge_path_stats)
         all_stats.append(total_edge_path_stats)
         mean_edge_path_stats = total_edge_path_stats.average()
-        log("")
-        log("Stats for edge path %d / %d: %s"
-            % (edge_path_idx + 1, len(config.edge_paths), mean_edge_path_stats))
-        log("")
+        logger.info("")
+        logger.info(
+            f"Stats for edge path {edge_path_idx + 1} / {len(config.edge_paths)}: "
+            f"{mean_edge_path_stats}")
+        logger.info("")
 
         yield edge_path_idx, None, mean_edge_path_stats
 
     mean_stats = Stats.sum(all_stats).average()
-    log("")
-    log("Stats: %s" % mean_stats)
-    log("")
+    logger.info("")
+    logger.info(f"Stats: {mean_stats}")
+    logger.info("")
 
     yield None, None, mean_stats
 
@@ -212,6 +227,7 @@ def do_eval(
 
 
 def main():
+    setup_logging()
     config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
@@ -228,8 +244,12 @@ def main():
         overrides = None
     loader = ConfigFileLoader()
     config = loader.load_config(opt.config, overrides)
+    set_logging_verbosity(config.verbose)
+    subprocess_init = SubprocessInitializer()
+    subprocess_init.register(setup_logging, config.verbose)
+    subprocess_init.register(add_to_sys_path, loader.config_dir.name)
 
-    do_eval(config, subprocess_init=partial(add_to_sys_path, loader.config_dir.name))
+    do_eval(config, subprocess_init=subprocess_init)
 
 
 if __name__ == '__main__':

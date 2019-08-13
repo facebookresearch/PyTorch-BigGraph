@@ -6,7 +6,12 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import logging
+
 from torch.optim import Optimizer
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class RowAdagrad(Optimizer):
@@ -75,8 +80,8 @@ class RowAdagrad(Optimizer):
                     state['sum'].index_add_(0, grad_indices, (grad_values * grad_values).mean(1))
                     std = state['sum'][grad_indices]  # _sparse_mask
                     std_values = std.sqrt_().add_(1e-10).unsqueeze(1)
-                    # print('std_values')
-                    # print(std_values)
+                    # logger.info("std_values")
+                    # logger.info("f{std_values}")
                     p.data.index_add_(0, grad_indices, -clr * grad_values / std_values)
                 else:
                     state['sum'] += (grad * grad).mean(1)

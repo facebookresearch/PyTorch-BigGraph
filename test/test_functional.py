@@ -12,6 +12,7 @@ import multiprocessing as mp
 import os.path
 import random
 import time
+from functools import partial
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, NamedTuple, Tuple
 from unittest import TestCase, main
@@ -28,6 +29,14 @@ from torchbiggraph.config import (
 from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.train import train
+from torchbiggraph.util import (
+    call_one_after_the_other,
+    setup_logging,
+    SubprocessInitializer,
+)
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class Dataset(NamedTuple):
@@ -166,12 +175,16 @@ def init_embeddings(
 class TestFunctional(TestCase):
 
     def setUp(self) -> None:
+        self.subprocess_init = SubprocessInitializer()
+        self.subprocess_init.register(setup_logging, 1)
+        self.subprocess_init()
+
         self.checkpoint_path = TemporaryDirectory()
         self.addCleanup(self.checkpoint_path.cleanup)
 
         seed = random.getrandbits(32)
         np.random.seed(seed)
-        logging.info("Random seed: %s", seed)
+        logger.info(f"Random seed: {seed}")
 
     def assertHasMetadata(self, hf: h5py.File, config: ConfigSchema) -> None:
         self.assertEqual(hf.attrs["format_version"], 1)
@@ -271,9 +284,9 @@ class TestFunctional(TestCase):
             relations=[attr.evolve(relation_config, all_negs=True)],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        train(train_config, rank=0)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
-        do_eval(eval_config)
+        do_eval(eval_config, subprocess_init=self.subprocess_init)
 
     def test_resume_from_checkpoint(self):
         entity_name = "e"
@@ -301,7 +314,7 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         init_embeddings(train_config.checkpoint_path, train_config, version=7)
-        train(train_config, rank=0)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=8)
         # Check we did resume the run, not start the whole thing anew.
         self.assertFalse(os.path.exists(
@@ -334,7 +347,7 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         init_embeddings(train_config.init_path, train_config)
-        train(train_config, rank=0)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
 
     def test_featurized(self):
@@ -366,9 +379,9 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[1].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        train(train_config, rank=0)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
-        do_eval(eval_config)
+        do_eval(eval_config, subprocess_init=self.subprocess_init)
 
     def test_partitioned(self):
         e1 = EntitySchema(num_partitions=1)
@@ -401,9 +414,9 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[1].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        train(train_config, rank=0)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
-        do_eval(eval_config)
+        do_eval(eval_config, subprocess_init=self.subprocess_init)
 
     def test_distributed(self):
         sync_path = TemporaryDirectory()
@@ -437,11 +450,21 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         trainer0 = mp.get_context("spawn").Process(
-            name="trainer#0",
-            target=train, args=(train_config,), kwargs={"rank": 0})
+            name="Trainer-0",
+            target=partial(
+                call_one_after_the_other,
+                self.subprocess_init,
+                partial(train, train_config, rank=0, subprocess_init=self.subprocess_init),
+            ),
+        )
         trainer1 = mp.get_context("spawn").Process(
-            name="trainer#1",
-            target=train, args=(train_config,), kwargs={"rank": 1})
+            name="Trainer-1",
+            target=partial(
+                call_one_after_the_other,
+                self.subprocess_init,
+                partial(train, train_config, rank=1, subprocess_init=self.subprocess_init),
+            ),
+        )
         # FIXME In Python 3.7 use kill here.
         self.addCleanup(trainer0.terminate)
         self.addCleanup(trainer1.terminate)
@@ -487,14 +510,34 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         trainer0 = mp.get_context("spawn").Process(
-            name="trainer#0",
-            target=train, args=(train_config,), kwargs={"rank": 0})
+            name="Trainer-0",
+            target=partial(
+                call_one_after_the_other,
+                self.subprocess_init,
+                partial(train, train_config, rank=0, subprocess_init=self.subprocess_init),
+            ),
+        )
         trainer1 = mp.get_context("spawn").Process(
-            name="trainer#1",
-            target=train, args=(train_config,), kwargs={"rank": 1})
+            name="Trainer-1",
+            target=partial(
+                call_one_after_the_other,
+                self.subprocess_init,
+                partial(train, train_config, rank=1, subprocess_init=self.subprocess_init),
+            ),
+        )
         partition_server = mp.get_context("spawn").Process(
-            name="partition server#0",
-            target=run_partition_server, args=(train_config,), kwargs={"rank": 0})
+            name="PartitionServer-0",
+            target=partial(
+                call_one_after_the_other,
+                self.subprocess_init,
+                partial(
+                    run_partition_server,
+                    train_config,
+                    rank=0,
+                    subprocess_init=self.subprocess_init,
+                ),
+            ),
+        )
         # FIXME In Python 3.7 use kill here.
         self.addCleanup(trainer0.terminate)
         self.addCleanup(trainer1.terminate)
@@ -516,8 +559,7 @@ class TestFunctional(TestCase):
                           % partition_server.exitcode)
         partition_server.terminate()  # Cannot be shut down gracefully.
         partition_server.join()
-        logging.info("Partition server died with exit code %d",
-                     partition_server.exitcode)
+        logger.info(f"Partition server died with exit code {partition_server.exitcode}")
         self.assertCheckpointWritten(train_config, version=1)
 
     def test_dynamic_relations(self):
@@ -561,9 +603,9 @@ class TestFunctional(TestCase):
             edge_paths=[dataset.relation_paths[1].name],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        train(train_config, rank=0)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
-        do_eval(eval_config)
+        do_eval(eval_config, subprocess_init=self.subprocess_init)
 
 
 if __name__ == '__main__':

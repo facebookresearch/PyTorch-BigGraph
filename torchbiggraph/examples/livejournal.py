@@ -9,7 +9,6 @@
 import argparse
 import os
 import random
-from functools import partial
 from itertools import chain
 
 import attr
@@ -20,6 +19,12 @@ from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
+from torchbiggraph.util import (
+    set_logging_verbosity,
+    setup_logging,
+    SubprocessInitializer,
+)
+
 
 URL = 'https://snap.stanford.edu/data/soc-LiveJournal1.txt.gz'
 FILENAMES = {
@@ -78,6 +83,7 @@ def random_split_file(fpath):
 
 
 def main():
+    setup_logging()
     parser = argparse.ArgumentParser(description='Example on Livejournal')
     parser.add_argument('--config', default=DEFAULT_CONFIG,
                         help='Path to config file')
@@ -104,6 +110,10 @@ def main():
 
     loader = ConfigFileLoader()
     config = loader.load_config(args.config, overrides)
+    set_logging_verbosity(config.verbose)
+    subprocess_init = SubprocessInitializer()
+    subprocess_init.register(setup_logging, config.verbose)
+    subprocess_init.register(add_to_sys_path, loader.config_dir.name)
     edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
 
     convert_input_data(
@@ -120,18 +130,12 @@ def main():
     train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
     train_config = attr.evolve(config, edge_paths=train_path)
 
-    train(
-        train_config,
-        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
-    )
+    train(train_config, subprocess_init=subprocess_init)
 
     eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
     eval_config = attr.evolve(config, edge_paths=eval_path)
 
-    do_eval(
-        eval_config,
-        subprocess_init=partial(add_to_sys_path, loader.config_dir.name),
-    )
+    do_eval(eval_config, subprocess_init=subprocess_init)
 
 
 if __name__ == "__main__":
