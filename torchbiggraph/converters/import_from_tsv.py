@@ -381,9 +381,7 @@ def main():
 
     if opt.param is not None:
         overrides = chain.from_iterable(opt.param)  # flatten
-    else:
-        overrides = None
-    config_dict = override_config_dict(config_dict, overrides)
+        config_dict = override_config_dict(config_dict, overrides)
 
     entity_configs, relation_configs, entity_path, dynamic_relations = \
         parse_config_partial(config_dict)
