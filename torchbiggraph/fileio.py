@@ -123,7 +123,7 @@ class EdgeReader:
         if data_end - data_begin > 0:
             data_ds.read_direct(data.numpy(), source_sel=np.s_[data_begin:data_end])
 
-        offsets -= offsets[0]
+        offsets -= int(offsets[0])
 
         return TensorList(offsets, data)
 
