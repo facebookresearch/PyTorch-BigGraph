@@ -12,7 +12,6 @@ import logging
 import multiprocessing as mp
 import multiprocessing.pool  # noqa: F401
 import os
-import os.path
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -21,13 +20,7 @@ import numpy as np
 import torch
 import torch.multiprocessing
 
-from torchbiggraph.checkpoint_storage import (
-    load_entity_partition,
-    load_model,
-    TwoWayMapping,
-    save_entity_partition,
-    save_model,
-)
+from torchbiggraph.checkpoint_storage import CheckpointStorage, TwoWayMapping
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
 from torchbiggraph.types import (
@@ -65,10 +58,6 @@ def bytes_to_bytetensor(data: bytes) -> ByteTensorType:
 
 def bytetensor_to_bytes(tensor: ByteTensorType) -> bytes:
     return tensor.numpy().tobytes()
-
-
-VERSION_FILE = "checkpoint_version.txt"
-CONFIG_FILE = "config.json"
 
 
 class PartitionClient:
@@ -150,35 +139,6 @@ def deserialize_optim_state(
 
 
 class CheckpointManager:
-    """Reads and writes checkpoint data to/from disk.
-
-    Checkpoints are saved as HDF5 files. The embeddings for an entity partition
-    are stored in the `embeddings_<entity>_<partition>.v<version>.h5` file.
-
-        hf = h5py.File("embeddings_foo_0.v123.h5", "r")
-        embedding_of_entity_42 = hf["embeddings"][42, :]
-
-    The parameters that are not specific to a certain entity (i.e., all but the
-    embeddings) are stored in a `model.v<version>.h5` file.
-
-        hf = h5py.File("model.v123.h5", "r")
-        keys = []
-        hf["model"].visit(keys.append)
-        print(keys)
-
-    Both files also contain the state dictionary of their optimizer, and some
-    metadata as attributes on the root node.
-
-        print(list(hf.attrs))
-
-    Swapped-out partitions are saved to disk with an incremented version number.
-    Once a training iteration completes, the model parameters are stored too,
-    and then the checkpoint is committed, which consists in updating the value
-    of the checkpoint_version.txt file to contain the new version number. This
-    scheme is chosen to work with shared filesystems (specifically, Gluster)
-    which guarantee close/open data consistency but no metadata consistency (so
-    os.rename is out).
-    """
 
     def __init__(
         self,
@@ -196,30 +156,14 @@ class CheckpointManager:
           - background: if True, will do prefetch and store in a background
                         process
         """
-        self.path: str = os.path.abspath(path)
+        self.storage = CheckpointStorage(path)
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.rank: Rank = rank
         self.num_machines: int = num_machines
         if self.rank == 0:
-            os.makedirs(self.path, exist_ok=True)
+            self.storage.prepare()
 
-        # FIXME: there's a slight danger here, say that a multi-machine job fails
-        # after a few versions, and then it reruns but one of the write_version=False
-        # machines has cached the metadata and thinks it doesn't exist, then it
-        # will expect checkpoint_version=0 and fail.
-        try:
-            with open(os.path.join(self.path, VERSION_FILE), "rt") as tf:
-                version_string = tf.read().strip()
-        except FileNotFoundError:
-            self.checkpoint_version = 0
-        else:
-            # On some distributed filesystems creating the file (with an empty
-            # content) and writing "0" to it are separate actions thus a race
-            # condition could occur where trainers see the file as empty.
-            if len(version_string) == 0:
-                self.checkpoint_version = 0
-            else:
-                self.checkpoint_version = int(version_string)
+        self.checkpoint_version = self.storage.load_version()
 
         self.background: bool = background
         if self.background:
@@ -263,7 +207,11 @@ class CheckpointManager:
         logger.debug(f"outstanding= {set(self.outstanding)}")
         while len(self.outstanding) > 0:
             token, future_res = self.outstanding.popitem(last=False)
-            res = get_async_result(future_res, self.pool)
+            try:
+                res = get_async_result(future_res, self.pool)
+            except FileNotFoundError:
+                # Don't freak out if prefetch fails, read will just try again.
+                res = None
 
             if res is not None:
                 logger.info(
@@ -279,11 +227,6 @@ class CheckpointManager:
             version += 1
         return version
 
-    def _file_path(self, entity: EntityName, part: Partition) -> str:
-        version = self._version((entity, part) in self.dirty)
-        file_path = os.path.join(self.path, f"embeddings_{entity}_{part}.v{version}.h5")
-        return file_path
-
     def write(
         self,
         entity: EntityName,
@@ -297,7 +240,6 @@ class CheckpointManager:
 
         version = self._version((entity, part) in self.dirty)
         token = f"entity {entity} {part} v{version}"
-        file_path = self._file_path(entity, part)
 
         if self.background:
             self._sync(token)
@@ -311,10 +253,12 @@ class CheckpointManager:
             if token in self.prefetched:
                 self.prefetched.pop(token)
             future_res = self.pool.apply_async(
-                save_entity_partition, (file_path, embs, serialized_optim_state, metadata))
+                self.storage.save_entity_partition,
+                (version, entity, part, embs, serialized_optim_state, metadata))
             self.outstanding[token] = future_res
         else:
-            save_entity_partition(file_path, embs, serialized_optim_state, metadata)
+            self.storage.save_entity_partition(
+                version, entity, part, embs, serialized_optim_state, metadata)
 
     def read(
         self,
@@ -330,7 +274,6 @@ class CheckpointManager:
 
         version = self._version((entity, part) in self.dirty)
         token = f"entity {entity} {part} v{version}"
-        file_path = self._file_path(entity, part)
         if (entity, part) in self.dirty and self.partition_client is not None:
             embs, serialized_optim_state = self.partition_client.get(entity, part)
         elif self.background:
@@ -338,9 +281,11 @@ class CheckpointManager:
             if token in self.prefetched:
                 embs, serialized_optim_state = self.prefetched.pop(token)
             else:
-                embs, serialized_optim_state = load_entity_partition(file_path)
+                embs, serialized_optim_state = \
+                    self.storage.load_entity_partition(version, entity, part)
         else:
-            embs, serialized_optim_state = load_entity_partition(file_path)
+            embs, serialized_optim_state = \
+                self.storage.load_entity_partition(version, entity, part)
         optim_state = deserialize_optim_state(serialized_optim_state)
         return embs, optim_state
 
@@ -369,13 +314,13 @@ class CheckpointManager:
 
         version = self._version((entity, part) in self.dirty)
         token = f"entity {entity} {part} v{version}"
-        file_path = self._file_path(entity, part)
         if token in self.outstanding or token in self.prefetched:
             logger.debug(f"Bailing from prefetch of {token}")
             return
-        if os.path.exists(file_path):
-            future_res = self.pool.apply_async(load_entity_partition, (file_path,))
-            self.outstanding[token] = future_res
+        future_res = self.pool.apply_async(
+            self.storage.load_entity_partition,
+            (version, entity, part))
+        self.outstanding[token] = future_res
 
     def write_model(
         self,
@@ -383,17 +328,16 @@ class CheckpointManager:
         optim_state: Optional[OptimizerStateDict],
     ) -> None:
         version = self._version(True)
-        file_path = os.path.join(self.path, f"model.v{version}.h5")
         metadata = self.collect_metadata()
         serialized_optim_state = serialize_optim_state(optim_state)
-        save_model(file_path, model_state, serialized_optim_state, metadata, MODEL_STATE_DICT_MAPPINGS)
+        self.storage.save_model(
+            version, model_state, serialized_optim_state, metadata, MODEL_STATE_DICT_MAPPINGS)
 
     def read_model(
         self,
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         version = self._version(False)
-        file_path = os.path.join(self.path, f"model.v{version}.h5")
-        state_dict, serialized_optim_state = load_model(file_path, MODEL_STATE_DICT_MAPPINGS)
+        state_dict, serialized_optim_state = self.storage.load_model(version, MODEL_STATE_DICT_MAPPINGS)
         optim_state = deserialize_optim_state(serialized_optim_state)
         return state_dict, optim_state
 
@@ -406,18 +350,12 @@ class CheckpointManager:
             return None, None
 
     def write_config(self, config: ConfigSchema) -> None:
-        with open(os.path.join(self.path, CONFIG_FILE), "wt") as tf:
-            json.dump(config.to_dict(), tf, indent=4)
+        config_json = json.dumps(config.to_dict(), indent=4)
+        self.storage.save_config(config_json)
 
     def read_config(self) -> ConfigSchema:
-        with open(os.path.join(self.path, CONFIG_FILE), "rt") as tf:
-            return ConfigSchema.from_dict(json.load(tf))
-
-    def _write_version_file(self, version: int) -> None:
-        with open(os.path.join(self.path, VERSION_FILE), "wt") as tf:
-            tf.write("%d" % version)
-            tf.flush()
-            os.fsync(tf.fileno())
+        config_json = self.storage.load_config()
+        return ConfigSchema.from_dict(json.loads(config_json))
 
     def write_new_version(self, config: ConfigSchema) -> None:
         if self.background:
@@ -431,35 +369,33 @@ class CheckpointManager:
                     embs, serialized_optim_state = \
                         self.partition_client.get(EntityName(entity), Partition(part))
                     logger.debug(f"Done getting {entity} {part}")
-                    new_file_path = os.path.join(
-                        self.path, f"embeddings_{entity}_{part}.v{new_version}.h5")
-                    logger.debug(f"Saving {entity} {part} to {new_file_path}")
-                    save_entity_partition(new_file_path, embs, serialized_optim_state, metadata)
-                    logger.debug(f"Done saving {entity} {part} to {new_file_path}")
+                    logger.debug(f"Saving {entity} {part} v{new_version}")
+                    self.storage.save_entity_partition(
+                        new_version, entity, part, embs, serialized_optim_state, metadata)
+                    logger.debug(f"Done saving {entity} {part} v{new_version}")
 
     def switch_to_new_version(self) -> None:
         self.dirty.clear()
         self.checkpoint_version += 1
         if self.rank == 0:
-            logger.debug("Writing version file")
-            self._write_version_file(self.checkpoint_version)
-            logger.debug("Written version file")
+            logger.debug(f"Setting version to {self.checkpoint_version}")
+            self.storage.save_version(self.checkpoint_version)
+            logger.debug(f"Done setting version to {self.checkpoint_version}")
 
     def remove_old_version(self, config: ConfigSchema) -> None:
         old_version = self.checkpoint_version - 1
+        # We never create a v0 checkpoint, so if there is one we leave it there.
+        if old_version == 0:
+            return
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
-                old_file_path = os.path.join(
-                    self.path, f"embeddings_{entity}_{part}.v{old_version}.h5")
-                if self.checkpoint_version > 1 or os.path.exists(old_file_path):
-                    os.remove(old_file_path)
-                    logger.debug(f"Done deleting {old_file_path}")
+                logger.debug(f"Deleting {entity} {part} v{old_version}")
+                self.storage.drop_entity_partition(old_version, entity, part)
+                logger.debug(f"Done deleting {entity} {part} v{old_version}")
         if self.rank == 0:
-            old_file_path = os.path.join(self.path, f"model.v{old_version}.h5")
-            if self.checkpoint_version > 1 or os.path.exists(old_file_path):
-                logger.debug(f"Deleting {old_file_path}")
-                os.remove(old_file_path)
-                logger.debug(f"Done deleting {old_file_path}")
+            logger.debug(f"Deleting model v{old_version}")
+            self.storage.drop_model(old_version)
+            logger.debug(f"Done deleting model v{old_version}")
 
     def preserve_current_version(self, config: ConfigSchema, epoch_idx: int) -> None:
         """Create a snapshot (made of symlinks) of the current checkpoint
@@ -470,21 +406,14 @@ class CheckpointManager:
         may still be needed, and copying would take long and waste space).
         """
         version = self.checkpoint_version
-        dst_dir = os.path.join(self.path, f"epoch_{epoch_idx}")
-        os.makedirs(dst_dir, exist_ok=True)
+        self.storage.prepare_snapshot(version, epoch_idx)
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
-                file_name = f"embeddings_{entity}_{part}.v{version}.h5"
-                src_file_path = os.path.join(self.path, file_name)
-                dst_file_path = os.path.join(dst_dir, file_name)
-                os.symlink(src_file_path, dst_file_path)
+                self.storage.copy_entity_partition_to_snapshot(
+                    version, entity, part, epoch_idx)
         if self.rank == 0:
-            file_name = f"model.v{version}.h5"
-            src_file_path = os.path.join(self.path, file_name)
-            dst_file_path = os.path.join(dst_dir, file_name)
-            os.symlink(src_file_path, dst_file_path)
-            with open(os.path.join(dst_dir, VERSION_FILE), "xt") as tf:
-                tf.write(f"{version}")
+            self.storage.copy_model_to_snapshot(version, epoch_idx)
+            self.storage.copy_version_to_snapshot(version, epoch_idx)
 
     def close(self) -> None:
         if self.background:

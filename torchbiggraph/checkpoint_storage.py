@@ -7,9 +7,10 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import errno
-import io
 import logging
 import re
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import h5py
@@ -17,9 +18,10 @@ import numpy as np
 import torch
 
 from torchbiggraph.types import (
+    EntityName,
     FloatTensorType,
     ModuleStateDict,
-    OptimizerStateDict,
+    Partition,
 )
 
 
@@ -142,77 +144,228 @@ def load_model_state_dict(
     return state_dict
 
 
-def save_entity_partition(
-    path: str,
-    embs: FloatTensorType,
-    optim_state: Optional[OptimizerStateDict],
-    metadata: Dict[str, Any],
-) -> None:
-    logger.debug(f"Saving to {path}")
-    with h5py.File(path, "w") as hf:
-        hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
-        for k, v in metadata.items():
-            hf.attrs[k] = v
-        save_embeddings(hf, embs)
-        save_optimizer_state_dict(hf, optim_state)
-        hf.flush()
-    logger.debug(f"Done saving to {path}")
+class CheckpointStorage:
 
+    """Reads and writes checkpoint data to/from disk.
 
-def save_model(
-    path: str,
-    state_dict: ModuleStateDict,
-    optim_state: Optional[OptimizerStateDict],
-    metadata: Dict[str, Any],
-    mappings: List[TwoWayMapping],
-) -> None:
-    logger.debug(f"Saving to {path}")
-    with h5py.File(path, "w") as hf:
-        hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
-        for k, v in metadata.items():
-            hf.attrs[k] = v
-        save_model_state_dict(hf, state_dict, mappings)
-        save_optimizer_state_dict(hf, optim_state)
-        hf.flush()
-    logger.debug(f"Done saving to {path}")
+    Checkpoints are saved as HDF5 files. The embeddings for an entity partition
+    are stored in the `embeddings_<entity>_<partition>.v<version>.h5` file.
 
+        hf = h5py.File("embeddings_foo_0.v123.h5", "r")
+        embedding_of_entity_42 = hf["embeddings"][42, :]
 
-def load_entity_partition(
-    path: str,
-) -> Tuple[FloatTensorType, Optional[OptimizerStateDict]]:
-    logger.debug(f"Loading from {path}")
-    try:
-        with h5py.File(path, "r") as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError(f"Version mismatch in embeddings file {path}")
-            embs = load_embeddings(hf)
-            optim_state = load_optimizer_state_dict(hf)
-    except OSError as err:
-        # h5py refuses to make it easy to figure out what went wrong. The errno
-        # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
-        if "errno = %d" % errno.ENOENT in str(err):
-            raise FileNotFoundError() from err
-        raise err
-    logger.debug(f"Done loading from {path}")
-    return embs, optim_state
+    The parameters that are not specific to a certain entity (i.e., all but the
+    embeddings) are stored in a `model.v<version>.h5` file.
 
+        hf = h5py.File("model.v123.h5", "r")
+        keys = []
+        hf["model"].visit(keys.append)
+        print(keys)
 
-def load_model(
-    path: str,
-    mappings: List[TwoWayMapping],
-) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
-    logger.debug(f"Loading from {path}")
-    try:
-        with h5py.File(path, "r") as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError(f"Version mismatch in model file {path}")
-            state_dict = load_model_state_dict(hf, mappings)
-            optim_state = load_optimizer_state_dict(hf)
-    except OSError as err:
-        # h5py refuses to make it easy to figure out what went wrong. The errno
-        # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
-        if "errno = %d" % errno.ENOENT in str(err):
-            raise FileNotFoundError() from err
-        raise err
-    logger.debug(f"Done loading from {path}")
-    return state_dict, optim_state
+    Both files also contain the state dictionary of their optimizer, and some
+    metadata as attributes on the root node.
+
+        print(list(hf.attrs))
+
+    Swapped-out partitions are saved to disk with an incremented version number.
+    Once a training iteration completes, the model parameters are stored too,
+    and then the checkpoint is committed, which consists in updating the value
+    of the checkpoint_version.txt file to contain the new version number. This
+    scheme is chosen to work with shared filesystems (specifically, Gluster)
+    which guarantee close/open data consistency but no metadata consistency (so
+    os.rename is out).
+    """
+
+    def __init__(self, path: str) -> None:
+        self.path: Path = Path(path).resolve(strict=False)
+
+    def get_version_file(self, *, path: Optional[Path] = None) -> Path:
+        if path is None:
+            path = self.path
+        return path / "checkpoint_version.txt"
+
+    def get_config_file(self, *, path: Optional[Path] = None) -> Path:
+        if path is None:
+            path = self.path
+        return path / "config.json"
+
+    def get_entity_partition_file(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+        *,
+        path: Optional[Path] = None,
+    ) -> Path:
+        if path is None:
+            path = self.path
+        return path / f"embeddings_{entity_name}_{partition}.v{version}.h5"
+
+    def get_model_file(self, version: int, *, path: Optional[Path] = None) -> Path:
+        if path is None:
+            path = self.path
+        return path / f"model.v{version}.h5"
+
+    def get_snapshot_path(self, epoch_idx: int) -> Path:
+        return self.path / f"epoch_{epoch_idx}"
+
+    def prepare(self) -> None:
+        self.path.mkdir(parents=True, exist_ok=True)
+
+    def save_version(self, version: int) -> None:
+        with self.get_version_file().open("wt") as tf:
+            tf.write(f"{version}\n")
+            tf.flush()
+            os.fsync(tf.fileno())
+
+    def load_version(self) -> int:
+        # FIXME: there's a slight danger here, say that a multi-machine job fails
+        # after a few versions, and then it reruns but one of the write_version=False
+        # machines has cached the metadata and thinks it doesn't exist, then it
+        # will expect checkpoint_version=0 and fail.
+        try:
+            with self.get_version_file().open("rt") as tf:
+                version_string = tf.read().strip()
+        except FileNotFoundError:
+            return 0
+        else:
+            # On some distributed filesystems creating the file (with an empty
+            # content) and writing "0" to it are separate actions thus a race
+            # condition could occur where trainers see the file as empty.
+            if len(version_string) == 0:
+                return 0
+            else:
+                return int(version_string)
+
+    def save_entity_partition(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+        embs: FloatTensorType,
+        optim_state: Optional[bytes],
+        metadata: Dict[str, Any],
+    ) -> None:
+        path = self.get_entity_partition_file(version, entity_name, partition)
+        logger.debug(f"Saving to {path}")
+        with h5py.File(path, "w") as hf:
+            hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
+            for k, v in metadata.items():
+                hf.attrs[k] = v
+            save_embeddings(hf, embs)
+            save_optimizer_state_dict(hf, optim_state)
+            hf.flush()
+        logger.debug(f"Done saving to {path}")
+
+    def load_entity_partition(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+    ) -> Tuple[FloatTensorType, Optional[bytes]]:
+        path = self.get_entity_partition_file(version, entity_name, partition)
+        logger.debug(f"Loading from {path}")
+        try:
+            with h5py.File(path, "r") as hf:
+                if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                    raise RuntimeError(f"Version mismatch in embeddings file {path}")
+                embs = load_embeddings(hf)
+                optim_state = load_optimizer_state_dict(hf)
+        except OSError as err:
+            # h5py refuses to make it easy to figure out what went wrong. The errno
+            # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
+            if f"errno = {errno.ENOENT}" in str(err):
+                raise FileNotFoundError() from err
+            raise err
+        logger.debug(f"Done loading from {path}")
+        return embs, optim_state
+
+    def drop_entity_partition(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+    ) -> None:
+        path = self.get_entity_partition_file(version, entity_name, partition)
+        if path.exists():
+            path.unlink()
+
+    def save_model(
+        self,
+        version: int,
+        state_dict: ModuleStateDict,
+        optim_state: Optional[bytes],
+        metadata: Dict[str, Any],
+        mappings: List[TwoWayMapping],
+    ) -> None:
+        path = self.get_model_file(version)
+        logger.debug(f"Saving to {path}")
+        with h5py.File(path, "w") as hf:
+            hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
+            for k, v in metadata.items():
+                hf.attrs[k] = v
+            save_model_state_dict(hf, state_dict, mappings)
+            save_optimizer_state_dict(hf, optim_state)
+            hf.flush()
+        logger.debug(f"Done saving to {path}")
+
+    def load_model(
+        self,
+        version: int,
+        mappings: List[TwoWayMapping],
+    ) -> Tuple[Optional[ModuleStateDict], Optional[bytes]]:
+        path = self.get_model_file(version)
+        logger.debug(f"Loading from {path}")
+        try:
+            with h5py.File(path, "r") as hf:
+                if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                    raise RuntimeError(f"Version mismatch in model file {path}")
+                state_dict = load_model_state_dict(hf, mappings)
+                optim_state = load_optimizer_state_dict(hf)
+        except OSError as err:
+            # h5py refuses to make it easy to figure out what went wrong. The errno
+            # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
+            if f"errno = {errno.ENOENT}" in str(err):
+                raise FileNotFoundError() from err
+            raise err
+        logger.debug(f"Done loading from {path}")
+        return state_dict, optim_state
+
+    def drop_model(self, version: int) -> None:
+        path = self.get_model_file(version)
+        if path.exists():
+            path.unlink()
+
+    def save_config(self, config_json: str) -> None:
+        with self.get_config_file().open("wt") as tf:
+            tf.write(config_json)
+
+    def load_config(self) -> str:
+        with self.get_config_file().open("rt") as tf:
+            return tf.read()
+
+    def prepare_snapshot(self, version: int, epoch_idx: int) -> None:
+        self.get_snapshot_path(epoch_idx).mkdir(parents=True, exist_ok=True)
+
+    def copy_entity_partition_to_snapshot(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+        epoch_idx: int,
+    ) -> None:
+        src_path = self.get_entity_partition_file(version, entity_name, partition)
+        dst_path = self.get_entity_partition_file(
+            version, entity_name, partition, path=self.get_snapshot_path(epoch_idx))
+        dst_path.symlink_to(src_path)
+
+    def copy_model_to_snapshot(self, version: int, epoch_idx: int) -> None:
+        src_path = self.get_model_file(version)
+        dst_path = self.get_model_file(
+            version, path=self.get_snapshot_path(epoch_idx))
+        dst_path.symlink_to(src_path)
+
+    def copy_version_to_snapshot(self, version: int, epoch_idx: int) -> None:
+        dst_path = self.get_version_file(path=self.get_snapshot_path(epoch_idx))
+        with dst_path.open("wt") as tf:
+            tf.write(f"{version}\n")
