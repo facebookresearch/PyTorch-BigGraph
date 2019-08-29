@@ -11,16 +11,21 @@ import json
 import logging
 import multiprocessing as mp
 import multiprocessing.pool  # noqa: F401
-import os
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from urllib.parse import urlparse
 
 import numpy as np
 import torch
 import torch.multiprocessing
 
-from torchbiggraph.checkpoint_storage import CheckpointStorage, TwoWayMapping
+from torchbiggraph.checkpoint_storage import (
+    AbstractCheckpointStorage,
+    CHECKPOINT_STORAGES,
+    CouldNotLoadData,
+    TwoWayMapping,
+)
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
 from torchbiggraph.types import (
@@ -142,7 +147,7 @@ class CheckpointManager:
 
     def __init__(
         self,
-        path: str,
+        url: str,
         rank: Rank = -1,
         num_machines: int = 1,
         background: bool = False,
@@ -150,13 +155,12 @@ class CheckpointManager:
         subprocess_name: Optional[str] = None,
         subprocess_init: Optional[Callable[[], None]] = None,
     ) -> None:
-        """
-        Args:
-          - path : path to the folder containing checkpoints.
-          - background: if True, will do prefetch and store in a background
-                        process
-        """
-        self.storage = CheckpointStorage(path)
+        scheme = urlparse(url).scheme
+        try:
+            self.storage: AbstractCheckpointStorage = CHECKPOINT_STORAGES[scheme](url)
+        except LookupError:
+            raise RuntimeError(f"Couldn't find any checkpoint storage "
+                               f"for scheme {scheme} used by {url}")
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.rank: Rank = rank
         self.num_machines: int = num_machines
@@ -209,7 +213,7 @@ class CheckpointManager:
             token, future_res = self.outstanding.popitem(last=False)
             try:
                 res = get_async_result(future_res, self.pool)
-            except FileNotFoundError:
+            except CouldNotLoadData:
                 # Don't freak out if prefetch fails, read will just try again.
                 res = None
 
@@ -298,7 +302,7 @@ class CheckpointManager:
     ) -> Tuple[Optional[FloatTensorType], Optional[OptimizerStateDict]]:
         try:
             return self.read(entity, part, force_dirty=force_dirty)
-        except FileNotFoundError:
+        except CouldNotLoadData:
             # if it's dirty then we've already written this file, so it should exist
             if (entity, part) in self.dirty:
                 raise
@@ -346,7 +350,7 @@ class CheckpointManager:
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         try:
             return self.read_model()
-        except FileNotFoundError:
+        except CouldNotLoadData:
             return None, None
 
     def write_config(self, config: ConfigSchema) -> None:

@@ -10,8 +10,9 @@ import errno
 import logging
 import re
 import os
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 import h5py
 import numpy as np
@@ -26,6 +27,148 @@ from torchbiggraph.types import (
 
 
 logger = logging.getLogger("torchbiggraph")
+
+
+class CouldNotLoadData(Exception):
+    pass
+
+
+class OneWayMapping:
+
+    def __init__(self, src: str, dst: str, fields: List[str]) -> None:
+        self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
+        self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
+
+    def map(self, name: str) -> str:
+        match = self.src.fullmatch(name)
+        if match is None:
+            raise ValueError()
+        return match.expand(self.dst)
+
+
+class TwoWayMapping:
+
+    def __init__(self, private: str, public: str, fields: List[str]) -> None:
+        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
+        self.public_to_private = OneWayMapping(public, private, fields)
+
+
+class AbstractCheckpointStorage(ABC):
+
+    @abstractmethod
+    def __init__(self, url: str) -> None:
+        pass
+
+    @abstractmethod
+    def prepare(self) -> None:
+        pass
+
+    @abstractmethod
+    def save_version(self, version: int) -> None:
+        pass
+
+    @abstractmethod
+    def load_version(self) -> int:
+        pass
+
+    @abstractmethod
+    def save_entity_partition(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+        embeddings: FloatTensorType,
+        optim_state: Optional[bytes],
+        metadata: Dict[str, Any],
+    ) -> None:
+        pass
+
+    @abstractmethod
+    def load_entity_partition(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+    ) -> Tuple[FloatTensorType, Optional[bytes]]:
+        pass
+
+    @abstractmethod
+    def drop_entity_partition(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+    ) -> None:
+        pass
+
+    @abstractmethod
+    def save_model(
+        self,
+        version: int,
+        state_dict: ModuleStateDict,
+        optim_state: Optional[bytes],
+        metadata: Dict[str, Any],
+        mappings: List[TwoWayMapping],
+    ) -> None:
+        pass
+
+    @abstractmethod
+    def load_model(
+        self,
+        version: int,
+        mappings: List[TwoWayMapping],
+    ) -> Tuple[Optional[ModuleStateDict], Optional[bytes]]:
+        pass
+
+    @abstractmethod
+    def drop_model(self, version: int) -> None:
+        pass
+
+    @abstractmethod
+    def save_config(self, config_json: str) -> None:
+        pass
+
+    @abstractmethod
+    def load_config(self) -> str:
+        pass
+
+    @abstractmethod
+    def prepare_snapshot(self, version: int, epoch_idx: int) -> None:
+        pass
+
+    @abstractmethod
+    def copy_entity_partition_to_snapshot(
+        self,
+        version: int,
+        entity_name: EntityName,
+        partition: Partition,
+        epoch_idx: int,
+    ) -> None:
+        pass
+
+    @abstractmethod
+    def copy_model_to_snapshot(self, version: int, epoch_idx: int) -> None:
+        pass
+
+    @abstractmethod
+    def copy_version_to_snapshot(self, version: int, epoch_idx: int) -> None:
+        pass
+
+
+CHECKPOINT_STORAGES: Dict[str, Type[AbstractCheckpointStorage]] = {}
+
+
+def register_checkpoint_storage_for_scheme(
+    scheme: str,
+) -> Callable[[Type[AbstractCheckpointStorage]], Type[AbstractCheckpointStorage]]:
+    def decorator(class_: Type[AbstractCheckpointStorage]) -> Type[AbstractCheckpointStorage]:
+        reg_class = CHECKPOINT_STORAGES.setdefault(scheme, class_)
+        if reg_class is not class_:
+            raise RuntimeError(
+                f"Attempting to re-register a checkpoint storage for scheme "
+                f"{scheme} which was already set to {reg_class!r}")
+        return class_
+    return decorator
 
 
 NP_VOID_DTYPE = np.dtype("V1")
@@ -69,26 +212,6 @@ def load_optimizer_state_dict(hf: h5py.File) -> Optional[bytes]:
     if OPTIMIZER_STATE_DICT_DATASET not in hf:
         return None
     return hf[OPTIMIZER_STATE_DICT_DATASET][...].tobytes()
-
-
-class OneWayMapping:
-
-    def __init__(self, src: str, dst: str, fields: List[str]) -> None:
-        self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
-        self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
-
-    def map(self, name: str) -> str:
-        match = self.src.fullmatch(name)
-        if match is None:
-            raise ValueError()
-        return match.expand(self.dst)
-
-
-class TwoWayMapping:
-
-    def __init__(self, private: str, public: str, fields: List[str]) -> None:
-        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
-        self.public_to_private = OneWayMapping(public, private, fields)
 
 
 def save_model_state_dict(
@@ -144,7 +267,9 @@ def load_model_state_dict(
     return state_dict
 
 
-class CheckpointStorage:
+@register_checkpoint_storage_for_scheme("")  # No scheme
+@register_checkpoint_storage_for_scheme("file")
+class FileCheckpointStorage(AbstractCheckpointStorage):
 
     """Reads and writes checkpoint data to/from disk.
 
@@ -177,6 +302,8 @@ class CheckpointStorage:
     """
 
     def __init__(self, path: str) -> None:
+        if path.startswith("file://"):
+            path = path[len("file://"):]
         self.path: Path = Path(path).resolve(strict=False)
 
     def get_version_file(self, *, path: Optional[Path] = None) -> Path:
@@ -275,7 +402,7 @@ class CheckpointStorage:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
             if f"errno = {errno.ENOENT}" in str(err):
-                raise FileNotFoundError() from err
+                raise CouldNotLoadData() from err
             raise err
         logger.debug(f"Done loading from {path}")
         return embs, optim_state
@@ -326,7 +453,7 @@ class CheckpointStorage:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
             if f"errno = {errno.ENOENT}" in str(err):
-                raise FileNotFoundError() from err
+                raise CouldNotLoadData() from err
             raise err
         logger.debug(f"Done loading from {path}")
         return state_dict, optim_state
