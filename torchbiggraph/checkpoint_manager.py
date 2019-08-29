@@ -11,6 +11,7 @@ import json
 import logging
 import multiprocessing as mp
 import multiprocessing.pool  # noqa: F401
+import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -24,7 +25,7 @@ from torchbiggraph.checkpoint_storage import (
     AbstractCheckpointStorage,
     CHECKPOINT_STORAGES,
     CouldNotLoadData,
-    TwoWayMapping,
+    ModelParameter,
 )
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
@@ -43,6 +44,26 @@ from torchbiggraph.util import create_pool, get_async_result
 logger = logging.getLogger("torchbiggraph")
 
 
+class OneWayMapping:
+
+    def __init__(self, src: str, dst: str, fields: List[str]) -> None:
+        self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
+        self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
+
+    def map(self, name: str) -> str:
+        match = self.src.fullmatch(name)
+        if match is None:
+            raise ValueError()
+        return match.expand(self.dst)
+
+
+class TwoWayMapping:
+
+    def __init__(self, private: str, public: str, fields: List[str]) -> None:
+        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
+        self.public_to_private = OneWayMapping(public, private, fields)
+
+
 MODEL_STATE_DICT_MAPPINGS = [
     TwoWayMapping(private="{side}_operators.{idx}.{param}",
                   public="relations/{idx}/operator/{side}/{param}",
@@ -51,6 +72,48 @@ MODEL_STATE_DICT_MAPPINGS = [
                   public="entities/{type}/global_embedding",
                   fields=["type"]),
 ]
+
+
+def model_state_dict_public_to_private(
+    public_state_dict: Optional[Dict[str, torch.Tensor]],
+) -> Optional[ModuleStateDict]:
+    if public_state_dict is None:
+        return None
+    private_state_dict: ModuleStateDict = {}
+    for public_name, tensor in public_state_dict.items():
+        for mapping in MODEL_STATE_DICT_MAPPINGS:
+            try:
+                private_name = mapping.public_to_private.map(public_name)
+            except ValueError:
+                continue
+            else:
+                break
+        else:
+            raise RuntimeError(f"Couldn't find a match for dataset name: {public_name}")
+        private_state_dict[private_name] = tensor
+    return private_state_dict
+
+
+def model_state_dict_private_to_public(
+    private_state_dict: ModuleStateDict,
+) -> Dict[str, ModelParameter]:
+    public_state_dict: Dict[str, ModelParameter] = {}
+    for private_name, tensor in private_state_dict.items():
+        if not isinstance(tensor, torch.Tensor):
+            raise RuntimeError("Isn't the state dict supposed to be "
+                               "a shallow key-to-tensor mapping?!")
+        for mapping in MODEL_STATE_DICT_MAPPINGS:
+            try:
+                public_name = mapping.private_to_public.map(private_name)
+            except ValueError:
+                continue
+            else:
+                break
+        else:
+            raise RuntimeError(
+                f"Couldn't find a match for state dict key: {private_name}")
+        public_state_dict[public_name] = ModelParameter(private_name, tensor)
+    return public_state_dict
 
 
 def noop() -> None:
@@ -328,20 +391,21 @@ class CheckpointManager:
 
     def write_model(
         self,
-        model_state: ModuleStateDict,
+        state_dict: ModuleStateDict,
         optim_state: Optional[OptimizerStateDict],
     ) -> None:
         version = self._version(True)
         metadata = self.collect_metadata()
+        public_state_dict = model_state_dict_private_to_public(state_dict)
         serialized_optim_state = serialize_optim_state(optim_state)
-        self.storage.save_model(
-            version, model_state, serialized_optim_state, metadata, MODEL_STATE_DICT_MAPPINGS)
+        self.storage.save_model(version, public_state_dict, serialized_optim_state, metadata)
 
     def read_model(
         self,
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         version = self._version(False)
-        state_dict, serialized_optim_state = self.storage.load_model(version, MODEL_STATE_DICT_MAPPINGS)
+        public_state_dict, serialized_optim_state = self.storage.load_model(version)
+        state_dict = model_state_dict_public_to_private(public_state_dict)
         optim_state = deserialize_optim_state(serialized_optim_state)
         return state_dict, optim_state
 

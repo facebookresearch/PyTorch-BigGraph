@@ -8,11 +8,10 @@
 
 import errno
 import logging
-import re
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple, Type
 
 import h5py
 import numpy as np
@@ -33,24 +32,13 @@ class CouldNotLoadData(Exception):
     pass
 
 
-class OneWayMapping:
-
-    def __init__(self, src: str, dst: str, fields: List[str]) -> None:
-        self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
-        self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
-
-    def map(self, name: str) -> str:
-        match = self.src.fullmatch(name)
-        if match is None:
-            raise ValueError()
-        return match.expand(self.dst)
-
-
-class TwoWayMapping:
-
-    def __init__(self, private: str, public: str, fields: List[str]) -> None:
-        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
-        self.public_to_private = OneWayMapping(public, private, fields)
+class ModelParameter(NamedTuple):
+    # This is the "internal" name, the one of the model's state dict, which is
+    # considered an implementation detail. Thus the parameters are stored under
+    # different, "public", names but the original ones are still attached, as
+    # attributes, to help with debugging.
+    private_name: str
+    tensor: torch.Tensor
 
 
 class AbstractCheckpointStorage(ABC):
@@ -105,10 +93,9 @@ class AbstractCheckpointStorage(ABC):
     def save_model(
         self,
         version: int,
-        state_dict: ModuleStateDict,
+        state_dict: Dict[str, ModelParameter],
         optim_state: Optional[bytes],
         metadata: Dict[str, Any],
-        mappings: List[TwoWayMapping],
     ) -> None:
         pass
 
@@ -116,8 +103,7 @@ class AbstractCheckpointStorage(ABC):
     def load_model(
         self,
         version: int,
-        mappings: List[TwoWayMapping],
-    ) -> Tuple[Optional[ModuleStateDict], Optional[bytes]]:
+    ) -> Tuple[Optional[Dict[str, torch.Tensor]], Optional[bytes]]:
         pass
 
     @abstractmethod
@@ -216,52 +202,26 @@ def load_optimizer_state_dict(hf: h5py.File) -> Optional[bytes]:
 
 def save_model_state_dict(
     hf: h5py.File,
-    state_dict: ModuleStateDict,
-    mappings: List[TwoWayMapping],
+    state_dict: Dict[str, ModelParameter],
 ) -> None:
     g = hf.create_group(MODEL_STATE_DICT_GROUP, track_order=True)
-    for private_key, tensor in state_dict.items():
-        if not isinstance(tensor, torch.Tensor):
-            raise RuntimeError("Isn't the state dict supposed to be "
-                               "a shallow key-to-tensor mapping?!")
-        for mapping in mappings:
-            try:
-                public_key = mapping.private_to_public.map(private_key)
-            except ValueError:
-                continue
-            else:
-                break
-        else:
-            raise RuntimeError("Couldn't find a match for state dict key: %s"
-                               % private_key)
-
-        dataset = g.create_dataset(public_key, data=tensor.numpy())
-        dataset.attrs[STATE_DICT_KEY_ATTR] = private_key
+    for public_name, param in state_dict.items():
+        dataset = g.create_dataset(public_name, data=param.tensor.numpy())
+        dataset.attrs[STATE_DICT_KEY_ATTR] = param.private_name
 
 
 def load_model_state_dict(
     hf: h5py.File,
-    mappings: List[TwoWayMapping],
 ) -> Optional[ModuleStateDict]:
     if MODEL_STATE_DICT_GROUP not in hf:
         return None
     g = hf[MODEL_STATE_DICT_GROUP]
     state_dict = ModuleStateDict({})
 
-    def process_dataset(public_key, dataset) -> None:
+    def process_dataset(public_name, dataset) -> None:
         if not isinstance(dataset, h5py.Dataset):
             return
-        for mapping in mappings:
-            try:
-                private_key = mapping.public_to_private.map(public_key)
-            except ValueError:
-                continue
-            else:
-                break
-        else:
-            raise RuntimeError("Couldn't find a match for dataset name: %s"
-                               % public_key)
-        state_dict[private_key] = torch.from_numpy(dataset[...])
+        state_dict[public_name] = torch.from_numpy(dataset[...])
 
     g.visititems(process_dataset)
     return state_dict
@@ -420,10 +380,9 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
     def save_model(
         self,
         version: int,
-        state_dict: ModuleStateDict,
+        state_dict: Dict[str, ModelParameter],
         optim_state: Optional[bytes],
         metadata: Dict[str, Any],
-        mappings: List[TwoWayMapping],
     ) -> None:
         path = self.get_model_file(version)
         logger.debug(f"Saving to {path}")
@@ -431,7 +390,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
             hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
             for k, v in metadata.items():
                 hf.attrs[k] = v
-            save_model_state_dict(hf, state_dict, mappings)
+            save_model_state_dict(hf, state_dict)
             save_optimizer_state_dict(hf, optim_state)
             hf.flush()
         logger.debug(f"Done saving to {path}")
@@ -439,15 +398,14 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
     def load_model(
         self,
         version: int,
-        mappings: List[TwoWayMapping],
-    ) -> Tuple[Optional[ModuleStateDict], Optional[bytes]]:
+    ) -> Tuple[Optional[Dict[str, torch.Tensor]], Optional[bytes]]:
         path = self.get_model_file(version)
         logger.debug(f"Loading from {path}")
         try:
             with h5py.File(path, "r") as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                     raise RuntimeError(f"Version mismatch in model file {path}")
-                state_dict = load_model_state_dict(hf, mappings)
+                state_dict = load_model_state_dict(hf)
                 optim_state = load_optimizer_state_dict(hf)
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno
