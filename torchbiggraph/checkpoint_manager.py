@@ -247,30 +247,30 @@ class CheckpointManager:
 
     def record_marker(self, marker: int) -> None:
         assert self.background
-        marker_key = "marker %d" % marker
+        marker_token = f"marker {marker}"
         future_res = self.pool.apply_async(noop, ())
-        self.outstanding[marker_key] = future_res
+        self.outstanding[marker_token] = future_res
 
     def wait_for_marker(self, marker: int) -> None:
-        marker_key = "marker %d" % marker
-        if marker_key not in self.outstanding:
+        marker_token = f"marker {marker}"
+        if marker_token not in self.outstanding:
             return
-        self._sync(marker_key)
+        self._sync(marker_token)
 
-    def _sync(self, sync_path: Optional[str] = None) -> None:
+    def _sync(self, sync_token: Optional[str] = None) -> None:
         assert self.background
-        logger.debug(f"CheckpointManager=>_sync( {sync_path} )")
+        logger.debug(f"CheckpointManager=>_sync( {sync_token} )")
         logger.debug(f"outstanding= {set(self.outstanding)}")
         while len(self.outstanding) > 0:
-            path, future_res = self.outstanding.popitem(last=False)
+            token, future_res = self.outstanding.popitem(last=False)
             res = get_async_result(future_res, self.pool)
 
             if res is not None:
                 logger.info(
-                    f"Setting prefetched {path}; {len(self.outstanding)} outstanding")
-                self.prefetched[path] = res
+                    f"Setting prefetched {token}; {len(self.outstanding)} outstanding")
+                self.prefetched[token] = res
 
-            if sync_path is not None and path == sync_path:
+            if sync_token is not None and token == sync_token:
                 break
 
     def _version(self, dirty: bool = False) -> int:
@@ -295,10 +295,12 @@ class CheckpointManager:
         if not force_clean:
             self.dirty.add((entity, part))
 
+        version = self._version((entity, part) in self.dirty)
+        token = f"entity {entity} {part} v{version}"
         file_path = self._file_path(entity, part)
 
         if self.background:
-            self._sync(file_path)
+            self._sync(token)
 
         metadata = self.collect_metadata()
         serialized_optim_state = serialize_optim_state(optim_state)
@@ -306,11 +308,11 @@ class CheckpointManager:
         if self.partition_client is not None:
             self.partition_client.store(entity, part, embs, serialized_optim_state)
         elif self.background:
-            if file_path in self.prefetched:
-                self.prefetched.pop(file_path)
+            if token in self.prefetched:
+                self.prefetched.pop(token)
             future_res = self.pool.apply_async(
                 save_entity_partition, (file_path, embs, serialized_optim_state, metadata))
-            self.outstanding[file_path] = future_res
+            self.outstanding[token] = future_res
         else:
             save_entity_partition(file_path, embs, serialized_optim_state, metadata)
 
@@ -326,13 +328,15 @@ class CheckpointManager:
         if force_dirty:
             self.dirty.add((entity, part))
 
+        version = self._version((entity, part) in self.dirty)
+        token = f"entity {entity} {part} v{version}"
         file_path = self._file_path(entity, part)
         if (entity, part) in self.dirty and self.partition_client is not None:
             embs, serialized_optim_state = self.partition_client.get(entity, part)
         elif self.background:
-            self._sync(file_path)
-            if file_path in self.prefetched:
-                embs, serialized_optim_state = self.prefetched.pop(file_path)
+            self._sync(token)
+            if token in self.prefetched:
+                embs, serialized_optim_state = self.prefetched.pop(token)
             else:
                 embs, serialized_optim_state = load_entity_partition(file_path)
         else:
@@ -363,13 +367,15 @@ class CheckpointManager:
         if not self.background:
             return
 
+        version = self._version((entity, part) in self.dirty)
+        token = f"entity {entity} {part} v{version}"
         file_path = self._file_path(entity, part)
-        if file_path in self.outstanding or file_path in self.prefetched:
-            logger.debug(f"Bailing from prefetch of {file_path}")
+        if token in self.outstanding or token in self.prefetched:
+            logger.debug(f"Bailing from prefetch of {token}")
             return
         if os.path.exists(file_path):
             future_res = self.pool.apply_async(load_entity_partition, (file_path,))
-            self.outstanding[file_path] = future_res
+            self.outstanding[token] = future_res
 
     def write_model(
         self,
