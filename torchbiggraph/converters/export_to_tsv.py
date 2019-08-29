@@ -11,8 +11,8 @@ import json
 from itertools import chain
 from typing import Dict, Iterable, List, TextIO
 
+from torchbiggraph.checkpoint_manager import CheckpointManager
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema
-from torchbiggraph.fileio import CheckpointManager
 from torchbiggraph.model import MultiRelationEmbedder, make_model
 
 

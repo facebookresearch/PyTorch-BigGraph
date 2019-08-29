@@ -30,6 +30,12 @@ from torchbiggraph.bucket_scheduling import (
     LockServer,
     SingleMachineBucketScheduler,
 )
+from torchbiggraph.checkpoint_manager import (
+    CheckpointManager,
+    ConfigMetadataProvider,
+    MetadataProvider,
+    PartitionClient,
+)
 from torchbiggraph.config import (
     add_to_sys_path,
     ConfigFileLoader,
@@ -42,14 +48,8 @@ from torchbiggraph.distributed import (
     start_server,
 )
 from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.edgelist_reader import EdgelistReader
 from torchbiggraph.eval import RankingEvaluator
-from torchbiggraph.fileio import (
-    CheckpointManager,
-    ConfigMetadataProvider,
-    EdgeReader,
-    MetadataProvider,
-    PartitionClient,
-)
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
     MultiRelationEmbedder,
@@ -624,7 +624,7 @@ def train_and_report_stats(
             f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
             f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
             f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
-        edge_reader = EdgeReader(iteration_manager.edge_path)
+        edgelist_reader = EdgelistReader(iteration_manager.edge_path)
         logger.info(f"Edge path: {iteration_manager.edge_path}")
 
         sync.barrier()
@@ -673,7 +673,7 @@ def train_and_report_stats(
                 checkpoint_manager.record_marker(current_index)
 
             bucket_logger.debug("Loading edges")
-            edges = edge_reader.read(
+            edges = edgelist_reader.read(
                 cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
             num_edges = len(edges)
             # this might be off in the case of tensorlist or extra edge fields

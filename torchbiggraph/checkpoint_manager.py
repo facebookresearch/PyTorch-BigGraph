@@ -6,30 +6,28 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-import errno
-import io
 import json
 import logging
 import multiprocessing as mp
 import multiprocessing.pool  # noqa: F401
 import os
 import os.path
-import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-import h5py
-import numpy as np
-import torch
 import torch.multiprocessing
 from torch_extensions.rpc.rpc import _deserialize as torch_rpc_deserialize
 from torch_extensions.rpc.rpc import _serialize as torch_rpc_serialize
-from torch_extensions.tensorlist.tensorlist import TensorList
 
+from torchbiggraph.checkpoint_storage import (
+    load_entity_partition,
+    load_model,
+    TwoWayMapping,
+    save_entity_partition,
+    save_model,
+)
 from torchbiggraph.config import ConfigSchema
-from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.entitylist import EntityList
 from torchbiggraph.parameter_sharing import ParameterClient
 from torchbiggraph.types import (
     EntityName,
@@ -45,343 +43,14 @@ from torchbiggraph.util import create_pool, get_async_result
 logger = logging.getLogger("torchbiggraph")
 
 
-class EdgeReader:
-    """Reads partitioned edgelists from disk, in the format
-    created by edge_downloader.py.
-
-    Edge lists are stored as hdf5 allowing partial reads (for multi-pass).
-
-    Currently simple implementation but should eventually be multi-threaded /
-    pipelined.
-    """
-
-    def __init__(self, path: str) -> None:
-        if not os.path.isdir(path):
-            raise RuntimeError("Invalid edge dir: %s" % path)
-        self.path: str = os.path.abspath(path)
-
-    def read(
-        self,
-        lhs_p: Partition,
-        rhs_p: Partition,
-        chunk_idx: int = 0,
-        num_chunks: int = 1,
-    ) -> EdgeList:
-        file_path = os.path.join(self.path, f"edges_{lhs_p}_{rhs_p}.h5")
-        assert os.path.exists(file_path), "%s does not exist" % file_path
-        with h5py.File(file_path, 'r') as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError("Version mismatch in edge file %s" % file_path)
-            lhs_ds = hf['lhs']
-            rhs_ds = hf['rhs']
-            rel_ds = hf['rel']
-
-            num_edges = rel_ds.len()
-            begin = int(chunk_idx * num_edges / num_chunks)
-            end = int((chunk_idx + 1) * num_edges / num_chunks)
-            chunk_size = end - begin
-
-            lhs = torch.empty((chunk_size,), dtype=torch.long)
-            rhs = torch.empty((chunk_size,), dtype=torch.long)
-            rel = torch.empty((chunk_size,), dtype=torch.long)
-
-            # Needed because https://github.com/h5py/h5py/issues/870.
-            if chunk_size > 0:
-                lhs_ds.read_direct(lhs.numpy(), source_sel=np.s_[begin:end])
-                rhs_ds.read_direct(rhs.numpy(), source_sel=np.s_[begin:end])
-                rel_ds.read_direct(rel.numpy(), source_sel=np.s_[begin:end])
-
-            lhsd = self.read_dynamic(hf, 'lhsd', begin, end)
-            rhsd = self.read_dynamic(hf, 'rhsd', begin, end)
-
-            return EdgeList(EntityList(lhs, lhsd),
-                            EntityList(rhs, rhsd),
-                            rel)
-
-    @staticmethod
-    def read_dynamic(
-        hf: h5py.File,
-        key: str,
-        begin: int,
-        end: int,
-    ) -> TensorList:
-        try:
-            offsets_ds = hf['%s_offsets' % key]
-            data_ds = hf['%s_data' % key]
-        except LookupError:
-            # Empty tensor_list representation
-            return TensorList(
-                offsets=torch.zeros((), dtype=torch.long).expand(end - begin + 1),
-                data=torch.empty((0,), dtype=torch.long))
-
-        offsets = torch.empty((end - begin + 1,), dtype=torch.long)
-        offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
-        data_begin = offsets[0].item()
-        data_end = offsets[-1].item()
-        data = torch.empty((data_end - data_begin,), dtype=torch.long)
-        # Needed because https://github.com/h5py/h5py/issues/870.
-        if data_end - data_begin > 0:
-            data_ds.read_direct(data.numpy(), source_sel=np.s_[data_begin:data_end])
-
-        offsets -= int(offsets[0])
-
-        return TensorList(offsets, data)
-
-
-NP_VOID_DTYPE = np.dtype("V1")
-
-
-class DatasetIO(io.RawIOBase):
-    """A file-like proxy to a HDF5 dataset
-
-    Given a one-dimensional HFD5 dataset object whose elements are bytes, this
-    class wraps it and provides access to it through a file-like interface. The
-    "file" is open in binary mode (i.e. returns bytes objects rather than strs),
-    is read-only (writing could be easily supported, but isn't needed), seekable
-    and only offers "raw" (unbuffered) I/O. Users will probably want to wrap it
-    in a BufferedReader for better performance.
-
-    This is needed as a compatibility layer to enable features that only support
-    file-like objects (like torch.load) to read from HDF5-backed storage and
-    only load data as-needed (rather than pre-loading everything, as would be
-    necessary with BytesIO).
-
-    Writing isn't supported because (non-chunked) HDF5 datasets must be created
-    with their final size known in advance, which is usually not possible with
-    a file-like interface.
-    """
-
-    def __init__(self, dataset: h5py.Dataset):
-        if dataset.dtype != NP_VOID_DTYPE:
-            raise TypeError("Dataset doesn't contain bytes")
-        if dataset.shape != (dataset.size,):
-            raise TypeError("Dataset isn't a one-dimensional array")
-        self.dataset = dataset
-        self.pos = 0
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer: bytearray) -> int:
-        array = np.frombuffer(buffer, dtype=NP_VOID_DTYPE)
-        size = min(len(buffer), self.dataset.size - self.pos)
-        # Needed because https://github.com/h5py/h5py/issues/870.
-        if size > 0:
-            self.dataset.read_direct(array, np.s_[self.pos:self.pos + size], np.s_[:size])
-        self.pos += size
-        return size
-
-    def readall(self) -> bytes:
-        # We're supposed to implement this, but it doesn't appear to be needed.
-        raise io.UnsupportedOperation()
-
-    def seekable(self) -> bool:
-        return True
-
-    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
-        if whence is io.SEEK_SET:
-            self.pos = offset
-        if whence is io.SEEK_CUR:
-            self.pos += offset
-        if whence is io.SEEK_END:
-            self.pos = self.dataset.size + offset
-        return self.pos
-
-    def tell(self) -> int:
-        return self.pos
-
-
-# Names and values of metadata attributes for the HDF5 files.
-FORMAT_VERSION_ATTR = "format_version"
-FORMAT_VERSION = 1
-STATE_DICT_KEY_ATTR = "state_dict_key"
-# Names of groups and datasets inside the HDF5 files.
-EMBEDDING_DATASET = "embeddings"
-MODEL_STATE_DICT_GROUP = "model"
-OPTIMIZER_STATE_DICT_DATASET = "optimizer/state_dict"
-
-
-def save_embeddings(hf: h5py.File, embeddings: FloatTensorType) -> None:
-    hf.create_dataset(EMBEDDING_DATASET, data=embeddings.numpy())
-
-
-def load_embeddings(hf: h5py.File) -> FloatTensorType:
-    dataset: h5py.Dataset = hf[EMBEDDING_DATASET]
-    storage = torch.FloatStorage._new_shared(dataset.size)
-    embeddings = torch.FloatTensor(storage).view(dataset.shape)
-    # Needed because https://github.com/h5py/h5py/issues/870.
-    if dataset.size > 0:
-        dataset.read_direct(embeddings.numpy())
-    return embeddings
-
-
-def save_optimizer_state_dict(
-    hf: h5py.File,
-    state_dict: Optional[OptimizerStateDict],
-) -> None:
-    if state_dict is None:
-        return
-    with io.BytesIO() as fobj:
-        torch.save(state_dict, fobj)
-        hf.create_dataset(OPTIMIZER_STATE_DICT_DATASET,
-                          data=np.frombuffer(fobj.getbuffer(), dtype=NP_VOID_DTYPE))
-
-
-def load_optimizer_state_dict(hf: h5py.File) -> Optional[OptimizerStateDict]:
-    if OPTIMIZER_STATE_DICT_DATASET not in hf:
-        return None
-    with io.BufferedReader(DatasetIO(hf[OPTIMIZER_STATE_DICT_DATASET])) as fobj:
-        return torch.load(fobj)
-
-
-class OneWayMapping:
-
-    def __init__(self, src: str, dst: str, fields: List[str]) -> None:
-        self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
-        self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
-
-    def map(self, name: str) -> str:
-        match = self.src.fullmatch(name)
-        if match is None:
-            raise ValueError()
-        return match.expand(self.dst)
-
-
-class Mapping:
-
-    def __init__(self, private: str, public: str, fields: List[str]) -> None:
-        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
-        self.public_to_private = OneWayMapping(public, private, fields)
-
-
 MODEL_STATE_DICT_MAPPINGS = [
-    Mapping(private="{side}_operators.{idx}.{param}",
-            public="relations/{idx}/operator/{side}/{param}",
-            fields=["idx", "side", "param"]),
-    Mapping(private="global_embs.emb_{type}",
-            public="entities/{type}/global_embedding",
-            fields=["type"]),
+    TwoWayMapping(private="{side}_operators.{idx}.{param}",
+                  public="relations/{idx}/operator/{side}/{param}",
+                  fields=["idx", "side", "param"]),
+    TwoWayMapping(private="global_embs.emb_{type}",
+                  public="entities/{type}/global_embedding",
+                  fields=["type"]),
 ]
-
-
-def save_model_state_dict(hf: h5py.File, state_dict: ModuleStateDict) -> None:
-    g = hf.create_group(MODEL_STATE_DICT_GROUP, track_order=True)
-    for private_key, tensor in state_dict.items():
-        if not isinstance(tensor, torch.Tensor):
-            raise RuntimeError("Isn't the state dict supposed to be "
-                               "a shallow key-to-tensor mapping?!")
-        for mapping in MODEL_STATE_DICT_MAPPINGS:
-            try:
-                public_key = mapping.private_to_public.map(private_key)
-            except ValueError:
-                continue
-            else:
-                break
-        else:
-            raise RuntimeError("Couldn't find a match for state dict key: %s"
-                               % private_key)
-
-        dataset = g.create_dataset(public_key, data=tensor.numpy())
-        dataset.attrs[STATE_DICT_KEY_ATTR] = private_key
-
-
-def load_model_state_dict(hf: h5py.File) -> Optional[ModuleStateDict]:
-    if MODEL_STATE_DICT_GROUP not in hf:
-        return None
-    g = hf[MODEL_STATE_DICT_GROUP]
-    state_dict = ModuleStateDict({})
-
-    def process_dataset(public_key, dataset) -> None:
-        if not isinstance(dataset, h5py.Dataset):
-            return
-        for mapping in MODEL_STATE_DICT_MAPPINGS:
-            try:
-                private_key = mapping.public_to_private.map(public_key)
-            except ValueError:
-                continue
-            else:
-                break
-        else:
-            raise RuntimeError("Couldn't find a match for dataset name: %s"
-                               % public_key)
-        state_dict[private_key] = torch.from_numpy(dataset[...])
-
-    g.visititems(process_dataset)
-    return state_dict
-
-
-def save_entity_partition(
-    path: str,
-    embs: FloatTensorType,
-    optim_state: Optional[OptimizerStateDict],
-    metadata: Dict[str, Any],
-) -> None:
-    logger.debug(f"Saving to {path}")
-    with h5py.File(path, "w") as hf:
-        hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
-        for k, v in metadata.items():
-            hf.attrs[k] = v
-        save_embeddings(hf, embs)
-        save_optimizer_state_dict(hf, optim_state)
-        hf.flush()
-    logger.debug(f"Done saving to {path}")
-
-
-def save_model(
-    path: str,
-    state_dict: ModuleStateDict,
-    optim_state: Optional[OptimizerStateDict],
-    metadata: Dict[str, Any],
-) -> None:
-    logger.debug(f"Saving to {path}")
-    with h5py.File(path, "w") as hf:
-        hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
-        for k, v in metadata.items():
-            hf.attrs[k] = v
-        save_model_state_dict(hf, state_dict)
-        save_optimizer_state_dict(hf, optim_state)
-        hf.flush()
-    logger.debug(f"Done saving to {path}")
-
-
-def load_entity_partition(
-    path: str,
-) -> Tuple[FloatTensorType, Optional[OptimizerStateDict]]:
-    logger.debug(f"Loading from {path}")
-    try:
-        with h5py.File(path, "r") as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError(f"Version mismatch in embeddings file {path}")
-            embs = load_embeddings(hf)
-            optim_state = load_optimizer_state_dict(hf)
-    except OSError as err:
-        # h5py refuses to make it easy to figure out what went wrong. The errno
-        # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
-        if "errno = %d" % errno.ENOENT in str(err):
-            raise FileNotFoundError() from err
-        raise err
-    logger.debug(f"Done loading from {path}")
-    return embs, optim_state
-
-
-def load_model(
-    path: str,
-) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
-    logger.debug(f"Loading from {path}")
-    try:
-        with h5py.File(path, "r") as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError(f"Version mismatch in model file {path}")
-            state_dict = load_model_state_dict(hf)
-            optim_state = load_optimizer_state_dict(hf)
-    except OSError as err:
-        # h5py refuses to make it easy to figure out what went wrong. The errno
-        # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
-        if "errno = %d" % errno.ENOENT in str(err):
-            raise FileNotFoundError() from err
-        raise err
-    logger.debug(f"Done loading from {path}")
-    return state_dict, optim_state
 
 
 def noop() -> None:
@@ -669,14 +338,14 @@ class CheckpointManager:
         version = self._version(True)
         file_path = os.path.join(self.path, f"model.v{version}.h5")
         metadata = self.collect_metadata()
-        save_model(file_path, model_state, optim_state, metadata)
+        save_model(file_path, model_state, optim_state, metadata, MODEL_STATE_DICT_MAPPINGS)
 
     def read_model(
         self,
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         version = self._version(False)
         file_path = os.path.join(self.path, f"model.v{version}.h5")
-        return load_model(file_path)
+        return load_model(file_path, MODEL_STATE_DICT_MAPPINGS)
 
     def maybe_read_model(
         self,

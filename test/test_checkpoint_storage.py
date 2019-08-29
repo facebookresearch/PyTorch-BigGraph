@@ -7,7 +7,6 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import io
-import json
 import tempfile
 from typing import Any
 from unittest import TestCase, main
@@ -16,8 +15,7 @@ import h5py
 import numpy as np
 import torch
 
-from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
-from torchbiggraph.fileio import ConfigMetadataProvider, DatasetIO, Mapping
+from torchbiggraph.checkpoint_storage import DatasetIO, TwoWayMapping
 
 
 class TestDatasetIO(TestCase):
@@ -76,10 +74,10 @@ class TestDatasetIO(TestCase):
                     DatasetIO(hf.create_dataset("baz", data=data))
 
 
-class TestMapping(TestCase):
+class TestTwoWayMapping(TestCase):
 
     def test_one_field(self):
-        m = Mapping("foo.bar.{field}", "{field}/ham/eggs", fields=["field"])
+        m = TwoWayMapping("foo.bar.{field}", "{field}/ham/eggs", fields=["field"])
         self.assertEqual(m.private_to_public.map("foo.bar.baz"), "baz/ham/eggs")
         self.assertEqual(m.public_to_private.map("spam/ham/eggs"), "foo.bar.spam")
         with self.assertRaises(ValueError):
@@ -104,26 +102,11 @@ class TestMapping(TestCase):
             m.public_to_private.map("spam/ham/eggs/2")
 
     def test_many_field(self):
-        m = Mapping("fo{field1}.{field2}ar.b{field3}z",
-                    "sp{field3}m/{field2}am/egg{field1}",
-                    fields=["field1", "field2", "field3"])
+        m = TwoWayMapping("fo{field1}.{field2}ar.b{field3}z",
+                          "sp{field3}m/{field2}am/egg{field1}",
+                          fields=["field1", "field2", "field3"])
         self.assertEqual(m.private_to_public.map("foo.bar.baz"), "spam/bam/eggo")
         self.assertEqual(m.public_to_private.map("spam/ham/eggs"), "fos.har.baz")
-
-
-class TestConfigMetadataProvider(TestCase):
-
-    def test_basic(self):
-        config = ConfigSchema(
-            entities={"e": EntitySchema(num_partitions=1)},
-            relations=[RelationSchema(name="r", lhs="e", rhs="e")],
-            dimension=1,
-            entity_path="foo", edge_paths=["bar"], checkpoint_path="baz")
-        metadata = ConfigMetadataProvider(config).get_checkpoint_metadata()
-        self.assertIsInstance(metadata, dict)
-        self.assertCountEqual(metadata.keys(), ["config/json"])
-        self.assertEqual(
-            config, ConfigSchema.from_dict(json.loads(metadata["config/json"])))
 
 
 if __name__ == '__main__':
