@@ -29,66 +29,6 @@ logger = logging.getLogger("torchbiggraph")
 NP_VOID_DTYPE = np.dtype("V1")
 
 
-class DatasetIO(io.RawIOBase):
-    """A file-like proxy to a HDF5 dataset
-
-    Given a one-dimensional HFD5 dataset object whose elements are bytes, this
-    class wraps it and provides access to it through a file-like interface. The
-    "file" is open in binary mode (i.e. returns bytes objects rather than strs),
-    is read-only (writing could be easily supported, but isn't needed), seekable
-    and only offers "raw" (unbuffered) I/O. Users will probably want to wrap it
-    in a BufferedReader for better performance.
-
-    This is needed as a compatibility layer to enable features that only support
-    file-like objects (like torch.load) to read from HDF5-backed storage and
-    only load data as-needed (rather than pre-loading everything, as would be
-    necessary with BytesIO).
-
-    Writing isn't supported because (non-chunked) HDF5 datasets must be created
-    with their final size known in advance, which is usually not possible with
-    a file-like interface.
-    """
-
-    def __init__(self, dataset: h5py.Dataset):
-        if dataset.dtype != NP_VOID_DTYPE:
-            raise TypeError("Dataset doesn't contain bytes")
-        if dataset.shape != (dataset.size,):
-            raise TypeError("Dataset isn't a one-dimensional array")
-        self.dataset = dataset
-        self.pos = 0
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer: bytearray) -> int:
-        array = np.frombuffer(buffer, dtype=NP_VOID_DTYPE)
-        size = min(len(buffer), self.dataset.size - self.pos)
-        # Needed because https://github.com/h5py/h5py/issues/870.
-        if size > 0:
-            self.dataset.read_direct(array, np.s_[self.pos:self.pos + size], np.s_[:size])
-        self.pos += size
-        return size
-
-    def readall(self) -> bytes:
-        # We're supposed to implement this, but it doesn't appear to be needed.
-        raise io.UnsupportedOperation()
-
-    def seekable(self) -> bool:
-        return True
-
-    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
-        if whence is io.SEEK_SET:
-            self.pos = offset
-        if whence is io.SEEK_CUR:
-            self.pos += offset
-        if whence is io.SEEK_END:
-            self.pos = self.dataset.size + offset
-        return self.pos
-
-    def tell(self) -> int:
-        return self.pos
-
-
 # Names and values of metadata attributes for the HDF5 files.
 FORMAT_VERSION_ATTR = "format_version"
 FORMAT_VERSION = 1
@@ -115,21 +55,18 @@ def load_embeddings(hf: h5py.File) -> FloatTensorType:
 
 def save_optimizer_state_dict(
     hf: h5py.File,
-    state_dict: Optional[OptimizerStateDict],
+    state_dict: Optional[bytes],
 ) -> None:
     if state_dict is None:
         return
-    with io.BytesIO() as fobj:
-        torch.save(state_dict, fobj)
-        hf.create_dataset(OPTIMIZER_STATE_DICT_DATASET,
-                          data=np.frombuffer(fobj.getbuffer(), dtype=NP_VOID_DTYPE))
+    hf.create_dataset(OPTIMIZER_STATE_DICT_DATASET,
+                      data=np.frombuffer(state_dict, dtype=NP_VOID_DTYPE))
 
 
-def load_optimizer_state_dict(hf: h5py.File) -> Optional[OptimizerStateDict]:
+def load_optimizer_state_dict(hf: h5py.File) -> Optional[bytes]:
     if OPTIMIZER_STATE_DICT_DATASET not in hf:
         return None
-    with io.BufferedReader(DatasetIO(hf[OPTIMIZER_STATE_DICT_DATASET])) as fobj:
-        return torch.load(fobj)
+    return hf[OPTIMIZER_STATE_DICT_DATASET][...].tobytes()
 
 
 class OneWayMapping:

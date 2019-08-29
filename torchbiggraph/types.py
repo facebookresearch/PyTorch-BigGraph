@@ -19,9 +19,10 @@ import torch
 # To preserve and expose that information, at least to humans, we use more
 # informative aliases for torch.Tensor. (PS: FloatTensor and LongTensor are in
 # fact instances of the torch.tensortype metaclass).
-CharTensorType = torch.Tensor
-FloatTensorType = torch.Tensor
-LongTensorType = torch.Tensor
+ByteTensorType = torch.Tensor  # uint8
+CharTensorType = torch.Tensor  # int8
+FloatTensorType = torch.Tensor  # float32
+LongTensorType = torch.Tensor  # int64
 
 
 T = TypeVar("T")

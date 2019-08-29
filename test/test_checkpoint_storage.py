@@ -6,72 +6,9 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-import io
-import tempfile
-from typing import Any
 from unittest import TestCase, main
 
-import h5py
-import numpy as np
-import torch
-
-from torchbiggraph.checkpoint_storage import DatasetIO, TwoWayMapping
-
-
-class TestDatasetIO(TestCase):
-
-    # DatasetIO is only used wrapped in a BufferedReader as a source for
-    # torch.load, hence we test it only in this setting.
-
-    @staticmethod
-    def save_to(hf: h5py.File, name: str, data: Any) -> None:
-        with io.BytesIO() as bf:
-            torch.save(data, bf)
-            hf.create_dataset(
-                name, data=np.frombuffer(bf.getbuffer(), dtype=np.dtype("V1")))
-
-    @staticmethod
-    def load_from(hf: h5py.File, name: str) -> Any:
-        with io.BufferedReader(DatasetIO(hf[name])) as bf:
-            return torch.load(bf)
-
-    def test_scalars(self):
-        data = (["a", b"b"], {1: True, 0.2: {None, 4j}})
-        # FIXME h5py-2.9 accepts just File(bf), allowing an un-Named TemporaryFile.
-        with tempfile.NamedTemporaryFile() as bf:
-            with h5py.File(bf.name, "w") as hf:
-                self.save_to(hf, "foo", data)
-            with h5py.File(bf.name, "r") as hf:
-                self.assertEqual(self.load_from(hf, "foo"), data)
-
-    def test_tensors(self):
-        data_foo = torch.zeros((100,), dtype=torch.int8)
-        data_bar = torch.ones((10, 10))
-        # FIXME h5py-2.9 accepts just File(bf), allowing an un-Named TemporaryFile.
-        with tempfile.NamedTemporaryFile() as bf:
-            with h5py.File(bf.name, "w") as hf:
-                self.save_to(hf, "foo", data_foo)
-                self.save_to(hf, "bar", data_bar)
-            with h5py.File(bf.name, "r") as hf:
-                self.assertTrue(data_foo.equal(self.load_from(hf, "foo")))
-                self.assertTrue(data_bar.equal(self.load_from(hf, "bar")))
-
-    def test_bad_args(self):
-        # FIXME h5py-2.9 accepts just File(bf), allowing an un-Named TemporaryFile.
-        with tempfile.NamedTemporaryFile() as bf:
-            with h5py.File(bf.name, "w") as hf:
-                # Scalar array of "V<length>" type as suggested in the h5py doc.
-                data = np.void(b"data")
-                with self.assertRaises(TypeError):
-                    DatasetIO(hf.create_dataset("foo", data=data))
-                # One-dimensional array of uint8 type.
-                data = np.frombuffer(b"data", dtype=np.uint8)
-                with self.assertRaises(TypeError):
-                    DatasetIO(hf.create_dataset("bar", data=data))
-                # Two-dimensional array of bytes.
-                data = np.frombuffer(b"data", dtype=np.dtype("V1")).reshape(2, 2)
-                with self.assertRaises(TypeError):
-                    DatasetIO(hf.create_dataset("baz", data=data))
+from torchbiggraph.checkpoint_storage import TwoWayMapping
 
 
 class TestTwoWayMapping(TestCase):

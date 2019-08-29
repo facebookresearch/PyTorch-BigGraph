@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import io
 import json
 import logging
 import multiprocessing as mp
@@ -16,9 +17,9 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+import numpy as np
+import torch
 import torch.multiprocessing
-from torch_extensions.rpc.rpc import _deserialize as torch_rpc_deserialize
-from torch_extensions.rpc.rpc import _serialize as torch_rpc_serialize
 
 from torchbiggraph.checkpoint_storage import (
     load_entity_partition,
@@ -30,6 +31,7 @@ from torchbiggraph.checkpoint_storage import (
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
 from torchbiggraph.types import (
+    ByteTensorType,
     EntityName,
     FloatTensorType,
     ModuleStateDict,
@@ -57,6 +59,14 @@ def noop() -> None:
     pass
 
 
+def bytes_to_bytetensor(data: bytes) -> ByteTensorType:
+    return torch.from_numpy(np.frombuffer(data, dtype=np.uint8))
+
+
+def bytetensor_to_bytes(tensor: ByteTensorType) -> bytes:
+    return tensor.numpy().tobytes()
+
+
 VERSION_FILE = "checkpoint_version.txt"
 CONFIG_FILE = "config.json"
 
@@ -74,23 +84,29 @@ class PartitionClient:
         entity: EntityName,
         part: Partition,
         embs: FloatTensorType,
-        optim_state: Optional[OptimizerStateDict],
+        optim_state: Optional[bytes],
     ) -> None:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
         client.store(key + "__embs", embs)
-        client.store(key + "__optim", torch_rpc_serialize(optim_state))
+        if optim_state is not None:
+            optim_state_tensor = bytes_to_bytetensor(optim_state)
+            client.store(key + "__optim", optim_state_tensor)
 
     def get(
         self,
         entity: EntityName,
         part: Partition,
-    ) -> Tuple[FloatTensorType, OptimizerStateDict]:
+    ) -> Tuple[FloatTensorType, Optional[bytes]]:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
         embs = client.get(key + "__embs", shared=True)
         assert embs is not None
-        optim_state = torch_rpc_deserialize(client.get(key + "__optim"))
+        optim_state_tensor = client.get(key + "__optim")
+        if optim_state_tensor is not None:
+            optim_state = bytetensor_to_bytes(optim_state_tensor)
+        else:
+            optim_state = None
         return embs, optim_state
 
     def join(self) -> None:
@@ -112,6 +128,25 @@ class ConfigMetadataProvider(MetadataProvider):
 
     def get_checkpoint_metadata(self) -> Dict[str, Any]:
         return {"config/json": self.json_config_dict}
+
+
+def serialize_optim_state(
+    optim_state: Optional[OptimizerStateDict],
+) -> Optional[bytes]:
+    if optim_state is None:
+        return None
+    with io.BytesIO() as bf:
+        torch.save(optim_state, bf)
+        return bf.getvalue()
+
+
+def deserialize_optim_state(
+    serialized_optim_state: Optional[bytes],
+) -> Optional[OptimizerStateDict]:
+    if serialized_optim_state is None:
+        return None
+    with io.BytesIO(serialized_optim_state) as bf:
+        return torch.load(bf)
 
 
 class CheckpointManager:
@@ -266,17 +301,18 @@ class CheckpointManager:
             self._sync(file_path)
 
         metadata = self.collect_metadata()
+        serialized_optim_state = serialize_optim_state(optim_state)
 
         if self.partition_client is not None:
-            self.partition_client.store(entity, part, embs, optim_state)
+            self.partition_client.store(entity, part, embs, serialized_optim_state)
         elif self.background:
             if file_path in self.prefetched:
                 self.prefetched.pop(file_path)
             future_res = self.pool.apply_async(
-                save_entity_partition, (file_path, embs, optim_state, metadata))
+                save_entity_partition, (file_path, embs, serialized_optim_state, metadata))
             self.outstanding[file_path] = future_res
         else:
-            save_entity_partition(file_path, embs, optim_state, metadata)
+            save_entity_partition(file_path, embs, serialized_optim_state, metadata)
 
     def read(
         self,
@@ -292,12 +328,17 @@ class CheckpointManager:
 
         file_path = self._file_path(entity, part)
         if (entity, part) in self.dirty and self.partition_client is not None:
-            return self.partition_client.get(entity, part)
-        if self.background:
+            embs, serialized_optim_state = self.partition_client.get(entity, part)
+        elif self.background:
             self._sync(file_path)
             if file_path in self.prefetched:
-                return self.prefetched.pop(file_path)
-        return load_entity_partition(file_path)
+                embs, serialized_optim_state = self.prefetched.pop(file_path)
+            else:
+                embs, serialized_optim_state = load_entity_partition(file_path)
+        else:
+            embs, serialized_optim_state = load_entity_partition(file_path)
+        optim_state = deserialize_optim_state(serialized_optim_state)
+        return embs, optim_state
 
     def maybe_read(
         self,
@@ -338,14 +379,17 @@ class CheckpointManager:
         version = self._version(True)
         file_path = os.path.join(self.path, f"model.v{version}.h5")
         metadata = self.collect_metadata()
-        save_model(file_path, model_state, optim_state, metadata, MODEL_STATE_DICT_MAPPINGS)
+        serialized_optim_state = serialize_optim_state(optim_state)
+        save_model(file_path, model_state, serialized_optim_state, metadata, MODEL_STATE_DICT_MAPPINGS)
 
     def read_model(
         self,
     ) -> Tuple[Optional[ModuleStateDict], Optional[OptimizerStateDict]]:
         version = self._version(False)
         file_path = os.path.join(self.path, f"model.v{version}.h5")
-        return load_model(file_path, MODEL_STATE_DICT_MAPPINGS)
+        state_dict, serialized_optim_state = load_model(file_path, MODEL_STATE_DICT_MAPPINGS)
+        optim_state = deserialize_optim_state(serialized_optim_state)
+        return state_dict, optim_state
 
     def maybe_read_model(
         self,
@@ -378,13 +422,13 @@ class CheckpointManager:
             for entity, econf in config.entities.items():
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
                     logger.debug(f"Getting {entity} {part}")
-                    embs, optim_state = \
+                    embs, serialized_optim_state = \
                         self.partition_client.get(EntityName(entity), Partition(part))
                     logger.debug(f"Done getting {entity} {part}")
                     new_file_path = os.path.join(
                         self.path, f"embeddings_{entity}_{part}.v{new_version}.h5")
                     logger.debug(f"Saving {entity} {part} to {new_file_path}")
-                    save_entity_partition(new_file_path, embs, optim_state, metadata)
+                    save_entity_partition(new_file_path, embs, serialized_optim_state, metadata)
                     logger.debug(f"Done saving {entity} {part} to {new_file_path}")
 
     def switch_to_new_version(self) -> None:
