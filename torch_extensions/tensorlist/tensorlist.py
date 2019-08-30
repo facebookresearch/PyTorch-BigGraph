@@ -147,6 +147,8 @@ class TensorList(object):
             raise NotImplementedError()
 
     def size(self, dim=None):
+        # FIXME: this is a terrible API
+
         # to have similar appearance with other tensor types
         assert dim == 0 or dim is None, 'TensorList can only have 1 dimension'
         if dim is None:
@@ -156,3 +158,54 @@ class TensorList(object):
 
     def nelement(self):
         return self.data.nelement()
+
+    def clone(self):
+        return self.__class__(self.offsets, self.data.clone())
+
+    def __repr__(self):
+        if self.offsets.nelement() < 100 or self.data.nelement() < 1000:
+            return "TensorList( [%s] )" % " , ".join(str(self[i].tolist()) for i in range(len(self)))
+        return "TensorList{offsets=%s, data=%s}" % (self.offsets, self.data)
+
+    def apply(self, F):
+        return self.__class__(self.offsets, F(self.data))
+
+    def combine(self, other, F):
+        if isinstance(other, TensorList):
+            assert torch.equal(self.offsets, other.offsets)
+            assert self.data.shape[0] == other.data.shape[0]
+            res = self.__class__(self.offsets, F(self.data, other.data))
+        else:
+            res = self.__class__(self.offsets, F(self.data, other))
+        assert res.data.shape[0] == self.data.shape[0]
+        return res
+
+    def lengths(self):
+        return self.offsets[1:] - self.offsets[:-1]
+
+    def unsqueeze(self, dim):
+        return self.apply(lambda x: x.unsqueeze(dim))
+
+    def view(self, *args):
+        return self.apply(lambda x: x.view(*args))
+
+    def __add__(self, other):
+        return self.combine(other, lambda x, y: x + y)
+
+    def __sub__(self, other):
+        return self.combine(other, lambda x, y: x - y)
+
+    def __mul__(self, other):
+        return self.combine(other, lambda x, y: x * y)
+
+    def __truediv__(self, other):
+        return self.combine(other, lambda x, y: x / y)
+
+    def sum(self, dim=None, keepdim=False):
+        if dim is None:
+            return self.data.sum()
+        # We're only going to agree to sum across "inner dimensions"
+        if dim < 0:
+            dim = self.data.ndimension() + dim
+        assert dim > 0, "Can't sum along the 'list' dimension"
+        return self.__class__(self.offsets, self.data.sum(dim, keepdim=keepdim))
