@@ -382,7 +382,7 @@ def train_and_report_stats(
 
         if config.num_partition_servers == -1:
             start_server(
-                ParameterServer(num_clients=len(ranks.trainers)),
+                ParameterServer(num_clients=len(ranks.trainers), log_stats=True),
                 process_name=f"PartS-{rank}",
                 init_method=config.distributed_init_method,
                 world_size=ranks.world_size,
@@ -392,7 +392,7 @@ def train_and_report_stats(
             )
 
         if len(ranks.partition_servers) > 0:
-            partition_client = PartitionClient(ranks.partition_servers)
+            partition_client = PartitionClient(ranks.partition_servers, log_stats=True)
         else:
             partition_client = None
 

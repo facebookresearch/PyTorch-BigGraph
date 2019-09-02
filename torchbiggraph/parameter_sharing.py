@@ -70,9 +70,10 @@ class ParameterServer(Startable):
     That would simplify this code a lot.
     """
 
-    def __init__(self, num_clients: int) -> None:
+    def __init__(self, num_clients: int, log_stats: bool = False) -> None:
         self.num_clients = num_clients
         self.parameters: Dict[str, torch.Tensor] = {}
+        self.log_stats = log_stats
 
     def start(self) -> None:
         join_count = 0
@@ -142,7 +143,17 @@ class ParameterServer(Startable):
             del self.parameters[key]
         data = tensor_type(*size)
 
+        start_t = time.monotonic()
         td.recv(data, src=rank)
+        end_t = time.monotonic()
+        if self.log_stats:
+            stats_size = data.numel() * data.element_size()
+            stats_time = end_t - start_t
+            logger.debug(
+                f"Received tensor {key} from client {rank}: "
+                f"{stats_size:,} bytes "
+                f"in {stats_time:,g} seconds "
+                f"=> {stats_size / stats_time:,.0f} B/s")
 
         if accum:
             self.parameters[key] += data
@@ -162,15 +173,26 @@ class ParameterServer(Startable):
                     rank)
             td.send(torch.tensor(list(data.size()), dtype=torch.long), rank)
 
+        start_t = time.monotonic()
         td.send(data, dst=rank)
+        end_t = time.monotonic()
+        if self.log_stats:
+            stats_size = data.numel() * data.element_size()
+            stats_time = end_t - start_t
+            logger.debug(
+                f"Sent tensor {key} to client {rank}: "
+                f"{stats_size:,} bytes "
+                f"in {stats_time:,g} seconds "
+                f"=> {stats_size / stats_time:,.0f} B/s")
 
 
 class ParameterClient:
     """Client for ParameterServer.
     Supports store, accumulate, swap, swap-accumulate, and get operations."""
 
-    def __init__(self, server_rank: int) -> None:
+    def __init__(self, server_rank: int, log_stats: bool = False) -> None:
         self.server_rank = server_rank
+        self.log_stats = log_stats
 
     def store(
         self,
@@ -192,7 +214,17 @@ class ParameterClient:
         td.send(_fromstring(key), self.server_rank)
         if not accum:
             td.send(torch.tensor(list(src.size()), dtype=torch.long), self.server_rank)
+        start_t = time.monotonic()
         td.send(src, self.server_rank)
+        end_t = time.monotonic()
+        if self.log_stats:
+            stats_size = src.numel() * src.element_size()
+            stats_time = end_t - start_t
+            logger.debug(
+                f"Sent tensor {key} to server {self.server_rank}: "
+                f"{stats_size:,} bytes "
+                f"in {stats_time:,g} seconds "
+                f"=> {stats_size / stats_time:,.0f} B/s")
 
     def get(
         self,
@@ -219,7 +251,17 @@ class ParameterClient:
                 dst = tensor_type(dst_storage).view(*size.tolist())
             else:
                 dst = tensor_type(*size.tolist())
+        start_t = time.monotonic()
         td.recv(dst, src=self.server_rank)
+        end_t = time.monotonic()
+        if self.log_stats:
+            stats_size = dst.numel() * dst.element_size()
+            stats_time = end_t - start_t
+            logger.debug(
+                f"Received tensor {key} from server {self.server_rank}: "
+                f"{stats_size:,} bytes "
+                f"in {stats_time:,g} seconds "
+                f"=> {stats_size / stats_time:,.0f} B/s")
         return dst
 
     def swap(
@@ -236,7 +278,6 @@ class ParameterClient:
         if dst is None:
             dst = torch.zeros_like(src)
 
-        # tic = time.time()
         cmd_rpc = torch.tensor([SWAP_CMD,
                                 len(key),
                                 -1 if accum else src.ndimension(),
@@ -249,11 +290,19 @@ class ParameterClient:
         if not accum:
             td.send(torch.tensor(list(src.size()), dtype=torch.long),
                     self.server_rank)
+        start_t = time.monotonic()
         td.send(src, self.server_rank)
         td.recv(dst, src=self.server_rank)
-        # logger.info(
-        #     f"Swapped {src.numel() * src.element_size()} bytes to "
-        #     f"{self.server_rank} in {time.time() - tic:g} s")
+        end_t = time.monotonic()
+        if self.log_stats:
+            stats_size = \
+                src.numel() * src.element_size() + dst.numel() * dst.element_size()
+            stats_time = end_t - start_t
+            logger.debug(
+                f"Swapped tensor {key} with server {self.server_rank}: "
+                f"{stats_size:,} bytes "
+                f"in {stats_time:,g} seconds "
+                f"=> {stats_size / stats_time:,.0f} B/s")
 
     def join(self) -> None:
         """All clients should call join at the end, which will allow the server

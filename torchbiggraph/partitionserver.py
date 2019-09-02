@@ -59,7 +59,7 @@ def run_partition_server(
         init_method=config.distributed_init_method,
         groups=[ranks.trainers],
     )
-    ps = ParameterServer(num_clients=len(ranks.trainers))
+    ps = ParameterServer(num_clients=len(ranks.trainers), log_stats=True)
     ps.start()
 
 
