@@ -8,7 +8,6 @@
 
 import argparse
 import logging
-import os.path
 import time
 from abc import ABC, abstractmethod
 from functools import partial
@@ -49,6 +48,7 @@ from torchbiggraph.distributed import (
 )
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.edgelist_reader import get_edgelist_reader_for_url
+from torchbiggraph.entity_count_reader import get_entity_count_reader_for_url
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
@@ -305,14 +305,12 @@ def train_and_report_stats(
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     logger.info("Loading entity counts...")
+    entity_count_reader = get_entity_count_reader_for_url(config.entity_path)
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.num_partitions):
-            with open(os.path.join(
-                config.entity_path, "entity_count_%s_%d.txt" % (entity, part)
-            ), "rt") as tf:
-                entity_counts[entity].append(int(tf.read().strip()))
+            entity_counts[entity].append(entity_count_reader.read_entity_count(entity, part))
 
     # Figure out how many lhs and rhs partitions we need
     nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
