@@ -14,6 +14,7 @@ from torch import nn as nn
 from torch.nn import functional as F
 
 from torchbiggraph.model import match_shape
+from torchbiggraph.plugin import PluginRegistry
 from torchbiggraph.types import FloatTensorType
 
 
@@ -40,23 +41,10 @@ class AbstractLossFunction(nn.Module, ABC):
         pass
 
 
-LOSS_FUNCTIONS: Dict[str, Type[AbstractLossFunction]] = {}
+LOSS_FUNCTIONS = PluginRegistry[AbstractLossFunction]()
 
 
-def register_loss_function_as(
-    name: str,
-) -> Callable[[Type[AbstractLossFunction]], Type[AbstractLossFunction]]:
-    def decorator(class_: Type[AbstractLossFunction]) -> Type[AbstractLossFunction]:
-        reg_class = LOSS_FUNCTIONS.setdefault(name, class_)
-        if reg_class is not class_:
-            raise RuntimeError(
-                f"Attempting to re-register loss function {name} which was "
-                f"already set to {reg_class!r}")
-        return class_
-    return decorator
-
-
-@register_loss_function_as("logistic")
+@LOSS_FUNCTIONS.register_as("logistic")
 class LogisticLossFunction(AbstractLossFunction):
 
     def forward(
@@ -83,7 +71,7 @@ class LogisticLossFunction(AbstractLossFunction):
         return loss
 
 
-@register_loss_function_as("ranking")
+@LOSS_FUNCTIONS.register_as("ranking")
 class RankingLossFunction(AbstractLossFunction):
 
     def __init__(self, margin):
@@ -113,7 +101,7 @@ class RankingLossFunction(AbstractLossFunction):
         return loss
 
 
-@register_loss_function_as("softmax")
+@LOSS_FUNCTIONS.register_as("softmax")
 class SoftmaxLossFunction(AbstractLossFunction):
 
     def forward(

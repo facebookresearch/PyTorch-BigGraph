@@ -47,8 +47,8 @@ from torchbiggraph.distributed import (
     start_server,
 )
 from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.edgelist_reader import get_edgelist_reader_for_url
-from torchbiggraph.entity_count_reader import get_entity_count_reader_for_url
+from torchbiggraph.edgelist_reader import EDGELIST_READERS
+from torchbiggraph.entity_count_reader import ENTITY_COUNT_READERS
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
@@ -106,10 +106,7 @@ class Trainer(AbstractBatchProcessor):
         self.global_optimizer = global_optimizer
         self.entity_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
 
-        try:
-            loss_fn_class = LOSS_FUNCTIONS[loss_fn]
-        except KeyError:
-            raise NotImplementedError("Unknown loss function: %s" % loss_fn)
+        loss_fn_class = LOSS_FUNCTIONS.get_class(loss_fn)
         # TODO This is awful! Can we do better?
         if loss_fn == "ranking":
             self.loss_fn = loss_fn_class(margin)
@@ -305,7 +302,7 @@ def train_and_report_stats(
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     logger.info("Loading entity counts...")
-    entity_count_reader = get_entity_count_reader_for_url(config.entity_path)
+    entity_count_reader = ENTITY_COUNT_READERS.make_instance(config.entity_path)
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
@@ -622,7 +619,7 @@ def train_and_report_stats(
             f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
             f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
             f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
-        edgelist_reader = get_edgelist_reader_for_url(iteration_manager.edge_path)
+        edgelist_reader = EDGELIST_READERS.make_instance(iteration_manager.edge_path)
         logger.info(f"Edge path: {iteration_manager.edge_path}")
 
         sync.barrier()

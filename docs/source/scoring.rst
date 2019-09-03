@@ -91,8 +91,8 @@ All the operators' parameters are learned during training.
 
 To define an additional operator, one must subclass the :class:`torchbiggraph.model.AbstractOperator` class
 (or the :class:`torchbiggraph.model.AbstractDynamicOperator` one when using :ref:`dynamic relations <dynamic-relations>`;
-their docstrings explain what must be implemented) and decorate it with the :func:`torchbiggraph.model.register_operator_as`
-decorator (respectively the :func:`torchbiggraph.model.register_dynamic_operator_as` one), specifying a new
+their docstrings explain what must be implemented) and decorate it with the :func:`torchbiggraph.model.OPERATORS.register_as`
+decorator (respectively the :func:`torchbiggraph.model.DYNAMIC_OPERATORS.register_as` one), specifying a new
 name that can then be used in the config to select that comparator.
 All of the above can be done inside the config file itself.
 
@@ -113,7 +113,7 @@ The available comparators are:
 * ``squared_l2``, the *negative* squared L2 distance.
 
 Custom comparators need to extend the :class:`torchbiggraph.model.AbstractComparator` class
-(its docstring explains how) and decorate it with the :func:`torchbiggraph.model.register_comparator_as`
+(its docstring explains how) and decorate it with the :func:`torchbiggraph.model.COMPARATORS.register_as`
 decorator, specifying a new name that can then be used in the config to select that comparator.
 All of the above can be done inside the config file itself.
 

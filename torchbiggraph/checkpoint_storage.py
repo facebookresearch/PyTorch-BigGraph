@@ -17,6 +17,7 @@ import h5py
 import numpy as np
 import torch
 
+from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.types import (
     EntityName,
     FloatTensorType,
@@ -141,20 +142,7 @@ class AbstractCheckpointStorage(ABC):
         pass
 
 
-CHECKPOINT_STORAGES: Dict[str, Type[AbstractCheckpointStorage]] = {}
-
-
-def register_checkpoint_storage_for_scheme(
-    scheme: str,
-) -> Callable[[Type[AbstractCheckpointStorage]], Type[AbstractCheckpointStorage]]:
-    def decorator(class_: Type[AbstractCheckpointStorage]) -> Type[AbstractCheckpointStorage]:
-        reg_class = CHECKPOINT_STORAGES.setdefault(scheme, class_)
-        if reg_class is not class_:
-            raise RuntimeError(
-                f"Attempting to re-register a checkpoint storage for scheme "
-                f"{scheme} which was already set to {reg_class!r}")
-        return class_
-    return decorator
+CHECKPOINT_STORAGES = URLPluginRegistry[AbstractCheckpointStorage]()
 
 
 NP_VOID_DTYPE = np.dtype("V1")
@@ -227,8 +215,8 @@ def load_model_state_dict(
     return state_dict
 
 
-@register_checkpoint_storage_for_scheme("")  # No scheme
-@register_checkpoint_storage_for_scheme("file")
+@CHECKPOINT_STORAGES.register_as("")  # No scheme
+@CHECKPOINT_STORAGES.register_as("file")
 class FileCheckpointStorage(AbstractCheckpointStorage):
 
     """Reads and writes checkpoint data to/from disk.

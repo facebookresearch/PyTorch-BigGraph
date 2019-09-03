@@ -9,8 +9,6 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Callable, Dict, Type
-from urllib.parse import urlparse
 
 import h5py
 import numpy as np
@@ -19,6 +17,7 @@ from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
+from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.types import Partition
 
 
@@ -42,31 +41,7 @@ class AbstractEdgelistReader(ABC):
         pass
 
 
-EDGELIST_READERS: Dict[str, Type[AbstractEdgelistReader]] = {}
-
-
-def register_edgelist_reader_for_scheme(
-    scheme: str,
-) -> Callable[[Type[AbstractEdgelistReader]], Type[AbstractEdgelistReader]]:
-    def decorator(class_: Type[AbstractEdgelistReader]) -> Type[AbstractEdgelistReader]:
-        reg_class = EDGELIST_READERS.setdefault(scheme, class_)
-        if reg_class is not class_:
-            raise RuntimeError(
-                f"Attempting to re-register an edgelist reader for scheme "
-                f"{scheme} which was already set to {reg_class!r}")
-        return class_
-    return decorator
-
-
-def get_edgelist_reader_for_url(url: str) -> AbstractEdgelistReader:
-    scheme = urlparse(url).scheme
-    try:
-        class_: Type[AbstractEdgelistReader] = EDGELIST_READERS[scheme]
-    except LookupError:
-        raise RuntimeError(f"Couldn't find any edgelist reader "
-                           f"for scheme {scheme} used by {url}")
-    reader = class_(url)
-    return reader
+EDGELIST_READERS = URLPluginRegistry[AbstractEdgelistReader]()
 
 
 # Names and values of metadata attributes for the HDF5 files.
@@ -74,8 +49,8 @@ FORMAT_VERSION_ATTR = "format_version"
 FORMAT_VERSION = 1
 
 
-@register_edgelist_reader_for_scheme("")  # No scheme
-@register_edgelist_reader_for_scheme("file")
+@EDGELIST_READERS.register_as("")  # No scheme
+@EDGELIST_READERS.register_as("file")
 class FileEdgelistReader(AbstractEdgelistReader):
     """Reads partitioned edgelists from disk, in the format
     created by edge_downloader.py.
