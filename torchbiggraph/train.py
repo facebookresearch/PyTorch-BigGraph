@@ -48,7 +48,7 @@ from torchbiggraph.distributed import (
     start_server,
 )
 from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.edgelist_reader import EdgelistReader
+from torchbiggraph.edgelist_reader import get_edgelist_reader_for_url
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
@@ -624,7 +624,7 @@ def train_and_report_stats(
             f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
             f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
             f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
-        edgelist_reader = EdgelistReader(iteration_manager.edge_path)
+        edgelist_reader = get_edgelist_reader_for_url(iteration_manager.edge_path)
         logger.info(f"Edge path: {iteration_manager.edge_path}")
 
         sync.barrier()
@@ -673,7 +673,7 @@ def train_and_report_stats(
                 checkpoint_manager.record_marker(current_index)
 
             bucket_logger.debug("Loading edges")
-            edges = edgelist_reader.read(
+            edges = edgelist_reader.read_edgelist(
                 cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
             num_edges = len(edges)
             # this might be off in the case of tensorlist or extra edge fields
