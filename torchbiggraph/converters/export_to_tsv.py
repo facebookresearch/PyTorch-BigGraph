@@ -27,7 +27,6 @@ def write(outf: TextIO, key: Iterable[str], value: Iterable[float]) -> None:
 
 def make_tsv(
     config: ConfigSchema,
-    checkpoint: str,
     entities_tf: TextIO,
     relation_types_tf: TextIO,
 ) -> None:
@@ -39,7 +38,7 @@ def make_tsv(
     model = make_model(config)
 
     print("Loading model check point...")
-    checkpoint_manager = CheckpointManager(checkpoint)
+    checkpoint_manager = CheckpointManager(config.checkpoint_path)
     state_dict, _ = checkpoint_manager.read_model()
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
@@ -136,7 +135,6 @@ def main():
     )
     parser.add_argument('config', help="Path to config file")
     parser.add_argument('-p', '--param', action='append', nargs='*')
-    parser.add_argument('--checkpoint')
     parser.add_argument('--entities-output', required=True)
     parser.add_argument('--relation-types-output', required=True)
     opt = parser.parse_args()
@@ -152,7 +150,6 @@ def main():
             open(opt.relation_types_output, "xt") as relation_types_tf:
         make_tsv(
             config,
-            opt.checkpoint,
             entities_tf,
             relation_types_tf,
         )

@@ -7,16 +7,16 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-import os
 import random
 from itertools import chain
+from pathlib import Path
 
 import attr
 import pkg_resources
 
-import torchbiggraph.converters.utils as utils
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
+from torchbiggraph.converters.utils import convert_path, download_url, extract_gzip
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 from torchbiggraph.util import (
@@ -39,31 +39,20 @@ DEFAULT_CONFIG = pkg_resources.resource_filename("torchbiggraph.examples",
                                                  "configs/livejournal_config.py")
 
 
-def convert_path(fname):
-    basename, _ = os.path.splitext(fname)
-    out_dir = basename + '_partitioned'
-    return out_dir
+def random_split_file(fpath: Path) -> None:
+    train_file = fpath.parent / FILENAMES['train']
+    test_file = fpath.parent / FILENAMES['test']
 
-
-def random_split_file(fpath):
-    root = os.path.dirname(fpath)
-
-    output_paths = [
-        os.path.join(root, FILENAMES['train']),
-        os.path.join(root, FILENAMES['test']),
-    ]
-    if all(os.path.exists(path) for path in output_paths):
+    if train_file.exists() and test_file.exists():
         print("Found some files that indicate that the input data "
               "has already been shuffled and split, not doing it again.")
-        print("These files are: %s" % ", ".join(output_paths))
+        print(f"These files are: {train_file} and {test_file}")
         return
 
     print('Shuffling and splitting train/test file. This may take a while.')
-    train_file = os.path.join(root, FILENAMES['train'])
-    test_file = os.path.join(root, FILENAMES['test'])
 
-    print('Reading data from file: ', fpath)
-    with open(fpath, "rt") as in_tf:
+    print(f"Reading data from file: {fpath}")
+    with fpath.open("rt") as in_tf:
         lines = in_tf.readlines()
 
     # The first few lines are comments
@@ -73,11 +62,11 @@ def random_split_file(fpath):
     split_len = int(len(lines) * TRAIN_FRACTION)
 
     print('Splitting to train and test files')
-    with open(train_file, "wt") as out_tf_train:
+    with train_file.open("wt") as out_tf_train:
         for line in lines[:split_len]:
             out_tf_train.write(line)
 
-    with open(test_file, "wt") as out_tf_test:
+    with test_file.open("wt") as out_tf_test:
         for line in lines[split_len:]:
             out_tf_test.write(line)
 
@@ -88,7 +77,7 @@ def main():
     parser.add_argument('--config', default=DEFAULT_CONFIG,
                         help='Path to config file')
     parser.add_argument('-p', '--param', action='append', nargs='*')
-    parser.add_argument('--data_dir', default='data',
+    parser.add_argument('--data_dir', type=Path, default='data',
                         help='where to save processed data')
 
     args = parser.parse_args()
@@ -100,9 +89,9 @@ def main():
 
     # download data
     data_dir = args.data_dir
-    os.makedirs(data_dir, exist_ok=True)
-    fpath = utils.download_url(URL, data_dir)
-    fpath = utils.extract_gzip(fpath)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    fpath = download_url(URL, data_dir)
+    fpath = extract_gzip(fpath)
     print('Downloaded and extracted file.')
 
     # random split file for train and test
@@ -114,7 +103,7 @@ def main():
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)
     subprocess_init.register(add_to_sys_path, loader.config_dir.name)
-    edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
+    edge_paths = [data_dir / name for name in FILENAMES.values()]
 
     convert_input_data(
         config.entities,
@@ -127,12 +116,12 @@ def main():
         dynamic_relations=config.dynamic_relations,
     )
 
-    train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
+    train_path = [str(convert_path(data_dir / FILENAMES['train']))]
     train_config = attr.evolve(config, edge_paths=train_path)
 
     train(train_config, subprocess_init=subprocess_init)
 
-    eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
+    eval_path = [str(convert_path(data_dir / FILENAMES['test']))]
     eval_config = attr.evolve(config, edge_paths=eval_path)
 
     do_eval(eval_config, subprocess_init=subprocess_init)

@@ -7,40 +7,44 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import gzip
-import os
 import shutil
 import tarfile
-import urllib.request
+from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
 
 from tqdm import tqdm
 
 
-def extract_gzip(gzip_path: str, remove_finished: bool = False) -> str:
-    print('Extracting %s' % gzip_path)
-    fpath, ext = os.path.splitext(gzip_path)
-    if ext != ".gz":
-        raise RuntimeError("Not a gzipped file")
+def convert_path(fname: Path) -> Path:
+    return fname.parent / f"{fname.stem}_partitioned"
 
-    if os.path.exists(fpath):
+
+def extract_gzip(gzip_path: Path, remove_finished: bool = False) -> str:
+    print(f"Extracting {gzip_path}")
+    if gzip_path.suffix != ".gz":
+        raise RuntimeError("Not a gzipped file")
+    fpath = gzip_path.with_suffix("")
+
+    if fpath.exists():
         print("Found a file that indicates that the input data "
               "has already been extracted, not doing it again.")
-        print("This file is: %s" % fpath)
+        print(f"This file is: {fpath}")
         return fpath
 
-    with open(fpath, "wb") as out_bf, gzip.GzipFile(gzip_path) as zip_f:
+    with fpath.open("wb") as out_bf, gzip.GzipFile(gzip_path) as zip_f:
         shutil.copyfileobj(zip_f, out_bf)
     if remove_finished:
-        os.unlink(gzip_path)
+        gzip_path.unlink()
 
     return fpath
 
 
-def extract_tar(fpath: str) -> None:
+def extract_tar(fpath: Path) -> None:
     # extract file
-    root = os.path.dirname(fpath)
     with tarfile.open(fpath, "r:gz") as tar:
-        tar.extractall(path=root)
+        tar.extractall(path=fpath.parent)
 
 
 def gen_bar_updater(pbar: tqdm) -> Callable[[int, int, int], None]:
@@ -53,7 +57,7 @@ def gen_bar_updater(pbar: tqdm) -> Callable[[int, int, int], None]:
     return bar_update
 
 
-def download_url(url: str, root: str, filename: Optional[str] = None) -> str:
+def download_url(url: str, root: Path, filename: Optional[str] = None) -> str:
     """Download a file from a url and place it in root.
     Args:
         url (str): URL to download file from
@@ -62,24 +66,24 @@ def download_url(url: str, root: str, filename: Optional[str] = None) -> str:
                         If None, use the basename of the URL
     """
 
-    root = os.path.expanduser(root)
-    if not filename:
-        filename = os.path.basename(url)
-    fpath = os.path.join(root, filename)
-    if not os.path.exists(root):
-        os.makedirs(root)
+    root = root.expanduser()
+    if filename is None:
+        filename = Path(urlparse(url).path).name
+    fpath = root / filename
+    if not root.exists():
+        root.mkdir(parents=True, exist_ok=True)
 
     # downloads file
-    if os.path.isfile(fpath):
-        print('Using downloaded and verified file: ' + fpath)
+    if fpath.is_file():
+        print(f"Using downloaded and verified file: {fpath}")
     else:
         try:
-            print('Downloading ' + url + ' to ' + fpath)
-            urllib.request.urlretrieve(
-                url, fpath,
+            print(f"Downloading {url} to {fpath}")
+            urlretrieve(
+                url, str(fpath),
                 reporthook=gen_bar_updater(tqdm(unit='B', unit_scale=True))
             )
         except OSError:
-            print('Failed to download from url: ' + url)
+            print(f"Failed to download from url: {url}")
 
     return fpath

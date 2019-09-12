@@ -209,7 +209,7 @@ class CheckpointManager:
     def __init__(
         self,
         url: str,
-        rank: Rank = -1,
+        rank: Rank = 0,
         num_machines: int = 1,
         background: bool = False,
         partition_client: Optional[PartitionClient] = None,

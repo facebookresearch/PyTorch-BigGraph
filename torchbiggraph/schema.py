@@ -21,8 +21,8 @@ import attr
 schema = attr.s(kw_only=True, slots=True, frozen=True)  # noqa
 
 
-TRUE_STRINGS = {"1", "y", "yes", "true"}
-FALSE_STRINGS = {"0", "n", "no", "false"}
+TRUE_STRINGS = {"1", "y", "yes", "true", "on"}
+FALSE_STRINGS = {"0", "n", "no", "false", "off"}
 
 
 # Optional[foo] is an alias for Union[foo, NoneType], but Unions are weird.

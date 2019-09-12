@@ -11,7 +11,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple, Type
+from typing import Any, Dict, NamedTuple, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -411,8 +411,11 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
             tf.write(config_json)
 
     def load_config(self) -> str:
-        with self.get_config_file().open("rt") as tf:
-            return tf.read()
+        try:
+            with self.get_config_file().open("rt") as tf:
+                return tf.read()
+        except FileNotFoundError as err:
+            raise CouldNotLoadData() from err
 
     def prepare_snapshot(self, version: int, epoch_idx: int) -> None:
         self.get_snapshot_path(epoch_idx).mkdir(parents=True, exist_ok=True)

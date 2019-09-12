@@ -7,10 +7,9 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-import os
-import os.path
 import random
 from itertools import chain
+from pathlib import Path
 from typing import Any, Counter, DefaultDict, Dict, List, Optional, Tuple
 
 import torch
@@ -23,6 +22,7 @@ from torchbiggraph.config import (
     override_config_dict,
 )
 from torchbiggraph.converters.dictionary import Dictionary
+from torchbiggraph.converters.utils import convert_path
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
@@ -37,7 +37,7 @@ from torchbiggraph.graph_storages import (
 
 def collect_relation_types(
     relation_configs: List[RelationSchema],
-    edge_paths: List[str],
+    edge_paths: List[Path],
     dynamic_relations: bool,
     rel_col: Optional[int],
     relation_type_min_count: int,
@@ -49,30 +49,29 @@ def collect_relation_types(
         print("Looking up relation types in the edge files...")
         counter: Counter[str] = Counter()
         for edgepath in edge_paths:
-            with open(edgepath, "rt") as tf:
+            with edgepath.open("rt") as tf:
                 for line_num, line in enumerate(tf, start=1):
                     words = line.split()
                     try:
                         rel_word = words[rel_col]
                     except IndexError:
                         raise RuntimeError(
-                            "Line %d of %s has only %d words"
-                            % (line_num, edgepath, len(words))) from None
+                            f"Line {line_num} of {edgepath} has only {len(words)} words"
+                        ) from None
                     counter[rel_word] += 1
-        print("- Found %d relation types" % len(counter))
+        print(f"- Found {len(counter)} relation types")
         if relation_type_min_count > 0:
-            print("- Removing the ones with fewer than %d occurrences..."
-                  % relation_type_min_count)
+            print(f"- Removing the ones with fewer than {relation_type_min_count} occurrences...")
             counter = Counter({k: c for k, c in counter.items()
                                if c >= relation_type_min_count})
-            print("- Left with %d relation types" % len(counter))
+            print(f"- Left with {len(counter)} relation types")
         print("- Shuffling them...")
         names = list(counter.keys())
         random.shuffle(names)
 
     else:
         names = [rconfig.name for rconfig in relation_configs]
-        print("Using the %d relation types given in the config" % len(names))
+        print(f"Using the {len(names)} relation types given in the config")
 
     return Dictionary(names)
 
@@ -81,7 +80,7 @@ def collect_entities_by_type(
     relation_types: Dictionary,
     entity_configs: Dict[str, EntitySchema],
     relation_configs: List[RelationSchema],
-    edge_paths: List[str],
+    edge_paths: List[Path],
     dynamic_relations: bool,
     lhs_col: int,
     rhs_col: int,
@@ -95,7 +94,7 @@ def collect_entities_by_type(
 
     print("Searching for the entities in the edge files...")
     for edgepath in edge_paths:
-        with open(edgepath, "rt") as tf:
+        with edgepath.open("rt") as tf:
             for line_num, line in enumerate(tf, start=1):
                 words = line.split()
                 try:
@@ -120,14 +119,13 @@ def collect_entities_by_type(
 
     entities_by_type: Dict[str, Dictionary] = {}
     for entity_name, counter in counters.items():
-        print("Entity type %s:" % entity_name)
-        print("- Found %d entities" % len(counter))
+        print(f"Entity type {entity_name}:")
+        print(f"- Found {len(counter)} entities")
         if entity_min_count > 0:
-            print("- Removing the ones with fewer than %d occurrences..."
-                  % entity_min_count)
+            print(f"- Removing the ones with fewer than {entity_min_count} occurrences...")
             counter = Counter({k: c for k, c in counter.items()
                                if c >= entity_min_count})
-            print("- Left with %d entities" % len(counter))
+            print(f"- Left with {len(counter)} entities")
         print("- Shuffling them...")
         names = list(counter.keys())
         random.shuffle(names)
@@ -162,8 +160,8 @@ def generate_entity_path_files(
 
 
 def generate_edge_path_files(
-    edge_file_in: str,
-    edge_path_out: str,
+    edge_file_in: Path,
+    edge_path_out: Path,
     edge_storage: AbstractEdgeStorage,
     entities_by_type: Dict[str, Dictionary],
     relation_types: Dictionary,
@@ -189,7 +187,7 @@ def generate_edge_path_files(
     processed = 0
     skipped = 0
 
-    with open(edge_file_in, "rt") as tf:
+    with edge_file_in.open("rt") as tf:
         for line_num, line in enumerate(tf, start=1):
             words = line.split()
             try:
@@ -256,7 +254,7 @@ def convert_input_data(
     entity_configs: Dict[str, EntitySchema],
     relation_configs: List[RelationSchema],
     entity_path: str,
-    edge_paths: List[str],
+    edge_paths: List[Path],
     lhs_col: int,
     rhs_col: int,
     rel_col: Optional[int] = None,
@@ -266,8 +264,8 @@ def convert_input_data(
 ) -> None:
     entity_storage = ENTITY_STORAGES.make_instance(entity_path)
     relation_type_storage = RELATION_TYPE_STORAGES.make_instance(entity_path)
-    edge_paths_out = [os.path.splitext(ep)[0] + "_partitioned" for ep in edge_paths]
-    edge_storages = [EDGE_STORAGES.make_instance(ep) for ep in edge_paths_out]
+    edge_paths_out = [convert_path(ep) for ep in edge_paths]
+    edge_storages = [EDGE_STORAGES.make_instance(str(ep)) for ep in edge_paths_out]
 
     some_files_exists = []
     some_files_exists.extend(
@@ -287,7 +285,8 @@ def convert_input_data(
     if all(some_files_exists):
         print("Found some files that indicate that the input data "
               "has already been preprocessed, not doing it again.")
-        print(f"These files are in {entity_path} and {edge_paths}")
+        all_paths = ", ".join(str(p) for p in [entity_path] + edge_paths_out)
+        print(f"These files are in: {all_paths}")
         return
 
     relation_types = collect_relation_types(
@@ -371,7 +370,7 @@ def main():
     )
     parser.add_argument('config', help='Path to config file')
     parser.add_argument('-p', '--param', action='append', nargs='*')
-    parser.add_argument('edge_paths', nargs='*', help='Input file paths')
+    parser.add_argument('edge_paths', type=Path, nargs='*', help='Input file paths')
     parser.add_argument('-l', '--lhs-col', type=int, required=True,
                         help='Column index for source entity')
     parser.add_argument('-r', '--rhs-col', type=int, required=True,

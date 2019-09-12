@@ -7,13 +7,13 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-import os
 from itertools import chain
+from pathlib import Path
 
 import attr
 import pkg_resources
 
-import torchbiggraph.converters.utils as utils
+from torchbiggraph.converters.utils import convert_path, download_url, extract_tar
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
@@ -39,19 +39,13 @@ DEFAULT_CONFIG = pkg_resources.resource_filename("torchbiggraph.examples",
                                                  "configs/fb15k_config.py")
 
 
-def convert_path(fname):
-    basename, _ = os.path.splitext(fname)
-    out_dir = basename + '_partitioned'
-    return out_dir
-
-
 def main():
     setup_logging()
     parser = argparse.ArgumentParser(description='Example on FB15k')
     parser.add_argument('--config', default=DEFAULT_CONFIG,
                         help='Path to config file')
     parser.add_argument('-p', '--param', action='append', nargs='*')
-    parser.add_argument('--data_dir', default='data',
+    parser.add_argument('--data_dir', type=Path, default='data',
                         help='where to save processed data')
     parser.add_argument('--no-filtered', dest='filtered', action='store_false',
                         help='Run unfiltered eval')
@@ -64,8 +58,8 @@ def main():
 
     # download data
     data_dir = args.data_dir
-    fpath = utils.download_url(FB15K_URL, data_dir)
-    utils.extract_tar(fpath)
+    fpath = download_url(FB15K_URL, data_dir)
+    extract_tar(fpath)
     print('Downloaded and extracted file.')
 
     loader = ConfigFileLoader()
@@ -74,7 +68,7 @@ def main():
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)
     subprocess_init.register(add_to_sys_path, loader.config_dir.name)
-    edge_paths = [os.path.join(data_dir, name) for name in FILENAMES.values()]
+    edge_paths = [data_dir / name for name in FILENAMES.values()]
 
     convert_input_data(
         config.entities,
@@ -87,19 +81,19 @@ def main():
         dynamic_relations=config.dynamic_relations,
     )
 
-    train_path = [convert_path(os.path.join(data_dir, FILENAMES['train']))]
+    train_path = [str(convert_path(data_dir / FILENAMES['train']))]
     train_config = attr.evolve(config, edge_paths=train_path)
 
     train(train_config, subprocess_init=subprocess_init)
 
-    eval_path = [convert_path(os.path.join(data_dir, FILENAMES['test']))]
+    eval_path = [str(convert_path(data_dir / FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
     eval_config = attr.evolve(config, edge_paths=eval_path, relations=relations, num_uniform_negs=0)
     if args.filtered:
         filter_paths = [
-            convert_path(os.path.join(data_dir, FILENAMES['test'])),
-            convert_path(os.path.join(data_dir, FILENAMES['valid'])),
-            convert_path(os.path.join(data_dir, FILENAMES['train'])),
+            str(convert_path(data_dir / FILENAMES['test'])),
+            str(convert_path(data_dir / FILENAMES['valid'])),
+            str(convert_path(data_dir / FILENAMES['train'])),
         ]
         do_eval(
             eval_config,
