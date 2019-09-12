@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import math
 from typing import Dict, List, Tuple
 
 
@@ -27,18 +28,27 @@ class Dictionary:
     def size(self) -> int:
         return len(self.ix_to_word)
 
+    def get_list(self) -> List[str]:
+        return self.ix_to_word
+
+    def part_start(self, part: int) -> int:
+        return math.ceil(part / self.num_parts * self.size())
+
+    def part_end(self, part: int) -> int:
+        return self.part_start(part + 1)
+
     def part_size(self, part: int) -> int:
         if not 0 <= part < self.num_parts:
-            raise ValueError("%d not in [0, %d)" % (part, self.num_parts))
-        part_begin = (part * self.size() - 1) // self.num_parts + 1
-        part_end = ((part + 1) * self.size() - 1) // self.num_parts
-        return part_end - part_begin + 1
+            raise ValueError(f"{part} not in [0, {self.num_parts})")
+        return self.part_end(part) - self.part_start(part)
 
     def get_partition(self, word: str) -> Tuple[int, int]:
         idx = self.get_id(word)
-        part = idx * self.num_parts // self.size()
-        part_begin = (part * self.size() - 1) // self.num_parts + 1
-        return part, idx - part_begin
+        part = math.floor(idx / self.size() * self.num_parts)
+        assert self.part_start(part) <= idx < self.part_end(part)
+        return part, idx - self.part_start(part)
 
-    def get_list(self) -> List[str]:
-        return self.ix_to_word
+    def get_part_list(self, part: int) -> List[str]:
+        if not 0 <= part < self.num_parts:
+            raise ValueError(f"{part} not in [0, {self.num_parts})")
+        return self.ix_to_word[self.part_start(part):self.part_end(part)]

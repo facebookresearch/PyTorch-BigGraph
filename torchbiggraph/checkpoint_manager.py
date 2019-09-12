@@ -23,7 +23,6 @@ import torch.multiprocessing
 from torchbiggraph.checkpoint_storage import (
     AbstractCheckpointStorage,
     CHECKPOINT_STORAGES,
-    CouldNotLoadData,
     ModelParameter,
 )
 from torchbiggraph.config import ConfigSchema
@@ -37,7 +36,7 @@ from torchbiggraph.types import (
     Partition,
     Rank,
 )
-from torchbiggraph.util import create_pool, get_async_result
+from torchbiggraph.util import CouldNotLoadData, create_pool, get_async_result
 
 
 logger = logging.getLogger("torchbiggraph")

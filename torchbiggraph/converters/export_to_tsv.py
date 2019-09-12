@@ -7,12 +7,17 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-import json
 from itertools import chain
-from typing import Dict, Iterable, List, TextIO
+from typing import Iterable, TextIO
 
 from torchbiggraph.checkpoint_manager import CheckpointManager
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema
+from torchbiggraph.graph_storages import (
+    AbstractEntityStorage,
+    AbstractRelationTypeStorage,
+    ENTITY_STORAGES,
+    RELATION_TYPE_STORAGES,
+)
 from torchbiggraph.model import MultiRelationEmbedder, make_model
 
 
@@ -23,11 +28,13 @@ def write(outf: TextIO, key: Iterable[str], value: Iterable[float]) -> None:
 def make_tsv(
     config: ConfigSchema,
     checkpoint: str,
-    entities_by_type: Dict[str, List[str]],
-    relation_types: List[str],
     entities_tf: TextIO,
     relation_types_tf: TextIO,
 ) -> None:
+    print("Loading relation types and entities...")
+    entity_storage = ENTITY_STORAGES.make_instance(config.entity_path)
+    relation_type_storage = RELATION_TYPE_STORAGES.make_instance(config.entity_path)
+
     print("Initializing model...")
     model = make_model(config)
 
@@ -40,12 +47,12 @@ def make_tsv(
     make_tsv_for_entities(
         model,
         checkpoint_manager,
-        entities_by_type,
+        entity_storage,
         entities_tf,
     )
     make_tsv_for_relation_types(
         model,
-        relation_types,
+        relation_type_storage,
         relation_types_tf,
     )
 
@@ -53,16 +60,15 @@ def make_tsv(
 def make_tsv_for_entities(
     model: MultiRelationEmbedder,
     checkpoint_manager: CheckpointManager,
-    entities_by_type: Dict[str, List[str]],
+    entity_storage: AbstractEntityStorage,
     entities_tf: TextIO,
 ) -> None:
     print("Writing entity embeddings...")
     for ent_t_name, ent_t_config in model.entities.items():
-        entities = entities_by_type[ent_t_name]
-        partition_offset = 0
         for partition in range(ent_t_config.num_partitions):
             print(f"Reading embeddings for entity type {ent_t_name} partition "
                   f"{partition} from checkpoint...")
+            entities = entity_storage.load_names(ent_t_name, partition)
             embeddings, _ = checkpoint_manager.read(ent_t_name, partition)
 
             if model.global_embs is not None:
@@ -71,12 +77,10 @@ def make_tsv_for_entities(
             print(f"Writing embeddings for entity type {ent_t_name} partition "
                   f"{partition} to output file...")
             for ix in range(len(embeddings)):
-                write(entities_tf, (entities[partition_offset + ix],), embeddings[ix])
+                write(entities_tf, (entities[ix],), embeddings[ix])
                 if (ix + 1) % 5000 == 0:
                     print(f"- Processed {ix+1}/{len(embeddings)} entities so far...")
             print(f"- Processed all {len(embeddings)} entities")
-
-            partition_offset += len(embeddings)
 
     entities_output_filename = getattr(entities_tf, "name", "the output file")
     print(f"Done exporting entity data to {entities_output_filename}")
@@ -84,10 +88,11 @@ def make_tsv_for_entities(
 
 def make_tsv_for_relation_types(
     model: MultiRelationEmbedder,
-    relation_types: List[str],
+    relation_type_storage: AbstractRelationTypeStorage,
     relation_types_tf: TextIO,
 ) -> None:
     print("Writing relation type parameters...")
+    relation_types = relation_type_storage.load_names()
     if model.num_dynamic_rels > 0:
         rel_t_config, = model.relations
         op_name = rel_t_config.operator
@@ -132,7 +137,6 @@ def main():
     parser.add_argument('config', help="Path to config file")
     parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('--checkpoint')
-    parser.add_argument('--dict', required=True)
     parser.add_argument('--entities-output', required=True)
     parser.add_argument('--relation-types-output', required=True)
     opt = parser.parse_args()
@@ -144,17 +148,11 @@ def main():
     loader = ConfigFileLoader()
     config = loader.load_config(opt.config, overrides)
 
-    print("Loading relation types and entities...")
-    with open(opt.dict, "rt") as tf:
-        dump = json.load(tf)
-
     with open(opt.entities_output, "xt") as entities_tf, \
             open(opt.relation_types_output, "xt") as relation_types_tf:
         make_tsv(
             config,
             opt.checkpoint,
-            dump["entities"],
-            dump["relations"],
             entities_tf,
             relation_types_tf,
         )

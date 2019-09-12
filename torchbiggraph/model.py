@@ -7,19 +7,16 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import logging
-import os.path
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
 from typing import (
-    Callable,
     Dict,
     List,
     NamedTuple,
     Optional,
     Sequence,
     Tuple,
-    Type,
     Union,
 )
 
@@ -35,8 +32,10 @@ from torchbiggraph.config import (
 )
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
+from torchbiggraph.graph_storages import RELATION_TYPE_STORAGES
 from torchbiggraph.plugin import PluginRegistry
 from torchbiggraph.types import FloatTensorType, LongTensorType, Side
+from torchbiggraph.util import CouldNotLoadData
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -1152,9 +1151,9 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
                 "entry in config.relations with config for all relations."
             )
         try:
-            with open(os.path.join(config.entity_path, "dynamic_rel_count.txt"), "rt") as tf:
-                num_dynamic_rels = int(tf.read().strip())
-        except FileNotFoundError:
+            relation_type_storage = RELATION_TYPE_STORAGES.make_instance(config.entity_path)
+            num_dynamic_rels = relation_type_storage.load_count()
+        except CouldNotLoadData:
             raise RuntimeError(
                 "Dynamic relations are enabled, so there should be a file called "
                 "dynamic_rel_count.txt in the entity path with their count."

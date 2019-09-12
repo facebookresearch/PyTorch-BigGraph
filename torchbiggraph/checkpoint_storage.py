@@ -24,13 +24,10 @@ from torchbiggraph.types import (
     ModuleStateDict,
     Partition,
 )
+from torchbiggraph.util import CouldNotLoadData
 
 
 logger = logging.getLogger("torchbiggraph")
-
-
-class CouldNotLoadData(Exception):
-    pass
 
 
 class ModelParameter(NamedTuple):

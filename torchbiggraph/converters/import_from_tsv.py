@@ -7,7 +7,6 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-import json
 import os
 import os.path
 import random
@@ -25,6 +24,12 @@ from torchbiggraph.config import (
     override_config_dict,
 )
 from torchbiggraph.converters.dictionary import Dictionary
+from torchbiggraph.graph_storages import (
+    AbstractEntityStorage,
+    AbstractRelationTypeStorage,
+    ENTITY_STORAGES,
+    RELATION_TYPE_STORAGES,
+)
 
 
 def collect_relation_types(
@@ -130,26 +135,27 @@ def collect_entities_by_type(
 
 
 def generate_entity_path_files(
-    entity_path: str,
+    entity_storage: AbstractEntityStorage,
     entities_by_type: Dict[str, Dictionary],
+    relation_type_storage: AbstractRelationTypeStorage,
     relation_types: Dictionary,
     dynamic_relations: bool,
 ) -> None:
+    print(f"Preparing counts and dictionaries for entities and relation types:")
+    entity_storage.prepare()
+    relation_type_storage.prepare()
 
-    print("Preparing entity path %s:" % entity_path)
     for entity_name, entities in entities_by_type.items():
         for part in range(entities.num_parts):
-            print("- Writing count of entity type %s and partition %d"
-                  % (entity_name, part))
-            with open(os.path.join(
-                entity_path, "entity_count_%s_%d.txt" % (entity_name, part)
-            ), "wt") as tf:
-                tf.write("%d" % entities.part_size(part))
+            print(f"- Writing count of entity type {entity_name} "
+                  f"and partition {part}")
+            entity_storage.save_count(entity_name, part, entities.part_size(part))
+            entity_storage.save_names(entity_name, part, entities.get_part_list(part))
 
     if dynamic_relations:
         print("- Writing count of dynamic relations")
-        with open(os.path.join(entity_path, "dynamic_rel_count.txt"), "wt") as tf:
-            tf.write("%d" % relation_types.size())
+        relation_type_storage.save_count(relation_types.size())
+        relation_type_storage.save_names(relation_types.get_list())
 
 
 def generate_edge_path_files(
@@ -260,24 +266,30 @@ def convert_input_data(
     relation_type_min_count: int = 1,
     dynamic_relations: bool = False,
 ) -> None:
-    some_output_paths = []
-    some_output_paths.append(os.path.join(entity_path, "dictionary.json"))
-    some_output_paths.extend(
-        os.path.join(entity_path, "entity_count_%s_0.txt" % entity_name)
-        for entity_name in entity_configs.keys())
+    entity_storage = ENTITY_STORAGES.make_instance(entity_path)
+    relation_type_storage = RELATION_TYPE_STORAGES.make_instance(entity_path)
+
+    some_files_exists = []
+    some_files_exists.extend(
+        entity_storage.has_count(entity_name, partition)
+        for entity_name, entity_config in entity_configs.items()
+        for partition in range(entity_config.num_partitions))
+    some_files_exists.extend(
+        entity_storage.has_names(entity_name, partition)
+        for entity_name, entity_config in entity_configs.items()
+        for partition in range(entity_config.num_partitions))
     if dynamic_relations:
-        some_output_paths.append(os.path.join(entity_path, "dynamic_rel_count.txt"))
-    some_output_paths.extend(
-        os.path.join(os.path.splitext(edge_file)[0] + "_partitioned", "edges_0_0.h5")
+        some_files_exists.append(relation_type_storage.has_count())
+        some_files_exists.append(relation_type_storage.has_names())
+    some_files_exists.extend(
+        os.path.exists(os.path.join(os.path.splitext(edge_file)[0] + "_partitioned", "edges_0_0.h5"))
         for edge_file in edge_paths)
 
-    if all(os.path.exists(path) for path in some_output_paths):
+    if all(some_files_exists):
         print("Found some files that indicate that the input data "
               "has already been preprocessed, not doing it again.")
-        print("These files are: %s" % ", ".join(some_output_paths))
+        print(f"These files are in {entity_path} and {edge_paths}")
         return
-
-    os.makedirs(entity_path, exist_ok=True)
 
     relation_types = collect_relation_types(
         relation_configs,
@@ -299,16 +311,10 @@ def convert_input_data(
         entity_min_count,
     )
 
-    dump = {
-        "relations": relation_types.get_list(),
-        "entities": {k: v.get_list() for k, v in entities_by_type.items()},
-    }
-    with open(os.path.join(entity_path, "dictionary.json"), "wt") as tf:
-        json.dump(dump, tf, indent=4)
-
     generate_entity_path_files(
-        entity_path,
+        entity_storage,
         entities_by_type,
+        relation_type_storage,
         relation_types,
         dynamic_relations,
     )

@@ -113,6 +113,10 @@ def call_one_after_the_other(*funcs: Optional[Callable[[], None]]) -> None:
             f()
 
 
+class CouldNotLoadData(Exception):
+    pass
+
+
 def split_almost_equally(size: int, *, num_parts: int) -> Iterable[slice]:
     """Split an interval of the given size into the given number of subintervals
 

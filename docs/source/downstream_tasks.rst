@@ -30,19 +30,20 @@ Reading the HDF5 format
 Suppose that you have completed the training of the ``torchbiggraph_example_fb15k`` command and want to now
 look up the embedding of some entity. For that, we'll need to read:
 
-- the embeddings, from the checkpoint files (the :file:`.h5` files in the `model/fb15k` directory, or
+- the embeddings, from the checkpoint files (the :file:`.h5` files in the :file:`model/fb15k` directory, or
   whatever directory was specified as the ``checkpoint_path``); and
-- the mapping from entity names to their partitions and offsets, from the :file:`data/FB15k/dictionary.json`
-  file created by the ``torchbiggraph_import_from_tsv`` command.
+- the names of the entities of a certain type and partition (ordere by their offset), from the files in the
+  :file:`data/FB15k` directory (or an alternative directory given as the ``entity_path``), created by the
+  ``torchbiggraph_import_from_tsv`` command.
 
 The embedding of, say, entity ``/m/05hf_5`` can be found as follows::
 
     import json
     import h5py
 
-    with open("data/FB15k/dictionary.json", "rt") as tf:
-        dictionary = json.load(tf)
-    offset = dictionary["entities"]["all"].index("/m/05hf_5")
+    with open("data/FB15k/entity_names_all_0.json", "rt") as tf:
+        names = json.load(tf)
+    offset = names.index("/m/05hf_5")
 
     with h5py.File("model/fb15k/embeddings_all_0.v50.h5", "r") as hf:
         embedding = hf["embeddings"][offset, :]
@@ -162,12 +163,16 @@ being the capital of France::
     operator.load_state_dict(operator_state_dict)
     comparator = DotComparator()
 
-    # Load the offsets of the entities and the index of the relation type
-    with open("data/FB15k/dictionary.json", "rt") as tf:
-        dictionary = json.load(tf)
-    src_entity_offset = dictionary["entities"]["all"].index("/m/0f8l9c")  # France
-    dest_entity_offset = dictionary["entities"]["all"].index("/m/05qtj")  # Paris
-    rel_type_index = dictionary["relations"].index("/location/country/capital")
+    # Load the names of the entities, ordered by offset.
+    with open("data/FB15k/entity_names_all_0.json", "rt") as tf:
+        entity_names = json.load(tf)
+    src_entity_offset = entity_names.index("/m/0f8l9c")  # France
+    dest_entity_offset = entity_names.index("/m/05qtj")  # Paris
+
+    # Load the names of the relation types, ordered by index.
+    with open("data/FB15k/dynamic_rel_names.json", "rt") as tf:
+        rel_type_names = json.load(tf)
+    rel_type_index = rel_type_names.index("/location/country/capital")
 
     # Load the trained embeddings
     with h5py.File("model/fb15k/embeddings_all_0.v50.h5", "r") as hf:
@@ -220,10 +225,12 @@ entities are most likely to be the capital of France::
     comparator = DotComparator()
 
     # Load the offsets of the entities and the index of the relation type
-    with open("data/FB15k/dictionary.json", "rt") as tf:
-        dictionary = json.load(tf)
-    src_entity_offset = dictionary["entities"]["all"].index("/m/0f8l9c")  # France
-    rel_type_index = dictionary["relations"].index("/location/country/capital")
+    with open("data/FB15k/entity_names_all_0.json", "rt") as tf:
+        entity_names = json.load(tf)
+    src_entity_offset = entity_names.index("/m/0f8l9c")  # France
+    with open("data/FB15k/dynamic_rel_names.json", "rt") as tf:
+        rel_type_names = json.load(tf)
+    rel_type_index = rel_type_names.index("/location/country/capital")
 
     # Load the trained embeddings
     with h5py.File("model/fb15k/embeddings_all_0.v50.h5", "r") as hf:
@@ -245,7 +252,7 @@ entities are most likely to be the capital of France::
 
     # Sort the entities by their score
     permutation = scores.flatten().argsort(descending=True)
-    top5_entities = [dictionary["entities"]["all"][index] for index in permutation[:5]]
+    top5_entities = [entity_names[index] for index in permutation[:5]]
 
     print(top5_entities)
 
@@ -271,9 +278,9 @@ library. The following code looks for the entities that are closest to Paris::
         index.add(hf["embeddings"][...])
 
     # Get trained embedding of Paris
-    with open("data/FB15k/dictionary.json", "rt") as f:
-        dictionary = json.load(f)
-    target_entity_offset = dictionary["entities"]["all"].index("/m/05qtj")  # Paris
+    with open("data/FB15k/entity_names_all_0.json", "rt") as tf:
+        entity_names = json.load(tf)
+    target_entity_offset = entity_names.index("/m/05qtj")  # Paris
     with h5py.File("model/fb15k/embeddings_all_0.v50.h5", "r") as hf:
         target_embedding = hf["embeddings"][target_entity_offset, :]
 
@@ -281,7 +288,7 @@ library. The following code looks for the entities that are closest to Paris::
     _, neighbors = index.search(target_embedding.reshape((1, 400)), 5)
 
     # Map back to entity names
-    top5_entities = [dictionary["entities"]["all"][index] for index in neighbors[0]]
+    top5_entities = [entity_names[index] for index in neighbors[0]]
 
     print(top5_entities)
 

@@ -139,7 +139,6 @@ During preprocessing, the entities and relation types had their identifiers conv
 ```bash
 torchbiggraph_export_to_tsv \
   torchbiggraph/examples/configs/fb15k_config.py \
-  --dict data/FB15k/dictionary.json \
   --checkpoint model/fb15k \
   --entities-output entity_embeddings.tsv \
   --relation-types-output relation_types_parameters.tsv

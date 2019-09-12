@@ -48,8 +48,8 @@ from torchbiggraph.distributed import (
 )
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.edgelist_reader import EDGELIST_READERS
-from torchbiggraph.entity_count_reader import ENTITY_COUNT_READERS
 from torchbiggraph.eval import RankingEvaluator
+from torchbiggraph.graph_storages import ENTITY_STORAGES
 from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
 from torchbiggraph.model import (
     MultiRelationEmbedder,
@@ -302,12 +302,12 @@ def train_and_report_stats(
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     logger.info("Loading entity counts...")
-    entity_count_reader = ENTITY_COUNT_READERS.make_instance(config.entity_path)
+    entity_storage = ENTITY_STORAGES.make_instance(config.entity_path)
     entity_counts: Dict[str, List[int]] = {}
     for entity, econf in config.entities.items():
         entity_counts[entity] = []
         for part in range(econf.num_partitions):
-            entity_counts[entity].append(entity_count_reader.read_entity_count(entity, part))
+            entity_counts[entity].append(entity_storage.load_count(entity, part))
 
     # Figure out how many lhs and rhs partitions we need
     nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
