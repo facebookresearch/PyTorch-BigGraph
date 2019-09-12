@@ -12,8 +12,8 @@ from typing import Dict, List, Tuple
 
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.edgelist_reader import EDGELIST_READERS
 from torchbiggraph.eval import RankingEvaluator
+from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.model import Scores
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import Partition
@@ -48,9 +48,9 @@ class FilteredRankingEvaluator(RankingEvaluator):
         self.rhs_map: Dict[Tuple[int, int], List[int]] = defaultdict(list)
         for path in filter_paths:
             logger.info(f"Building links map from path {path}")
-            e_reader = EDGELIST_READERS.make_instance(path)
+            e_storage = EDGE_STORAGES.make_instance(path)
             # Assume unpartitioned.
-            edges = e_reader.read_edgelist(Partition(0), Partition(0))
+            edges = e_storage.load_edges(Partition(0), Partition(0))
             for idx in range(len(edges)):
                 # Assume non-featurized.
                 cur_lhs = int(edges.lhs.to_tensor()[idx])

@@ -26,7 +26,7 @@ from torchbiggraph.bucket_scheduling import (
 from torchbiggraph.checkpoint_manager import CheckpointManager
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.edgelist_reader import EDGELIST_READERS
+from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
 from torchbiggraph.stats import Stats, average_of_sums
 from torchbiggraph.types import Bucket, EntityName, Partition, Side
@@ -139,7 +139,7 @@ def do_eval_and_report_stats(
         logger.info(
             f"Starting edge path {edge_path_idx + 1} / {len(config.edge_paths)} "
             f"({edge_path})")
-        edgelist_reader = EDGELIST_READERS.make_instance(edge_path)
+        edge_storage = EDGE_STORAGES.make_instance(edge_path)
 
         all_edge_path_stats = []
         last_lhs, last_rhs = None, None
@@ -160,7 +160,7 @@ def do_eval_and_report_stats(
             last_lhs, last_rhs = bucket.lhs, bucket.rhs
 
             # logger.info(f"{bucket}: Loading edges")
-            edges = edgelist_reader.read_edgelist(bucket.lhs, bucket.rhs)
+            edges = edge_storage.load_edges(bucket.lhs, bucket.rhs)
             num_edges = len(edges)
 
             load_time = time.time() - tic

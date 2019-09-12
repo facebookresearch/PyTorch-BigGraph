@@ -13,8 +13,7 @@ import random
 from itertools import chain
 from typing import Any, Counter, DefaultDict, Dict, List, Optional, Tuple
 
-import h5py
-import numpy as np
+import torch
 
 from torchbiggraph.config import (
     ConfigFileLoader,
@@ -24,9 +23,13 @@ from torchbiggraph.config import (
     override_config_dict,
 )
 from torchbiggraph.converters.dictionary import Dictionary
+from torchbiggraph.edgelist import EdgeList
+from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
+    AbstractEdgeStorage,
     AbstractEntityStorage,
     AbstractRelationTypeStorage,
+    EDGE_STORAGES,
     ENTITY_STORAGES,
     RELATION_TYPE_STORAGES,
 )
@@ -160,6 +163,8 @@ def generate_entity_path_files(
 
 def generate_edge_path_files(
     edge_file_in: str,
+    edge_path_out: str,
+    edge_storage: AbstractEdgeStorage,
     entities_by_type: Dict[str, Dictionary],
     relation_types: Dictionary,
     relation_configs: List[RelationSchema],
@@ -168,21 +173,16 @@ def generate_edge_path_files(
     rhs_col: int,
     rel_col: Optional[int],
 ) -> None:
-
-    basename, _ = os.path.splitext(edge_file_in)
-    edge_path_out = basename + '_partitioned'
-
-    print("Preparing edge path %s, out of the edges found in %s"
-          % (edge_path_out, edge_file_in))
-    os.makedirs(edge_path_out, exist_ok=True)
+    print(f"Preparing edge path {edge_path_out}, "
+          f"out of the edges found in {edge_file_in}")
+    edge_storage.prepare()
 
     num_lhs_parts = max(entities_by_type[rconfig.lhs].num_parts
                         for rconfig in relation_configs)
     num_rhs_parts = max(entities_by_type[rconfig.rhs].num_parts
                         for rconfig in relation_configs)
 
-    print("- Edges will be partitioned in %d x %d buckets."
-          % (num_lhs_parts, num_rhs_parts))
+    print(f"- Edges will be partitioned in {num_lhs_parts} x {num_rhs_parts} buckets.")
 
     buckets: DefaultDict[Tuple[int, int], List[Tuple[int, int, int]]] = \
         DefaultDict(list)
@@ -198,8 +198,8 @@ def generate_edge_path_files(
                 rel_word = words[rel_col] if rel_col is not None else None
             except IndexError:
                 raise RuntimeError(
-                    "Line %d of %s has only %d words"
-                    % (line_num, edge_file_in, len(words))) from None
+                    f"Line {line_num} of {edge_file_in} has only {len(words)} words"
+                ) from None
 
             if rel_col is None:
                 rel_id = 0
@@ -232,26 +232,24 @@ def generate_edge_path_files(
 
             processed = processed + 1
             if processed % 100000 == 0:
-                print("- Processed %d edges so far..." % processed)
+                print(f"- Processed {processed} edges so far...")
 
-    print("- Processed %d edges in total" % processed)
+    print(f"- Processed {processed} edges in total")
     if skipped > 0:
-        print("- Skipped %d edges because their relation type or entities were "
-              "unknown (either not given in the config or filtered out as too "
-              "rare)." % skipped)
+        print(f"- Skipped {skipped} edges because their relation type or "
+              f"entities were unknown (either not given in the config or "
+              f"filtered out as too rare).")
 
     for i in range(num_lhs_parts):
         for j in range(num_rhs_parts):
-            print("- Writing bucket (%d, %d), containing %d edges..."
-                  % (i, j, len(buckets[i, j])))
-            edges = np.array(buckets[i, j], dtype=np.int64).reshape((-1, 3))
-            with h5py.File(os.path.join(
-                edge_path_out, "edges_%d_%d.h5" % (i, j)
-            ), "w") as hf:
-                hf.attrs["format_version"] = 1
-                hf.create_dataset("lhs", data=edges[:, 0])
-                hf.create_dataset("rhs", data=edges[:, 1])
-                hf.create_dataset("rel", data=edges[:, 2])
+            print(f"- Writing bucket ({i}, {j}), "
+                  f"containing {len(buckets[i, j])} edges...")
+            edges = torch.tensor(buckets[i, j], dtype=torch.long).view((-1, 3))
+            edge_storage.save_edges(i, j, EdgeList(
+                EntityList.from_tensor(edges[:, 0]),
+                EntityList.from_tensor(edges[:, 1]),
+                edges[:, 2],
+            ))
 
 
 def convert_input_data(
@@ -268,6 +266,8 @@ def convert_input_data(
 ) -> None:
     entity_storage = ENTITY_STORAGES.make_instance(entity_path)
     relation_type_storage = RELATION_TYPE_STORAGES.make_instance(entity_path)
+    edge_paths_out = [os.path.splitext(ep)[0] + "_partitioned" for ep in edge_paths]
+    edge_storages = [EDGE_STORAGES.make_instance(ep) for ep in edge_paths_out]
 
     some_files_exists = []
     some_files_exists.extend(
@@ -282,8 +282,7 @@ def convert_input_data(
         some_files_exists.append(relation_type_storage.has_count())
         some_files_exists.append(relation_type_storage.has_names())
     some_files_exists.extend(
-        os.path.exists(os.path.join(os.path.splitext(edge_file)[0] + "_partitioned", "edges_0_0.h5"))
-        for edge_file in edge_paths)
+        edge_storage.has_edges(0, 0) for edge_storage in edge_storages)
 
     if all(some_files_exists):
         print("Found some files that indicate that the input data "
@@ -319,9 +318,12 @@ def convert_input_data(
         dynamic_relations,
     )
 
-    for edge_path in edge_paths:
+    for edge_path, edge_path_out, edge_storage \
+            in zip(edge_paths, edge_paths_out, edge_storages):
         generate_edge_path_files(
             edge_path,
+            edge_path_out,
+            edge_storage,
             entities_by_type,
             relation_types,
             relation_configs,
