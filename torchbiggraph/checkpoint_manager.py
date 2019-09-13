@@ -14,7 +14,18 @@ import multiprocessing.pool  # noqa: F401
 import re
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import torch
@@ -27,6 +38,7 @@ from torchbiggraph.checkpoint_storage import (
 )
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
+from torchbiggraph.stats import SerializedStats
 from torchbiggraph.types import (
     ByteTensorType,
     EntityName,
@@ -417,6 +429,22 @@ class CheckpointManager:
     def read_config(self) -> ConfigSchema:
         config_json = self.storage.load_config()
         return ConfigSchema.from_dict(json.loads(config_json))
+
+    def append_stats(
+        self,
+        stats: Mapping[str, Union[int, SerializedStats]],
+    ) -> None:
+        self.storage.append_stats(json.dumps(stats))
+
+    def read_stats(self) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
+        for line in self.storage.load_stats():
+            yield json.loads(line)
+
+    def maybe_read_stats(self) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
+        try:
+            yield from self.read_stats()
+        except CouldNotLoadData:
+            pass
 
     def write_new_version(self, config: ConfigSchema) -> None:
         if self.background:

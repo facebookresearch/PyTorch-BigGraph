@@ -612,6 +612,15 @@ def train_and_report_stats(
 
         return io_bytes
 
+    if rank == RANK_ZERO:
+        for stats in checkpoint_manager.maybe_read_stats():
+            yield (
+                stats["index"],
+                Stats.from_dict(stats["eval_stats_before"]),
+                Stats.from_dict(stats["stats"]),
+                Stats.from_dict(stats["eval_stats_after"]),
+            )
+
     # Start of the main training loop.
     for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
         logger.info(
@@ -762,6 +771,14 @@ def train_and_report_stats(
                 bucket_logger.info(f"Stats after training: {eval_stats_after}")
 
             # Add train/eval metrics to queue
+            checkpoint_manager.append_stats(
+                {
+                    "index": current_index,
+                    "eval_stats_before": eval_stats_before.to_dict(),
+                    "stats": stats.to_dict(),
+                    "eval_stats_after": eval_stats_after.to_dict(),
+                }
+            )
             yield current_index, eval_stats_before, stats, eval_stats_after
 
         swap_partitioned_embeddings(cur_b, None)
