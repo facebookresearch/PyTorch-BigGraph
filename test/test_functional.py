@@ -14,7 +14,7 @@ import random
 import time
 from functools import partial
 from tempfile import TemporaryDirectory
-from typing import Dict, Iterable, List, NamedTuple, Tuple
+from typing import Dict, Iterable, List, Mapping, NamedTuple, Tuple, Union
 from unittest import TestCase, main
 
 import attr
@@ -28,6 +28,7 @@ from torchbiggraph.config import (
 )
 from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
+from torchbiggraph.stats import SerializedStats
 from torchbiggraph.train import train
 from torchbiggraph.util import (
     call_one_after_the_other,
@@ -225,6 +226,20 @@ class TestFunctional(TestCase):
         self.assertTrue(np.all(np.isfinite(dataset[...])))
         self.assertTrue(np.all(np.linalg.norm(dataset[...], axis=-1) != 0))
 
+    def assertIsStatsDict(self, stats: Mapping[str, Union[int, SerializedStats]]) -> None:
+        self.assertIsInstance(stats, dict)
+        self.assertIn("index", stats)
+        for k, v in stats.items():
+            if k == "index":
+                self.assertIsInstance(v, int)
+            else:
+                self.assertIsInstance(v, dict)
+                self.assertCountEqual(v.keys(), ["count", "metrics"])
+                self.assertIsInstance(v["count"], int)
+                self.assertIsInstance(v["metrics"], dict)
+                for m in v["metrics"].values():
+                    self.assertIsInstance(m, float)
+
     def assertCheckpointWritten(self, config: ConfigSchema, *, version: int) -> None:
         with open(os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt") as tf:
             self.assertEqual(version, int(tf.read().strip()))
@@ -238,6 +253,10 @@ class TestFunctional(TestCase):
             self.assertHasMetadata(hf, config)
             self.assertIsModelParameters(hf["model"])
             self.assertIsOptimStateDict(hf["optimizer/state_dict"])
+
+        with open(os.path.join(config.checkpoint_path, "training_stats.json"), "rt") as tf:
+            for line in tf:
+                self.assertIsStatsDict(json.loads(line))
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):

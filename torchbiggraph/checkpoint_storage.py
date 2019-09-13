@@ -11,7 +11,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, NamedTuple, Optional, Tuple
+from typing import Any, Dict, Generator, NamedTuple, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -114,6 +114,14 @@ class AbstractCheckpointStorage(ABC):
 
     @abstractmethod
     def load_config(self) -> str:
+        pass
+
+    @abstractmethod
+    def append_stats(self, stats_json: str) -> None:
+        pass
+
+    @abstractmethod
+    def load_stats(self) -> Generator[str, None, None]:
         pass
 
     @abstractmethod
@@ -278,6 +286,11 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
             path = self.path
         return path / f"model.v{version}.h5"
 
+    def get_stats_file(self, *, path: Optional[Path] = None) -> Path:
+        if path is None:
+            path = self.path
+        return path / "training_stats.json"
+
     def get_snapshot_path(self, epoch_idx: int) -> Path:
         return self.path / f"epoch_{epoch_idx}"
 
@@ -414,6 +427,18 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         try:
             with self.get_config_file().open("rt") as tf:
                 return tf.read()
+        except FileNotFoundError as err:
+            raise CouldNotLoadData() from err
+
+    def append_stats(self, stats_json: str) -> None:
+        with self.get_stats_file().open("at") as tf:
+            tf.write(f"{stats_json}\n")
+
+    def load_stats(self) -> Generator[str, None, None]:
+        try:
+            with self.get_stats_file().open("rt") as tf:
+                for line in tf:
+                    yield line
         except FileNotFoundError as err:
             raise CouldNotLoadData() from err
 

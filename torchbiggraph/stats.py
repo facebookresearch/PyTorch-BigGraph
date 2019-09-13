@@ -8,13 +8,16 @@
 
 from collections import defaultdict
 from statistics import mean
-from typing import Iterable, Type
+from typing import Dict, Iterable, Type, Union
 
 from torchbiggraph.types import FloatTensorType
 
 
 def average_of_sums(*tensors: FloatTensorType) -> float:
     return mean(t.sum().item() for t in tensors)
+
+
+SerializedStats = Dict[str, Union[int, Dict[str, float]]]
 
 
 class Stats:
@@ -66,3 +69,14 @@ class Stats:
         return (isinstance(other, Stats)
                 and self.count == other.count
                 and self.metrics == other.metrics)
+
+    def to_dict(self) -> SerializedStats:
+        return {"count": self.count, "metrics": self.metrics}
+
+    @classmethod
+    def from_dict(cls, d: SerializedStats) -> "Stats":
+        if set(d.keys()) != {"count", "metrics"}:
+            raise ValueError(
+                f"Expect keys ['count', 'metrics'] from input but get {list(d.keys())}."
+            )
+        return Stats(count=d["count"], **d["metrics"])
