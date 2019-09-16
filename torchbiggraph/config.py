@@ -259,6 +259,14 @@ class ConfigSchema(Schema):
         metadata={'help': "The number of negatives uniformly sampled from the "
                           "currently active partition, per positive edge."},
     )
+    disable_lhs_negs : bool = attr.ib(
+        default=False,
+        metadata={'help': "Disable negative sampling on the left-hand side."},
+    )
+    disable_rhs_negs : bool = attr.ib(
+        default=False,
+        metadata={'help': "Disable negative sampling on the right-hand side."},
+    )
     lr: float = attr.ib(
         default=1e-2,
         validator=non_negative,
@@ -372,6 +380,9 @@ class ConfigSchema(Schema):
         # TODO Check that the batch size is a multiple of the batch negative number
         if self.loss_fn == "logistic" and self.comparator == "cos":
             logger.warning("You have logistic loss and cosine distance. Are you sure?")
+
+        if self.disable_lhs_negs and self.disable_rhs_negs:
+            raise ValueError("Cannot disable negative sampling on both sides.")
 
 
 # TODO make this a non-inplace operation

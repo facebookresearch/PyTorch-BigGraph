@@ -772,6 +772,8 @@ class MultiRelationEmbedder(nn.Module):
         entities: Dict[str, EntitySchema],
         num_batch_negs: int,
         num_uniform_negs: int,
+        disable_lhs_negs: bool,
+        disable_rhs_negs: bool,
         lhs_operators: Sequence[Optional[Union[AbstractOperator, AbstractDynamicOperator]]],
         rhs_operators: Sequence[Optional[Union[AbstractOperator, AbstractDynamicOperator]]],
         comparator: AbstractComparator,
@@ -794,6 +796,9 @@ class MultiRelationEmbedder(nn.Module):
 
         self.num_batch_negs: int = num_batch_negs
         self.num_uniform_negs: int = num_uniform_negs
+
+        self.disable_lhs_negs = disable_lhs_negs
+        self.disable_rhs_negs = disable_rhs_negs
 
         self.comparator = comparator
 
@@ -1000,6 +1005,14 @@ class MultiRelationEmbedder(nn.Module):
             chunk_size = self.num_batch_negs
             negative_sampling_method = Negatives.BATCH_UNIFORM
 
+        lhs_negative_sampling_method = negative_sampling_method
+        rhs_negative_sampling_method = negative_sampling_method
+
+        if self.disable_lhs_negs:
+            lhs_negative_sampling_method = Negatives.NONE
+        if self.disable_rhs_negs:
+            rhs_negative_sampling_method = Negatives.NONE
+
         if self.num_dynamic_rels == 0:
             # In this case the operator is only applied to the RHS. This means
             # that an edge (u, r, v) is scored with c(u, f_r(v)), whereas the
@@ -1012,7 +1025,8 @@ class MultiRelationEmbedder(nn.Module):
                 raise RuntimeError("In non-dynamic relation mode there should "
                                    "be only a right-hand side operator")
 
-            # Apply operator to right-hand side, sample negatives on both sides.
+            # Apply operator to right-hand side, sample negatives on both sides unless
+            # one side is disabled.
             pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(
                 edges.lhs,
                 edges.rhs,
@@ -1026,8 +1040,8 @@ class MultiRelationEmbedder(nn.Module):
                 lhs_pos,
                 rhs_pos,
                 chunk_size,
-                negative_sampling_method,
-                negative_sampling_method,
+                lhs_negative_sampling_method,
+                rhs_negative_sampling_method,
             )
             lhs_pos_scores = rhs_pos_scores = pos_scores
 
@@ -1061,7 +1075,7 @@ class MultiRelationEmbedder(nn.Module):
                 lhs_pos,
                 rhs_pos,
                 chunk_size,
-                negative_sampling_method,
+                lhs_negative_sampling_method,
                 Negatives.NONE,
             )
             # "Reverse" edges: apply operator to lhs, sample negatives on rhs.
@@ -1078,7 +1092,7 @@ class MultiRelationEmbedder(nn.Module):
                 rhs_pos,
                 lhs_pos,
                 chunk_size,
-                negative_sampling_method,
+                rhs_negative_sampling_method,
                 Negatives.NONE,
             )
 
@@ -1187,6 +1201,8 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
         config.entities,
         num_uniform_negs=config.num_uniform_negs,
         num_batch_negs=config.num_batch_negs,
+        disable_lhs_negs=config.disable_lhs_negs,
+        disable_rhs_negs=config.disable_rhs_negs,
         lhs_operators=lhs_operators,
         rhs_operators=rhs_operators,
         comparator=comparator,
