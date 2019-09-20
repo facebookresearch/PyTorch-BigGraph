@@ -771,14 +771,15 @@ def train_and_report_stats(
                 bucket_logger.info(f"Stats after training: {eval_stats_after}")
 
             # Add train/eval metrics to queue
-            checkpoint_manager.append_stats(
-                {
-                    "index": current_index,
-                    "eval_stats_before": eval_stats_before.to_dict(),
-                    "stats": stats.to_dict(),
-                    "eval_stats_after": eval_stats_after.to_dict(),
-                }
-            )
+            if num_eval_edges > 0:
+                checkpoint_manager.append_stats(
+                    {
+                        "index": current_index,
+                        "eval_stats_before": eval_stats_before.to_dict(),
+                        "stats": stats.to_dict(),
+                        "eval_stats_after": eval_stats_after.to_dict(),
+                    }
+                )
             yield current_index, eval_stats_before, stats, eval_stats_after
 
         swap_partitioned_embeddings(cur_b, None)
