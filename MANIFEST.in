@@ -1,1 +1,5 @@
 global-include LICENSE*
+include *.md
+graft docs
+prune docs/build
+global-exclude .*
