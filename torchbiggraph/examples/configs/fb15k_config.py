@@ -6,16 +6,18 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-entity_base = "data/FB15k"
-
 
 def get_torchbiggraph_config():
 
     config = dict(
         # I/O data
-        entity_path=entity_base,
-        edge_paths=[],
-        checkpoint_path='model/fb15k',
+        entity_path="data/FB15k",
+        edge_paths=[
+            "data/FB15k/freebase_mtr100_mte100-train_partitioned",
+            "data/FB15k/freebase_mtr100_mte100-valid_partitioned",
+            "data/FB15k/freebase_mtr100_mte100-test_partitioned",
+        ],
+        checkpoint_path="model/fb15k",
 
         # Graph structure
         entities={

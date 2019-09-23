@@ -16,7 +16,7 @@ import pkg_resources
 
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
-from torchbiggraph.converters.utils import convert_path, download_url, extract_gzip
+from torchbiggraph.converters.utils import download_url, extract_gzip
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 from torchbiggraph.util import (
@@ -27,10 +27,12 @@ from torchbiggraph.util import (
 
 
 URL = 'https://snap.stanford.edu/data/soc-LiveJournal1.txt.gz'
-FILENAMES = {
-    'train': 'train.txt',
-    'test': 'test.txt',
-}
+TRAIN_FILENAME = "train.txt"
+TEST_FILENAME = "test.txt"
+FILENAMES = [
+    TRAIN_FILENAME,
+    TEST_FILENAME,
+]
 TRAIN_FRACTION = 0.75
 
 # Figure out the path where the sample config was installed by the package manager.
@@ -40,8 +42,8 @@ DEFAULT_CONFIG = pkg_resources.resource_filename("torchbiggraph.examples",
 
 
 def random_split_file(fpath: Path) -> None:
-    train_file = fpath.parent / FILENAMES['train']
-    test_file = fpath.parent / FILENAMES['test']
+    train_file = fpath.parent / TRAIN_FILENAME
+    test_file = fpath.parent / TEST_FILENAME
 
     if train_file.exists() and test_file.exists():
         print("Found some files that indicate that the input data "
@@ -103,27 +105,25 @@ def main():
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)
     subprocess_init.register(add_to_sys_path, loader.config_dir.name)
-    edge_paths = [data_dir / name for name in FILENAMES.values()]
+    input_edge_paths = [data_dir / name for name in FILENAMES]
+    output_train_path, output_test_path = config.edge_paths
 
     convert_input_data(
         config.entities,
         config.relations,
         config.entity_path,
-        edge_paths,
+        config.edge_paths,
+        input_edge_paths,
         lhs_col=0,
         rhs_col=1,
         rel_col=None,
         dynamic_relations=config.dynamic_relations,
     )
 
-    train_path = [str(convert_path(data_dir / FILENAMES['train']))]
-    train_config = attr.evolve(config, edge_paths=train_path)
-
+    train_config = attr.evolve(config, edge_paths=[output_train_path])
     train(train_config, subprocess_init=subprocess_init)
 
-    eval_path = [str(convert_path(data_dir / FILENAMES['test']))]
-    eval_config = attr.evolve(config, edge_paths=eval_path)
-
+    eval_config = attr.evolve(config, edge_paths=[output_test_path])
     do_eval(eval_config, subprocess_init=subprocess_init)
 
 

@@ -6,16 +6,17 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-entities_base = 'data/livejournal'
-
 
 def get_torchbiggraph_config():
 
     config = dict(
         # I/O data
-        entity_path=entities_base,
-        edge_paths=[],
-        checkpoint_path='model/livejournal',
+        entity_path="data/livejournal",
+        edge_paths=[
+            "data/train_partitioned",
+            "data/test_partitioned",
+        ],
+        checkpoint_path="model/livejournal",
 
         # Graph structure
         entities={

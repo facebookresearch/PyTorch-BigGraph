@@ -22,7 +22,6 @@ from torchbiggraph.config import (
     override_config_dict,
 )
 from torchbiggraph.converters.dictionary import Dictionary
-from torchbiggraph.converters.utils import convert_path
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
@@ -254,7 +253,8 @@ def convert_input_data(
     entity_configs: Dict[str, EntitySchema],
     relation_configs: List[RelationSchema],
     entity_path: str,
-    edge_paths: List[Path],
+    edge_paths_out: List[str],
+    edge_paths_in: List[Path],
     lhs_col: int,
     rhs_col: int,
     rel_col: Optional[int] = None,
@@ -262,10 +262,14 @@ def convert_input_data(
     relation_type_min_count: int = 1,
     dynamic_relations: bool = False,
 ) -> None:
+    if len(edge_paths_in) != len(edge_paths_out):
+        raise ValueError(
+            f"The edge paths passed as inputs ({edge_paths_in}) don't match "
+            f"the ones specified as outputs ({edge_paths_out})")
+
     entity_storage = ENTITY_STORAGES.make_instance(entity_path)
     relation_type_storage = RELATION_TYPE_STORAGES.make_instance(entity_path)
-    edge_paths_out = [convert_path(ep) for ep in edge_paths]
-    edge_storages = [EDGE_STORAGES.make_instance(str(ep)) for ep in edge_paths_out]
+    edge_storages = [EDGE_STORAGES.make_instance(ep) for ep in edge_paths_out]
 
     some_files_exists = []
     some_files_exists.extend(
@@ -291,7 +295,7 @@ def convert_input_data(
 
     relation_types = collect_relation_types(
         relation_configs,
-        edge_paths,
+        edge_paths_in,
         dynamic_relations,
         rel_col,
         relation_type_min_count,
@@ -301,7 +305,7 @@ def convert_input_data(
         relation_types,
         entity_configs,
         relation_configs,
-        edge_paths,
+        edge_paths_in,
         dynamic_relations,
         lhs_col,
         rhs_col,
@@ -317,10 +321,10 @@ def convert_input_data(
         dynamic_relations,
     )
 
-    for edge_path, edge_path_out, edge_storage \
-            in zip(edge_paths, edge_paths_out, edge_storages):
+    for edge_path_in, edge_path_out, edge_storage \
+            in zip(edge_paths_in, edge_paths_out, edge_storages):
         generate_edge_path_files(
-            edge_path,
+            edge_path_in,
             edge_path_out,
             edge_storage,
             entities_by_type,
@@ -339,6 +343,7 @@ def parse_config_partial(
     entities_config = config_dict.get("entities")
     relations_config = config_dict.get("relations")
     entity_path = config_dict.get("entity_path")
+    edge_paths = config_dict.get("edge_paths")
     dynamic_relations = config_dict.get("dynamic_relations", False)
     if not isinstance(entities_config, dict):
         raise TypeError("Config entities is not of type dict")
@@ -348,6 +353,10 @@ def parse_config_partial(
         raise TypeError("Config relations is not of type list")
     if not isinstance(entity_path, str):
         raise TypeError("Config entity_path is not of type str")
+    if not isinstance(edge_paths, list):
+        raise TypeError("Config edge_paths is not of type list")
+    if any(not isinstance(p, str) for p in edge_paths):
+        raise TypeError("Config edge_paths has some items that are not of type str")
     if not isinstance(dynamic_relations, bool):
         raise TypeError("Config dynamic_relations is not of type bool")
 
@@ -358,7 +367,7 @@ def parse_config_partial(
     for relation in relations_config:
         relations.append(RelationSchema.from_dict(relation))
 
-    return entities, relations, entity_path, dynamic_relations
+    return entities, relations, entity_path, edge_paths, dynamic_relations
 
 
 def main():
@@ -390,13 +399,18 @@ def main():
         overrides = chain.from_iterable(opt.param)  # flatten
         config_dict = override_config_dict(config_dict, overrides)
 
-    entity_configs, relation_configs, entity_path, dynamic_relations = \
+    entity_configs, relation_configs, entity_path, edge_paths, dynamic_relations = \
         parse_config_partial(config_dict)
+
+    if len(opt.edge_paths) != len(edge_paths):
+        print(f"The edge paths provided on the command line ({opt.edge_paths}) "
+              f"don't match the ones found in the config file ({edge_paths})")
 
     convert_input_data(
         entity_configs,
         relation_configs,
         entity_path,
+        edge_paths,
         opt.edge_paths,
         opt.lhs_col,
         opt.rhs_col,

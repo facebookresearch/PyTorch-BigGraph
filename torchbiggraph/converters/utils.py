@@ -17,10 +17,6 @@ from urllib.request import urlretrieve
 from tqdm import tqdm
 
 
-def convert_path(fname: Path) -> Path:
-    return fname.parent / f"{fname.stem}_partitioned"
-
-
 def extract_gzip(gzip_path: Path, remove_finished: bool = False) -> str:
     print(f"Extracting {gzip_path}")
     if gzip_path.suffix != ".gz":

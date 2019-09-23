@@ -76,7 +76,9 @@ Luckily, there is a command that does all of this:
 torchbiggraph_import_from_tsv \
   --lhs-col=0 --rel-col=1 --rhs-col=2 \
   torchbiggraph/examples/configs/fb15k_config.py \
-  data/FB15k/freebase_mtr100_mte100-*.txt
+  data/FB15k/freebase_mtr100_mte100-train.txt \
+  data/FB15k/freebase_mtr100_mte100-valid.txt \
+  data/FB15k/freebase_mtr100_mte100-test.txt
 ```
 The outputs will be stored next to the inputs in the `data/FB15k` directory.
 

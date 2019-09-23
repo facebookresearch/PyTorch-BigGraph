@@ -13,7 +13,7 @@ from pathlib import Path
 import attr
 import pkg_resources
 
-from torchbiggraph.converters.utils import convert_path, download_url, extract_tar
+from torchbiggraph.converters.utils import download_url, extract_tar
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
@@ -27,11 +27,11 @@ from torchbiggraph.util import (
 
 
 FB15K_URL = 'https://dl.fbaipublicfiles.com/starspace/fb15k.tgz'
-FILENAMES = {
-    'train': 'FB15k/freebase_mtr100_mte100-train.txt',
-    'valid': 'FB15k/freebase_mtr100_mte100-valid.txt',
-    'test': 'FB15k/freebase_mtr100_mte100-test.txt',
-}
+FILENAMES = [
+    "FB15k/freebase_mtr100_mte100-train.txt",
+    "FB15k/freebase_mtr100_mte100-valid.txt",
+    "FB15k/freebase_mtr100_mte100-test.txt",
+]
 
 # Figure out the path where the sample config was installed by the package manager.
 # This can be overridden with --config.
@@ -68,33 +68,29 @@ def main():
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)
     subprocess_init.register(add_to_sys_path, loader.config_dir.name)
-    edge_paths = [data_dir / name for name in FILENAMES.values()]
+    input_edge_paths = [data_dir / name for name in FILENAMES]
+    output_train_path, output_valid_path, output_test_path = config.edge_paths
 
     convert_input_data(
         config.entities,
         config.relations,
         config.entity_path,
-        edge_paths,
+        config.edge_paths,
+        input_edge_paths,
         lhs_col=0,
         rhs_col=2,
         rel_col=1,
         dynamic_relations=config.dynamic_relations,
     )
 
-    train_path = [str(convert_path(data_dir / FILENAMES['train']))]
-    train_config = attr.evolve(config, edge_paths=train_path)
-
+    train_config = attr.evolve(config, edge_paths=[output_train_path])
     train(train_config, subprocess_init=subprocess_init)
 
-    eval_path = [str(convert_path(data_dir / FILENAMES['test']))]
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
-    eval_config = attr.evolve(config, edge_paths=eval_path, relations=relations, num_uniform_negs=0)
+    eval_config = attr.evolve(
+        config, edge_paths=[output_test_path], relations=relations, num_uniform_negs=0)
     if args.filtered:
-        filter_paths = [
-            str(convert_path(data_dir / FILENAMES['test'])),
-            str(convert_path(data_dir / FILENAMES['valid'])),
-            str(convert_path(data_dir / FILENAMES['train'])),
-        ]
+        filter_paths = [output_test_path, output_valid_path, output_train_path]
         do_eval(
             eval_config,
             evaluator=FilteredRankingEvaluator(eval_config, filter_paths),
