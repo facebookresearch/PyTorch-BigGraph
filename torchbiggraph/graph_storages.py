@@ -283,8 +283,8 @@ class BufferedDataset:
             assert self.buffer_offset == self.BUFFER_SIZE
         elif self.buffer_offset == 0:
             return
-        logger.info(f"Flushing one chunk of {self.buffer_offset} elements "
-                    f"to dataset {self.dataset_name!r} of file {self.hf.filename}")
+        logger.debug(f"Flushing one chunk of {self.buffer_offset} elements "
+                     f"to dataset {self.dataset_name!r} of file {self.hf.filename}")
         self.dataset.resize(self.dataset.shape[0] + self.buffer_offset, axis=0)
         self.dataset[-self.buffer_offset:] = self.buffer[:self.buffer_offset].numpy()
         self.buffer_offset = 0
