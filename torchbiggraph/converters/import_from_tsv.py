@@ -8,9 +8,10 @@
 
 import argparse
 import random
+from contextlib import ExitStack
 from itertools import chain
 from pathlib import Path
-from typing import Any, Counter, DefaultDict, Dict, List, Optional, Tuple
+from typing import Any, Counter, Dict, List, Optional, Tuple
 
 import torch
 
@@ -25,6 +26,7 @@ from torchbiggraph.converters.dictionary import Dictionary
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
+    AbstractEdgeAppender,
     AbstractEdgeStorage,
     AbstractEntityStorage,
     AbstractRelationTypeStorage,
@@ -181,12 +183,12 @@ def generate_edge_path_files(
 
     print(f"- Edges will be partitioned in {num_lhs_parts} x {num_rhs_parts} buckets.")
 
-    buckets: DefaultDict[Tuple[int, int], List[Tuple[int, int, int]]] = \
-        DefaultDict(list)
     processed = 0
     skipped = 0
 
-    with edge_file_in.open("rt") as tf:
+    # We use an ExitStack in order to close the dynamically-created edge appenders.
+    with edge_file_in.open("rt") as tf, ExitStack() as appender_stack:
+        appenders: Dict[Tuple[int, int], AbstractEdgeAppender] = {}
         for line_num, line in enumerate(tf, start=1):
             words = line.split()
             try:
@@ -225,7 +227,14 @@ def generate_edge_path_files(
                 skipped += 1
                 continue
 
-            buckets[lhs_part, rhs_part].append((lhs_offset, rhs_offset, rel_id))
+            if (lhs_part, rhs_part) not in appenders:
+                appenders[lhs_part, rhs_part] = appender_stack.enter_context(
+                    edge_storage.save_edges_by_appending(lhs_part, rhs_part))
+            appenders[lhs_part, rhs_part].append_edges(EdgeList(
+                EntityList.from_tensor(torch.tensor([lhs_offset], dtype=torch.long)),
+                EntityList.from_tensor(torch.tensor([rhs_offset], dtype=torch.long)),
+                torch.tensor([rel_id], dtype=torch.long),
+            ))
 
             processed = processed + 1
             if processed % 100000 == 0:
@@ -236,17 +245,6 @@ def generate_edge_path_files(
         print(f"- Skipped {skipped} edges because their relation type or "
               f"entities were unknown (either not given in the config or "
               f"filtered out as too rare).")
-
-    for i in range(num_lhs_parts):
-        for j in range(num_rhs_parts):
-            print(f"- Writing bucket ({i}, {j}), "
-                  f"containing {len(buckets[i, j])} edges...")
-            edges = torch.tensor(buckets[i, j], dtype=torch.long).view((-1, 3))
-            edge_storage.save_edges(i, j, EdgeList(
-                EntityList.from_tensor(edges[:, 0]),
-                EntityList.from_tensor(edges[:, 1]),
-                edges[:, 2],
-            ))
 
 
 def convert_input_data(

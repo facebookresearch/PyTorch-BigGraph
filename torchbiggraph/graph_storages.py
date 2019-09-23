@@ -262,7 +262,7 @@ def torch_to_numpy_dtype(dtype):
 class BufferedDataset:
 
     DATA_TYPE = torch.long  # int64, 8 bytes
-    BUFFER_SIZE = 2 ** 20 // 8  # 1MiB
+    BUFFER_SIZE = 50 * 2 ** 20 // 8  # 50MiB
 
     def __init__(self, hf: h5py.File, dataset_name: str) -> None:
         self.hf: h5py.File = hf
