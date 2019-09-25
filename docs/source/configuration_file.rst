@@ -165,6 +165,14 @@ See :ref:`negative-sampling` for more details.
 
   The number of negatives uniformly sampled from the currently active partition, per positive edge.
 
+- ``disable_lhs_negs`` (type: boolean; default: ``false``)
+
+  Disable negative sampling on the left-hand side.
+
+- ``disable_rhs_negs`` (type: boolean; default: ``false``)
+
+  Disable negative sampling on the right-hand side.
+
 See :ref:`loss` for more details.
 
 - ``loss_fn`` (type: string, either ``"ranking"``, ``"logistic"`` or ``"softmax"``; default: ``"ranking"``)
