@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import errno
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -394,12 +395,17 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
     def get_number_of_edges(self, lhs_p: int, rhs_p: int) -> int:
         file_path = self.get_edges_file(lhs_p, rhs_p)
-        if not file_path.is_file():
-            raise RuntimeError(f"{file_path} does not exist")
-        with h5py.File(file_path, "r") as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError(f"Version mismatch in edge file {file_path}")
-            return hf["rel"].len()
+        try:
+            with h5py.File(file_path, "r") as hf:
+                if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                    raise RuntimeError(f"Version mismatch in edge file {file_path}")
+                return hf["rel"].len()
+        except OSError as err:
+            # h5py refuses to make it easy to figure out what went wrong. The errno
+            # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
+            if f"errno = {errno.ENOENT}" in str(err):
+                raise CouldNotLoadData() from err
+            raise err
 
     def load_chunk_of_edges(
         self,
@@ -409,36 +415,41 @@ class FileEdgeStorage(AbstractEdgeStorage):
         num_chunks: int = 1,
     ) -> EdgeList:
         file_path = self.get_edges_file(lhs_p, rhs_p)
-        if not file_path.is_file():
-            raise RuntimeError(f"{file_path} does not exist")
-        with h5py.File(file_path, 'r') as hf:
-            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
-                raise RuntimeError(f"Version mismatch in edge file {file_path}")
-            lhs_ds = hf['lhs']
-            rhs_ds = hf['rhs']
-            rel_ds = hf['rel']
+        try:
+            with h5py.File(file_path, "r") as hf:
+                if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                    raise RuntimeError(f"Version mismatch in edge file {file_path}")
+                lhs_ds = hf["lhs"]
+                rhs_ds = hf["rhs"]
+                rel_ds = hf["rel"]
 
-            num_edges = rel_ds.len()
-            begin = int(chunk_idx * num_edges / num_chunks)
-            end = int((chunk_idx + 1) * num_edges / num_chunks)
-            chunk_size = end - begin
+                num_edges = rel_ds.len()
+                begin = int(chunk_idx * num_edges / num_chunks)
+                end = int((chunk_idx + 1) * num_edges / num_chunks)
+                chunk_size = end - begin
 
-            lhs = torch.empty((chunk_size,), dtype=torch.long)
-            rhs = torch.empty((chunk_size,), dtype=torch.long)
-            rel = torch.empty((chunk_size,), dtype=torch.long)
+                lhs = torch.empty((chunk_size,), dtype=torch.long)
+                rhs = torch.empty((chunk_size,), dtype=torch.long)
+                rel = torch.empty((chunk_size,), dtype=torch.long)
 
-            # Needed because https://github.com/h5py/h5py/issues/870.
-            if chunk_size > 0:
-                lhs_ds.read_direct(lhs.numpy(), source_sel=np.s_[begin:end])
-                rhs_ds.read_direct(rhs.numpy(), source_sel=np.s_[begin:end])
-                rel_ds.read_direct(rel.numpy(), source_sel=np.s_[begin:end])
+                # Needed because https://github.com/h5py/h5py/issues/870.
+                if chunk_size > 0:
+                    lhs_ds.read_direct(lhs.numpy(), source_sel=np.s_[begin:end])
+                    rhs_ds.read_direct(rhs.numpy(), source_sel=np.s_[begin:end])
+                    rel_ds.read_direct(rel.numpy(), source_sel=np.s_[begin:end])
 
-            lhsd = self.read_dynamic(hf, 'lhsd', begin, end)
-            rhsd = self.read_dynamic(hf, 'rhsd', begin, end)
+                lhsd = self.read_dynamic(hf, "lhsd", begin, end)
+                rhsd = self.read_dynamic(hf, "rhsd", begin, end)
 
-            return EdgeList(EntityList(lhs, lhsd),
-                            EntityList(rhs, rhsd),
-                            rel)
+                return EdgeList(EntityList(lhs, lhsd),
+                                EntityList(rhs, rhsd),
+                                rel)
+        except OSError as err:
+            # h5py refuses to make it easy to figure out what went wrong. The errno
+            # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
+            if f"errno = {errno.ENOENT}" in str(err):
+                raise CouldNotLoadData() from err
+            raise err
 
     @staticmethod
     def read_dynamic(
