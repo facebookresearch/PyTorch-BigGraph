@@ -123,6 +123,10 @@ class AbstractEdgeStorage(ABC):
         return self.load_chunk_of_edges(lhs_p, rhs_p, chunk_idx=0, num_chunks=1)
 
     @abstractmethod
+    def get_number_of_edges(self, lhs_p: int, rhs_p: int) -> int:
+        pass
+
+    @abstractmethod
     def load_chunk_of_edges(
         self,
         lhs_p: int,
@@ -387,6 +391,15 @@ class FileEdgeStorage(AbstractEdgeStorage):
         rhs_p: int,
     ) -> bool:
         return self.get_edges_file(lhs_p, rhs_p).is_file()
+
+    def get_number_of_edges(self, lhs_p: int, rhs_p: int) -> int:
+        file_path = self.get_edges_file(lhs_p, rhs_p)
+        if not file_path.is_file():
+            raise RuntimeError(f"{file_path} does not exist")
+        with h5py.File(file_path, "r") as hf:
+            if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
+                raise RuntimeError(f"Version mismatch in edge file {file_path}")
+            return hf["rel"].len()
 
     def load_chunk_of_edges(
         self,

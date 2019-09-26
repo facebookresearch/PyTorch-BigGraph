@@ -139,9 +139,13 @@ See :ref:`batch-preparation` for more details.
 
   The number of times the training loop iterates over all the edges.
 
-- ``num_edge_chunks`` (type: integer; default: ``1``)
+- ``num_edge_chunks`` (type: integer or null; default: ``null``)
 
-  The number of equally-sized parts each bucket will be split into. Training will first proceed over all the first chunks of all buckets, then over all the second chunks, and so on. A higher value allows better mixing of partitions, at the cost of more time spent on I/O.
+  The number of equally-sized parts each bucket will be split into. Training will first proceed over all the first chunks of all buckets, then over all the second chunks, and so on. A higher value allows better mixing of partitions, at the cost of more time spent on I/O. If unset, will be automatically calculated so that no chunk has more than max_edges_per_chunk edges.
+
+- ``max_edges_per_chunk`` (type: integer, default: ``1000000000``)
+
+  The maximum number of edges that each edge chunk should contain if the number of edge chunks is left unspecified and has to be automatically figured out. Each edge takes up at least 12 bytes (3 int64s), more if using featurized entities.
 
 - ``bucket_order`` (type: string, either ``"random"``, ``"affinity"``, ``"inside_out"`` or ``"outside_in"``; default: ``"inside_out"``)
 

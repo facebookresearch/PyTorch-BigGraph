@@ -8,6 +8,7 @@
 
 import argparse
 import logging
+import math
 import time
 from abc import ABC, abstractmethod
 from functools import partial
@@ -283,6 +284,30 @@ def should_preserve_old_checkpoint(
     return is_checkpoint_epoch and is_first_edge_path and is_first_edge_chunk
 
 
+def get_num_edge_chunks(
+    edge_paths: List[str],
+    nparts_lhs: int,
+    nparts_rhs: int,
+    max_edges_per_chunk: int,
+) -> int:
+    max_edges_per_bucket = 0
+    # We should check all edge paths, all lhs partitions and all rhs partitions,
+    # but the combinatorial explosion could lead to thousands of checks. Let's
+    # assume that edges are uniformly distributed among buckets (this is not
+    # exactly the case, as it's the entities that are uniformly distributed
+    # among the partitions, and edge assignments to buckets are a function of
+    # that, thus, for example, very high degree entities could skew this), and
+    # use the size of bucket (0, 0) as an estimate of the average bucket size.
+    # We still do it for all edge paths as there could be semantic differences
+    # between them which lead to different sizes.
+    for edge_path in edge_paths:
+        edge_storage = EDGE_STORAGES.make_instance(edge_path)
+        max_edges_per_bucket = max(
+            max_edges_per_bucket,
+            edge_storage.get_number_of_edges(0, 0))
+    return max(1, math.ceil(max_edges_per_bucket / max_edges_per_chunk))
+
+
 def train_and_report_stats(
     config: ConfigSchema,
     model: Optional[MultiRelationEmbedder] = None,
@@ -446,8 +471,13 @@ def train_and_report_stats(
     checkpoint_manager.register_metadata_provider(ConfigMetadataProvider(config))
     checkpoint_manager.write_config(config)
 
+    if config.num_edge_chunks is not None:
+        num_edge_chunks = config.num_edge_chunks
+    else:
+        num_edge_chunks = get_num_edge_chunks(
+            config.edge_paths, nparts_lhs, nparts_rhs, config.max_edges_per_chunk)
     iteration_manager = IterationManager(
-        config.num_epochs, config.edge_paths, config.num_edge_chunks,
+        config.num_epochs, config.edge_paths, num_edge_chunks,
         iteration_idx=checkpoint_manager.checkpoint_version)
     checkpoint_manager.register_metadata_provider(iteration_manager)
 
@@ -680,7 +710,7 @@ def train_and_report_stats(
 
             bucket_logger.debug("Loading edges")
             edges = edge_storage.load_chunk_of_edges(
-                cur_b.lhs, cur_b.rhs, edge_chunk_idx, config.num_edge_chunks)
+                cur_b.lhs, cur_b.rhs, edge_chunk_idx, iteration_manager.num_edge_chunks)
             num_edges = len(edges)
             # this might be off in the case of tensorlist or extra edge fields
             io_bytes += edges.lhs.tensor.numel() * edges.lhs.tensor.element_size()

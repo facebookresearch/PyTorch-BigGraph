@@ -222,15 +222,26 @@ class ConfigSchema(Schema):
         metadata={'help': "The number of times the training loop iterates over "
                           "all the edges."},
     )
-    num_edge_chunks: int = attr.ib(
-        default=1,
-        validator=positive,
+    num_edge_chunks: Optional[int] = attr.ib(
+        default=None,
+        validator=optional(positive),
         metadata={'help': "The number of equally-sized parts each bucket will "
                           "be split into. Training will first proceed over all "
                           "the first chunks of all buckets, then over all the "
                           "second chunks, and so on. A higher value allows "
                           "better mixing of partitions, at the cost of more "
-                          "time spent on I/O."},
+                          "time spent on I/O. If unset, will be automatically "
+                          "calculated so that no chunk has more than "
+                          "max_edges_per_chunk edges."},
+    )
+    max_edges_per_chunk: int = attr.ib(
+        default=1_000_000_000,  # Each edge having 3 int64s, this is 12GB.
+        validator=positive,
+        metadata={'help': "The maximum number of edges that each edge chunk "
+                          "should contain if the number of edge chunks is left "
+                          "unspecified and has to be automatically figured "
+                          "out. Each edge takes up at least 12 bytes (3 "
+                          "int64s), more if using featurized entities."},
     )
     bucket_order: BucketOrder = attr.ib(
         default=BucketOrder.INSIDE_OUT,
