@@ -26,6 +26,7 @@ from torchbiggraph.batching import (
 )
 from torchbiggraph.bucket_scheduling import (
     AbstractBucketScheduler,
+    BucketStats,
     DistributedBucketScheduler,
     LockServer,
     SingleMachineBucketScheduler,
@@ -557,6 +558,7 @@ def train_and_report_stats(
     def swap_partitioned_embeddings(
         old_b: Optional[Bucket],
         new_b: Optional[Bucket],
+        old_stats: Optional[BucketStats],
     ):
         # 0. given the old and new buckets, construct data structures to keep
         #    track of old and new embedding (entity, part) tuples
@@ -577,6 +579,8 @@ def train_and_report_stats(
         # 1. checkpoint embeddings that will not be used in the next pair
         #
         if old_b is not None:  # there are previous embeddings to checkpoint
+            if old_stats is None:
+                raise TypeError("Got old bucket but not its stats")
             logger.info("Writing partitioned embeddings")
             for entity, part in to_checkpoint:
                 side = old_parts[(entity, part)]
@@ -593,7 +597,7 @@ def train_and_report_stats(
                 del embs
                 del optim_state
 
-            bucket_scheduler.release_bucket(old_b)
+            bucket_scheduler.release_bucket(old_b, old_stats)
 
         # 2. copy old embeddings that will be used in the next pair
         #    into a temporary dictionary
@@ -669,19 +673,22 @@ def train_and_report_stats(
         sync.barrier()
 
         remaining = total_buckets
-        cur_b = None
+        cur_b: Optional[Bucket] = None
+        cur_stats: Optional[BucketStats] = None
         while remaining > 0:
-            old_b = cur_b
+            old_b: Optional[Bucket] = cur_b
+            old_stats: Optional[BucketStats] = cur_stats
             io_time = 0.
             io_bytes = 0
             cur_b, remaining = bucket_scheduler.acquire_bucket()
             logger.info(f"still in queue: {remaining}")
             if cur_b is None:
+                cur_stats = None
                 if old_b is not None:
                     # if you couldn't get a new pair, release the lock
                     # to prevent a deadlock!
                     tic = time.time()
-                    io_bytes += swap_partitioned_embeddings(old_b, None)
+                    io_bytes += swap_partitioned_embeddings(old_b, None, old_stats)
                     io_time += time.time() - tic
                 time.sleep(1)  # don't hammer td
                 continue
@@ -690,7 +697,7 @@ def train_and_report_stats(
 
             tic = time.time()
 
-            io_bytes += swap_partitioned_embeddings(old_b, cur_b)
+            io_bytes += swap_partitioned_embeddings(old_b, cur_b, old_stats)
 
             current_index = \
                 (iteration_manager.iteration_idx + 1) * total_buckets - remaining
@@ -803,19 +810,18 @@ def train_and_report_stats(
                 eval_stats_after = Stats.sum(all_eval_stats_after).average()
                 bucket_logger.info(f"Stats after training: {eval_stats_after}")
 
-            # Add train/eval metrics to queue
-            stats_dict = {
-                "index": current_index,
-                "stats": stats.to_dict(),
-            }
-            if eval_stats_before is not None:
-                stats_dict["eval_stats_before"] = eval_stats_before.to_dict()
-            if eval_stats_after is not None:
-                stats_dict["eval_stats_after"] = eval_stats_after.to_dict()
-            checkpoint_manager.append_stats(stats_dict)
             yield current_index, eval_stats_before, stats, eval_stats_after
 
-        swap_partitioned_embeddings(cur_b, None)
+            cur_stats = BucketStats(
+                lhs_partition=cur_b.lhs,
+                rhs_partition=cur_b.rhs,
+                index=current_index,
+                train=stats,
+                eval_before=eval_stats_before,
+                eval_after=eval_stats_after,
+            )
+
+        swap_partitioned_embeddings(cur_b, None, cur_stats)
 
         # Distributed Processing: all machines can leave the barrier now.
         sync.barrier()
@@ -857,6 +863,25 @@ def train_and_report_stats(
                 sanitized_state_dict,
                 OptimizerStateDict(trainer.global_optimizer.state_dict()),
             )
+
+            logger.info("Writing the training stats")
+            all_stats_dicts: List[Dict[...]] = []
+            for stats in bucket_scheduler.get_stats_for_pass():
+                stats_dict = {
+                    "epoch_idx": epoch_idx,
+                    "edge_path_idx": edge_path_idx,
+                    "edge_chunk_idx": edge_chunk_idx,
+                    "lhs_partition": stats.lhs_partition,
+                    "rhs_partition": stats.rhs_partition,
+                    "index": stats.index,
+                    "stats": stats.train.to_dict(),
+                }
+                if stats.eval_before is not None:
+                    stats_dict["eval_stats_before"] = stats.eval_before.to_dict()
+                if stats.eval_after is not None:
+                    stats_dict["eval_stats_after"] = stats.eval_after.to_dict()
+                all_stats_dicts.append(stats_dict)
+            checkpoint_manager.append_stats(all_stats_dicts)
 
         logger.info("Writing the checkpoint")
         checkpoint_manager.write_new_version(config)

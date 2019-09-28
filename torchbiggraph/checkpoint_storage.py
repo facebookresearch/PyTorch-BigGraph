@@ -11,7 +11,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Generator, NamedTuple, Optional, Tuple
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -117,7 +117,7 @@ class AbstractCheckpointStorage(ABC):
         pass
 
     @abstractmethod
-    def append_stats(self, stats_json: str) -> None:
+    def append_stats(self, stats_json: List[str]) -> None:
         pass
 
     @abstractmethod
@@ -430,9 +430,9 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         except FileNotFoundError as err:
             raise CouldNotLoadData() from err
 
-    def append_stats(self, stats_json: str) -> None:
+    def append_stats(self, stats_json: List[str]) -> None:
         with self.get_stats_file().open("at") as tf:
-            tf.write(f"{stats_json}\n")
+            tf.write("".join(f"{s}\n" for s in stats_json))
 
     def load_stats(self) -> Generator[str, None, None]:
         try:

@@ -9,12 +9,13 @@
 import logging
 import random
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 from torch_extensions.rpc.rpc import Client, Server
 
 from torchbiggraph.config import BucketOrder
 from torchbiggraph.distributed import Startable
+from torchbiggraph.stats import Stats
 from torchbiggraph.types import Bucket, EntityName, Partition, Rank, Side
 
 
@@ -24,6 +25,16 @@ logger = logging.getLogger("torchbiggraph")
 ###
 ###   Bucket scheduling interface.
 ###
+
+class BucketStats(NamedTuple):
+    lhs_partition: int
+    rhs_partition: int
+    # A global sequence number, tracking the order in which buckets are trained.
+    index: int
+    train: Stats
+    eval_before: Optional[Stats] = None
+    eval_after: Optional[Stats] = None
+
 
 class AbstractBucketScheduler(ABC):
 
@@ -36,7 +47,7 @@ class AbstractBucketScheduler(ABC):
         pass
 
     @abstractmethod
-    def release_bucket(self, bucket: Bucket) -> None:
+    def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
         pass
 
     @abstractmethod
@@ -45,6 +56,10 @@ class AbstractBucketScheduler(ABC):
 
     @abstractmethod
     def peek(self) -> Optional[Bucket]:
+        pass
+
+    @abstractmethod
+    def get_stats_for_pass(self) -> List[BucketStats]:
         pass
 
 
@@ -259,6 +274,7 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
         self.order = order
 
         self.buckets: List[Bucket] = []
+        self.stats: List[BucketStats] = []
 
     def new_pass(self, is_first: bool) -> None:
         self.buckets = create_ordered_buckets(
@@ -267,6 +283,7 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
             order=self.order,
             generator=random.Random(),
         )
+        self.stats = []
 
         # Print buckets
         logger.debug("Partition pairs:")
@@ -282,8 +299,10 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
         remaining = len(self.buckets)
         return bucket, remaining
 
-    def release_bucket(self, bucket: Bucket) -> None:
-        pass
+    def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
+        if stats.lhs_partition != bucket.lhs or stats.rhs_partition != bucket.rhs:
+            raise ValueError(f"Bucket and stats don't match: {bucket}, {stats}")
+        self.stats.append(stats)
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         return False
@@ -293,6 +312,9 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
             return self.buckets[0]
         except IndexError:
             return None
+
+    def get_stats_for_pass(self) -> List[BucketStats]:
+        return self.stats.copy()
 
 
 ###
@@ -325,6 +347,7 @@ class LockServer(Server, Startable):
         self.active: Dict[Bucket, Rank] = {}
         self.done: Set[Bucket] = set()
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
+        self.stats: List[BucketStats] = []
         self.initialized_partitions: Optional[Set[Partition]] = None
 
     def new_pass(self, is_first: bool = False) -> None:
@@ -332,6 +355,7 @@ class LockServer(Server, Startable):
         self.active = {}
         self.done = set()
         self.dirty = set()
+        self.stats = []
         if self.init_tree and is_first:
             self.initialized_partitions = {Partition(0)}
         else:
@@ -404,13 +428,15 @@ class LockServer(Server, Startable):
 
         return None, remaining
 
-    def release_bucket(self, bucket: Bucket) -> None:
+    def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
         """
         Releases the lock on lhs and rhs, and marks this pair as done.
         """
-        if bucket.lhs is not None:
-            self.active.pop(bucket)
-            logger.info(f"Bucket {bucket} released: active= {self.active}")
+        if stats.lhs_partition != bucket.lhs or stats.rhs_partition != bucket.rhs:
+            raise ValueError(f"Bucket and stats don't match: {bucket}, {stats}")
+        self.active.pop(bucket)
+        self.stats.append(stats)
+        logger.info(f"Bucket {bucket} released: active= {self.active}")
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         """
@@ -423,6 +449,9 @@ class LockServer(Server, Startable):
         res = key in self.dirty
         self.dirty.add(key)
         return res
+
+    def get_stats_for_pass(self) -> List[BucketStats]:
+        return sorted(self.stats, key=lambda s: s.index)
 
 
 class LockClient(Client):
@@ -450,11 +479,14 @@ class DistributedBucketScheduler(AbstractBucketScheduler):
             self.old_b = bucket
         return bucket, remaining
 
-    def release_bucket(self, bucket: Bucket) -> None:
-        self.client.release_bucket(bucket)
+    def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
+        self.client.release_bucket(bucket, stats)
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         return self.client.check_and_set_dirty(entity, part)
 
     def peek(self) -> Optional[Bucket]:
         return None
+
+    def get_stats_for_pass(self) -> List[BucketStats]:
+        return self.client.get_stats_for_pass()

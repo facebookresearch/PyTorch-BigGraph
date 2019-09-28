@@ -230,15 +230,18 @@ class TestFunctional(TestCase):
         self.assertIsInstance(stats, dict)
         self.assertIn("index", stats)
         for k, v in stats.items():
-            if k == "index":
+            if k in ("epoch_idx", "edge_path_idx", "edge_chunk_idx",
+                     "lhs_partition", "rhs_partition", "index"):
                 self.assertIsInstance(v, int)
-            else:
+            elif k in ("stats", "eval_stats_before", "eval_stats_after"):
                 self.assertIsInstance(v, dict)
                 self.assertCountEqual(v.keys(), ["count", "metrics"])
                 self.assertIsInstance(v["count"], int)
                 self.assertIsInstance(v["metrics"], dict)
                 for m in v["metrics"].values():
                     self.assertIsInstance(m, float)
+            else:
+                self.fail(f"Unknown stats key: {k}")
 
     def assertCheckpointWritten(self, config: ConfigSchema, *, version: int) -> None:
         with open(os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt") as tf:

@@ -20,7 +20,6 @@ from typing import (
     Dict,
     Generator,
     List,
-    Mapping,
     Optional,
     Set,
     Tuple,
@@ -432,9 +431,9 @@ class CheckpointManager:
 
     def append_stats(
         self,
-        stats: Mapping[str, Union[int, SerializedStats]],
+        stats: List[Dict[str, Union[int, SerializedStats]]],
     ) -> None:
-        self.storage.append_stats(json.dumps(stats))
+        self.storage.append_stats([json.dumps(s) for s in stats])
 
     def read_stats(self) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
         for line in self.storage.load_stats():
