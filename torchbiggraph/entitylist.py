@@ -9,8 +9,8 @@
 from typing import Any, Sequence, Union
 
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
+from torchbiggraph.tensorlist import TensorList
 from torchbiggraph.types import LongTensorType
 
 

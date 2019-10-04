@@ -11,10 +11,9 @@ import random
 from abc import ABC, abstractmethod
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
-from torch_extensions.rpc.rpc import Client, Server
-
 from torchbiggraph.config import BucketOrder
 from torchbiggraph.distributed import Startable
+from torchbiggraph.rpc import Client, Server
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import Bucket, EntityName, Partition, Rank, Side
 

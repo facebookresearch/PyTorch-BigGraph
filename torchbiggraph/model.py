@@ -23,7 +23,6 @@ from typing import (
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.config import (
     ConfigSchema,
@@ -34,6 +33,7 @@ from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import RELATION_TYPE_STORAGES
 from torchbiggraph.plugin import PluginRegistry
+from torchbiggraph.tensorlist import TensorList
 from torchbiggraph.types import FloatTensorType, LongTensorType, Side
 from torchbiggraph.util import CouldNotLoadData
 

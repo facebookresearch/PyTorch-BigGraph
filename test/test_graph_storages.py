@@ -12,9 +12,9 @@ from unittest import TestCase, main
 import h5py
 import numpy as np
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.graph_storages import FileEdgeAppender
+from torchbiggraph.tensorlist import TensorList
 
 
 class TestFileEdgeAppender(TestCase):

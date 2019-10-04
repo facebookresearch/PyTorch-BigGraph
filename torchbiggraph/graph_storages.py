@@ -18,11 +18,11 @@ from typing import ContextManager, Dict, List, Optional, Type
 import h5py
 import numpy as np
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
+from torchbiggraph.tensorlist import TensorList
 from torchbiggraph.util import CouldNotLoadData
 
 

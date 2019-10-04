@@ -10,9 +10,9 @@ from typing import Sequence
 from unittest import TestCase, main
 
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.entitylist import EntityList
+from torchbiggraph.tensorlist import TensorList
 
 
 def tensor_list_from_lists(lists: Sequence[Sequence[int]]) -> TensorList:

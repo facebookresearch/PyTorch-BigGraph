@@ -14,7 +14,6 @@
 from unittest import TestCase, main
 
 import torch
-from torch_extensions.tensorlist.tensorlist import TensorList
 
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.model import (
@@ -39,6 +38,7 @@ from torchbiggraph.model import (
     TranslationOperator,
     match_shape,
 )
+from torchbiggraph.tensorlist import TensorList
 
 
 class TensorTestCase(TestCase):
