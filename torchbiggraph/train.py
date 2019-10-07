@@ -470,7 +470,8 @@ def train_and_report_stats(
         subprocess_init=subprocess_init,
     )
     checkpoint_manager.register_metadata_provider(ConfigMetadataProvider(config))
-    checkpoint_manager.write_config(config)
+    if rank == 0:
+        checkpoint_manager.write_config(config)
 
     if config.num_edge_chunks is not None:
         num_edge_chunks = config.num_edge_chunks
