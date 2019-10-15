@@ -327,27 +327,22 @@ class LockServer(Server, Startable):
         num_clients: int,
         nparts_lhs: int,
         nparts_rhs: int,
-        lock_lhs: bool,
-        lock_rhs: bool,
+        entities_lhs: Set[EntityName],
+        entities_rhs: Set[EntityName],
         init_tree: bool,
     ) -> None:
         super().__init__(num_clients)
-        self.buckets: List[Bucket] = \
-            create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs)
-        self.lock_lhs: bool = lock_lhs
-        self.lock_rhs: bool = lock_rhs
-        self.locked_sides: List[Side] = []
-        if lock_lhs:
-            self.locked_sides.append(Side.LHS)
-        if lock_rhs:
-            self.locked_sides.append(Side.RHS)
+        self.nparts_lhs: int = nparts_lhs
+        self.nparts_rhs: int = nparts_rhs
+        self.entities_lhs: Set[EntityName] = entities_lhs
+        self.entities_rhs: Set[EntityName] = entities_rhs
         self.init_tree = init_tree
 
         self.active: Dict[Bucket, Rank] = {}
         self.done: Set[Bucket] = set()
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.stats: List[BucketStats] = []
-        self.initialized_partitions: Optional[Set[Partition]] = None
+        self.initialized_entities_partitions: Optional[Set[Tuple[EntityName, Partition]]] = None
 
     def new_pass(self, is_first: bool = False) -> None:
         """Start a new epoch of training."""
@@ -356,20 +351,44 @@ class LockServer(Server, Startable):
         self.dirty = set()
         self.stats = []
         if self.init_tree and is_first:
-            self.initialized_partitions = {Partition(0)}
+            self.initialized_entities_partitions = set()
         else:
-            self.initialized_partitions = None
+            self.initialized_entities_partitions = None
 
     def _can_acquire(
         self,
         rank: Rank,
         part: Partition,
-        locked_parts: Dict[Partition, Rank],
+        locked_entities_parts: Dict[Tuple[EntityName, Partition], Rank],
         side: Side,
     ) -> bool:
-        if side not in self.locked_sides:
+        for entity in side.pick(self.entities_lhs, self.entities_rhs):
+            if locked_entities_parts.get((entity, part), rank) != rank:
+                return False
+        return True
+
+    def _is_initialized(self, bucket: Bucket) -> bool:
+        if self.initialized_entities_partitions is None:
+            # No initialization is needed
             return True
-        return part not in locked_parts or locked_parts[part] == rank
+        if len(self.initialized_entities_partitions) == 0:
+            # Initialization is needed but nothing has been initialized yet:
+            # it's up to us to inizialize something, and we can choose anything.
+            return True
+        # Initialization is needed: each embedding table (i.e., an (entity type,
+        # partition) pair) must either have already been initialized or be
+        # connected to an already-initialized one by a relation type. This is to
+        # ensure that the embedding spaces of different partitions are aligned.
+        # As here we don't have access to relation types we use an approximation
+        # which should work well in all but the most pathological scenarios.
+        return (
+            all(
+                (entity, bucket.lhs) in self.initialized_entities_partitions
+                for entity in self.entities_lhs)
+            or all(
+                (entity, bucket.rhs) in self.initialized_entities_partitions
+                for entity in self.entities_rhs)
+        )
 
     def acquire_bucket(
         self,
@@ -391,41 +410,62 @@ class LockServer(Server, Startable):
             remaining: The number of pairs remaining. When this is 0 then the
                        epoch is done.
         """
-        remaining = len(self.buckets) - len(self.done)
+        remaining = self.nparts_lhs * self.nparts_rhs - len(self.done)
+
+        locked_entities_parts: Dict[Tuple[EntityName, Partition], Rank] = {}
+        for bucket, other_rank in self.active.items():
+            locked_entities_parts.update(
+                ((entity, bucket.lhs), other_rank) for entity in self.entities_lhs)
+            locked_entities_parts.update(
+                ((entity, bucket.rhs), other_rank) for entity in self.entities_rhs)
+
+        acquirable_lhs_parts: List[Partition] = []
+        for part in range(self.nparts_lhs):
+            if self._can_acquire(rank, part, locked_entities_parts, Side.LHS):
+                acquirable_lhs_parts.append(part)
+
+        acquirable_rhs_parts: List[Partition] = []
+        for part in range(self.nparts_rhs):
+            if self._can_acquire(rank, part, locked_entities_parts, Side.RHS):
+                acquirable_rhs_parts.append(part)
+
+        acquirable_buckets: List[Bucket] = []
+        for part_lhs in acquirable_lhs_parts:
+            for part_rhs in acquirable_rhs_parts:
+                bucket = Bucket(part_lhs, part_rhs)
+                if bucket not in self.done and self._is_initialized(bucket):
+                    acquirable_buckets.append(bucket)
+
+        if len(acquirable_buckets) == 0:
+            return None, remaining
+
+        # TODO It may be interesting to get a random bucket among the acquirable
+        # ones (after filtering by highest affinity, if possible), rather than
+        # the lexicographically smallest one, to better mix the edges, but we
+        # should first empirically verify that this doesn't degrade accuracy.
+        # random.shuffle(acquirable_buckets)
+
         if maybe_old_bucket is not None:
             # The linter isn't smart enough to figure out that the closure is
             # capturing a non-None value, thus alias it to a new variable, which
             # will get a non-Optional type.
-            old_bucket = maybe_old_bucket  # The linter isn't too smart around closures...
-            ordered_buckets = sorted(
-                self.buckets, key=lambda x: - (2 * (x.lhs == old_bucket.lhs)
-                                               + (x.rhs == old_bucket.rhs)))
+            old_bucket = maybe_old_bucket
+            new_bucket = max(
+                acquirable_buckets,
+                key=lambda b: - (2 * (b.lhs == old_bucket.lhs)
+                                 + (b.rhs == old_bucket.rhs)))
         else:
-            ordered_buckets = self.buckets
+            new_bucket = acquirable_buckets[0]
 
-        locked_partitions = {
-            bucket.get_partition(side): rank
-            for bucket, rank in self.active.items()
-            for side in self.locked_sides
-        }
-
-        for pair in ordered_buckets:
-            if (pair not in self.done
-                and self._can_acquire(rank, pair.lhs, locked_partitions, Side.LHS)
-                and self._can_acquire(rank, pair.rhs, locked_partitions, Side.RHS)
-                and (self.initialized_partitions is None
-                     or pair.lhs in self.initialized_partitions
-                     or pair.rhs in self.initialized_partitions)):
-
-                self.active[pair] = rank
-                self.done.add(pair)
-                if self.initialized_partitions is not None:
-                    self.initialized_partitions.add(pair.lhs)
-                    self.initialized_partitions.add(pair.rhs)
-                logger.info(f"Bucket {pair} acquired by trainer {rank}: active= {self.active}")
-                return pair, remaining
-
-        return None, remaining
+        self.active[new_bucket] = rank
+        self.done.add(new_bucket)
+        if self.initialized_entities_partitions is not None:
+            self.initialized_entities_partitions.update(
+                (entity, new_bucket.lhs) for entity in self.entities_lhs)
+            self.initialized_entities_partitions.update(
+                (entity, new_bucket.rhs) for entity in self.entities_rhs)
+        logger.info(f"Bucket {new_bucket} acquired by trainer {rank}: active= {self.active}")
+        return new_bucket, remaining
 
     def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
         """
