@@ -364,6 +364,7 @@ def train_and_report_stats(
                     nparts_rhs=nparts_rhs,
                     entities_lhs=lhs_partitioned_types,
                     entities_rhs=rhs_partitioned_types,
+                    entity_counts=entity_counts,
                     init_tree=config.distributed_tree_init_order,
                 ),
                 process_name="LockServer",
