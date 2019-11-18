@@ -784,11 +784,13 @@ def train_and_report_stats(
             stats = Stats.sum(all_stats).average()
             compute_time = time.time() - tic
 
+            edges_velocity_log = f"( {num_edges / compute_time / 1e6:.2g} M/sec ); " if compute_time > 0 else f""
+            io_time_velocity_log = f"io: {io_time:.2g} s ( {io_bytes / io_time / 1e6:.2g} MB/sec )" if io_time > 0 else f"io: {io_time:.2g} s"
             bucket_logger.info(
                 f"bucket {total_buckets - remaining} / {total_buckets} : "
                 f"Processed {num_edges} edges in {compute_time:.2f} s "
-                f"( {num_edges / compute_time / 1e6:.2g} M/sec ); "
-                f"io: {io_time:.2f} s ( {io_bytes / io_time / 1e6:.2f} MB/sec )")
+                + edges_velocity_log
+                + io_time_velocity_log)
             bucket_logger.info(f"{stats}")
 
             # HOGWILD eval after training
