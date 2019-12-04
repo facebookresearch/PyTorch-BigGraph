@@ -23,7 +23,7 @@ from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.tensorlist import TensorList
-from torchbiggraph.util import CouldNotLoadData
+from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -428,12 +428,9 @@ class FileEdgeStorage(AbstractEdgeStorage):
                 end = int((chunk_idx + 1) * num_edges / num_chunks)
                 chunk_size = end - begin
 
-                lhs_storage = torch.LongStorage._new_shared(chunk_size)
-                lhs = torch.LongTensor(lhs_storage).view((chunk_size,))
-                rhs_storage = torch.LongStorage._new_shared(chunk_size)
-                rhs = torch.LongTensor(rhs_storage).view((chunk_size,))
-                rel_storage = torch.LongStorage._new_shared(chunk_size)
-                rel = torch.LongTensor(rel_storage).view((chunk_size,))
+                lhs = allocate_shared_tensor((chunk_size,), dtype=torch.long)
+                rhs = allocate_shared_tensor((chunk_size,), dtype=torch.long)
+                rel = allocate_shared_tensor((chunk_size,), dtype=torch.long)
 
                 # Needed because https://github.com/h5py/h5py/issues/870.
                 if chunk_size > 0:
@@ -467,13 +464,11 @@ class FileEdgeStorage(AbstractEdgeStorage):
         except LookupError:
             return TensorList.empty(num_tensors=end - begin)
 
-        offsets_storage = torch.LongStorage._new_shared(end - begin + 1)
-        offsets = torch.LongTensor(offsets_storage).view((end - begin + 1,))
+        offsets = allocate_shared_tensor((end - begin + 1,), dtype=torch.long)
         offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
         data_begin = offsets[0].item()
         data_end = offsets[-1].item()
-        data_storage = torch.LongStorage._new_shared(data_end - data_begin)
-        data = torch.LongTensor(data_storage).view((data_end - data_begin,))
+        data = allocate_shared_tensor((data_end - data_begin,), dtype=torch.long)
         # Needed because https://github.com/h5py/h5py/issues/870.
         if data_end - data_begin > 0:
             data_ds.read_direct(data.numpy(), source_sel=np.s_[data_begin:data_end])

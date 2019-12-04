@@ -20,7 +20,7 @@ import torch.nn as nn
 
 from torchbiggraph.distributed import Startable, init_process_group
 from torchbiggraph.types import CharTensorType, ModuleStateDict, Rank
-from torchbiggraph.util import tag_logs_with_process_name
+from torchbiggraph.util import allocate_shared_tensor, tag_logs_with_process_name
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -45,16 +45,16 @@ GET_CMD = 2
 JOIN_CMD = 3
 SWAP_CMD = 4
 
-_tensor_types = [
-    torch.FloatTensor,
-    torch.DoubleTensor,
-    torch.ByteTensor,
-    torch.IntTensor,
-    torch.LongTensor,
+_dtypes = [
+    # torch.float16,  # Half
+    torch.float32,  # Float
+    torch.float64,  # Double
+    torch.uint8,  # Byte
+    # torch.int8,  # Char
+    # torch.int16,  # Short
+    torch.int32,  # Int
+    torch.int64,  # Long
 ]
-
-
-_tensor_type_idx = {t().type(): i for i, t in enumerate(_tensor_types)}
 
 
 class ParameterServer(Startable):
@@ -137,11 +137,11 @@ class ParameterServer(Startable):
             size = torch.empty((ndim,), dtype=torch.long)
             td.recv(size, src=rank)
             size = size.tolist()
-        tensor_type = _tensor_types[ttype]
+        dtype = _dtypes[ttype]
         if not accum and overwrite and key in self.parameters:
             # avoid holding onto 2x the memory
             del self.parameters[key]
-        data = tensor_type(*size)
+        data = torch.empty(size, dtype=dtype)
 
         start_t = time.monotonic()
         td.recv(data, src=rank)
@@ -168,7 +168,7 @@ class ParameterServer(Startable):
 
         data = self.parameters[key]
         if send_size:
-            type_idx = _tensor_type_idx[data.type()]
+            type_idx = _dtypes.index(data.dtype)
             td.send(torch.tensor([data.ndimension(), type_idx], dtype=torch.long),
                     rank)
             td.send(torch.tensor(list(data.size()), dtype=torch.long), rank)
@@ -208,7 +208,7 @@ class ParameterClient:
                                 -1 if accum else src.ndimension(),
                                 int(accum),
                                 int(overwrite),
-                                _tensor_type_idx[src.type()]],
+                                _dtypes.index(src.dtype)],
                                dtype=torch.long)
         td.send(cmd_rpc, self.server_rank)
         td.send(_fromstring(key), self.server_rank)
@@ -245,12 +245,11 @@ class ParameterClient:
                 return None
             size = torch.full((ndim.item(),), -1, dtype=torch.long)
             td.recv(size, src=self.server_rank)
-            tensor_type = _tensor_types[ttype.item()]
+            dtype = _dtypes[ttype.item()]
             if shared:
-                dst_storage = tensor_type().storage_type()._new_shared(size.prod())
-                dst = tensor_type(dst_storage).view(*size.tolist())
+                dst = allocate_shared_tensor(size.tolist(), dtype=dtype)
             else:
-                dst = tensor_type(*size.tolist())
+                dst = torch.empty(size.tolist(), dtype=dtype)
         start_t = time.monotonic()
         td.recv(dst, src=self.server_rank)
         end_t = time.monotonic()
@@ -283,7 +282,7 @@ class ParameterClient:
                                 -1 if accum else src.ndimension(),
                                 int(accum),
                                 int(overwrite),
-                                _tensor_type_idx[src.type()]],
+                                _dtypes.index(src.dtype)],
                                dtype=torch.long)
         td.send(cmd_rpc, self.server_rank)
         td.send(_fromstring(key), self.server_rank)

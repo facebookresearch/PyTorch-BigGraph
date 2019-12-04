@@ -24,7 +24,7 @@ from torchbiggraph.types import (
     ModuleStateDict,
     Partition,
 )
-from torchbiggraph.util import CouldNotLoadData
+from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -169,8 +169,7 @@ def save_embeddings(hf: h5py.File, embeddings: FloatTensorType) -> None:
 
 def load_embeddings(hf: h5py.File) -> FloatTensorType:
     dataset: h5py.Dataset = hf[EMBEDDING_DATASET]
-    storage = torch.FloatStorage._new_shared(dataset.size)
-    embeddings = torch.FloatTensor(storage).view(dataset.shape)
+    embeddings = allocate_shared_tensor(dataset.shape, dtype=torch.float)
     # Needed because https://github.com/h5py/h5py/issues/870.
     if dataset.size > 0:
         dataset.read_direct(embeddings.numpy())

@@ -117,6 +117,18 @@ class CouldNotLoadData(Exception):
     pass
 
 
+def allocate_shared_tensor(shape: Iterable[int], *, dtype: torch.dtype) -> torch.Tensor:
+    dummy_tensor = torch.empty((0,), dtype=dtype)
+    storage_type = dummy_tensor.storage_type()
+    module, tensor_type_name = dummy_tensor.type().split(".")
+    assert module == "torch"
+    tensor_type = getattr(torch, tensor_type_name)
+    size = torch.Size(shape)
+    storage = storage_type._new_shared(size.numel())
+    tensor = tensor_type(storage).view(size)
+    return tensor
+
+
 def split_almost_equally(size: int, *, num_parts: int) -> Iterable[slice]:
     """Split an interval of the given size into the given number of subintervals
 
@@ -145,8 +157,7 @@ def fast_approx_rand(numel: int) -> FloatTensorType:
         tensor.share_memory_()
         return tensor
     # construct the tensor storage in shared mem so we don't have to copy it
-    storage = torch.FloatStorage._new_shared(numel)
-    tensor = torch.FloatTensor(storage)
+    tensor = allocate_shared_tensor((numel,), dtype=torch.float)
     rand = torch.randn(1_000_003)
     excess = numel % 1_000_003
     # Using just `-excess` would give bad results when excess == 0.
