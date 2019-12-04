@@ -428,9 +428,12 @@ class FileEdgeStorage(AbstractEdgeStorage):
                 end = int((chunk_idx + 1) * num_edges / num_chunks)
                 chunk_size = end - begin
 
-                lhs = torch.empty((chunk_size,), dtype=torch.long)
-                rhs = torch.empty((chunk_size,), dtype=torch.long)
-                rel = torch.empty((chunk_size,), dtype=torch.long)
+                lhs_storage = torch.LongStorage._new_shared(chunk_size)
+                lhs = torch.LongTensor(lhs_storage).view((chunk_size,))
+                rhs_storage = torch.LongStorage._new_shared(chunk_size)
+                rhs = torch.LongTensor(rhs_storage).view((chunk_size,))
+                rel_storage = torch.LongStorage._new_shared(chunk_size)
+                rel = torch.LongTensor(rel_storage).view((chunk_size,))
 
                 # Needed because https://github.com/h5py/h5py/issues/870.
                 if chunk_size > 0:
@@ -462,16 +465,15 @@ class FileEdgeStorage(AbstractEdgeStorage):
             offsets_ds = hf[f"{key}_offsets"]
             data_ds = hf[f"{key}_data"]
         except LookupError:
-            # Empty tensor_list representation
-            return TensorList(
-                offsets=torch.zeros((), dtype=torch.long).expand(end - begin + 1),
-                data=torch.empty((0,), dtype=torch.long))
+            return TensorList.empty(num_tensors=end - begin)
 
-        offsets = torch.empty((end - begin + 1,), dtype=torch.long)
+        offsets_storage = torch.LongStorage._new_shared(end - begin + 1)
+        offsets = torch.LongTensor(offsets_storage).view((end - begin + 1,))
         offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
         data_begin = offsets[0].item()
         data_end = offsets[-1].item()
-        data = torch.empty((data_end - data_begin,), dtype=torch.long)
+        data_storage = torch.LongStorage._new_shared(data_end - data_begin)
+        data = torch.LongTensor(data_storage).view((data_end - data_begin,))
         # Needed because https://github.com/h5py/h5py/issues/870.
         if data_end - data_begin > 0:
             data_ds.read_direct(data.numpy(), source_sel=np.s_[data_begin:data_end])
