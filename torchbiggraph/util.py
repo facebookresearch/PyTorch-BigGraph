@@ -21,7 +21,7 @@ import torch.multiprocessing
 from torch.optim import Optimizer
 
 from torchbiggraph.config import ConfigSchema
-from torchbiggraph.types import Bucket, EntityName, FloatTensorType, Side
+from torchbiggraph.types import Bucket, EntityName, FloatTensorType, Partition, Side
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -260,16 +260,16 @@ def get_async_result(
 def get_partitioned_types(
     config: ConfigSchema,
     side: Side,
-) -> Tuple[int, Set[EntityName]]:
-    """Return the number of partitions on a given side and the partitioned entity types
+) -> Tuple[int, Set[EntityName], Set[EntityName]]:
+    """Return the number of partitions on a given side and the (un-)partitioned entity types
 
     Each of the entity types that appear on the given side (LHS or RHS) of a relation
     type is split into some number of partitions. The ones that are split into one
     partition are called "unpartitioned" and behave as if all of their entities
     belonged to all buckets. The other ones are the "properly" partitioned ones.
     Currently, they must all be partitioned into the same number of partitions. This
-    function returns that number and the names of the properly partitioned entity
-    types.
+    function returns that number, the names of the unpartitioned entity types and the
+    names of the properly partitioned entity types.
 
     """
     entity_names_by_num_parts: Dict[int, Set[EntityName]] = defaultdict(set)
@@ -278,17 +278,26 @@ def get_partitioned_types(
         entity_config = config.entities[entity_name]
         entity_names_by_num_parts[entity_config.num_partitions].add(entity_name)
 
-    if 1 in entity_names_by_num_parts:
-        del entity_names_by_num_parts[1]
+    unpartitioned_entity_names = entity_names_by_num_parts.pop(1, set())
 
     if len(entity_names_by_num_parts) == 0:
-        return 1, set()
+        return 1, unpartitioned_entity_names, set()
     if len(entity_names_by_num_parts) > 1:
         raise RuntimeError("Currently num_partitions must be a single "
                            "value across all partitioned entities.")
 
     (num_partitions, partitioned_entity_names), = entity_names_by_num_parts.items()
-    return num_partitions, partitioned_entity_names
+    return num_partitions, unpartitioned_entity_names, partitioned_entity_names
+
+
+class EmbeddingHolder:
+    def __init__(self, config: ConfigSchema) -> None:
+        self.nparts_lhs, self.lhs_unpartitioned_types, self.lhs_partitioned_types = \
+            get_partitioned_types(config, Side.LHS)
+        self.nparts_rhs, self.rhs_unpartitioned_types, self.rhs_partitioned_types = \
+            get_partitioned_types(config, Side.RHS)
+        self.unpartitioned_embeddings: Dict[EntityName, torch.nn.Parameter] = {}
+        self.partitioned_embeddings: Dict[Tuple[EntityName, Partition], torch.nn.Parameter] = {}
 
 
 # compute a randomized AUC using a fixed number of sample points

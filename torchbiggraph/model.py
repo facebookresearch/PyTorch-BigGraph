@@ -34,8 +34,8 @@ from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import RELATION_TYPE_STORAGES
 from torchbiggraph.plugin import PluginRegistry
 from torchbiggraph.tensorlist import TensorList
-from torchbiggraph.types import FloatTensorType, LongTensorType, Side
-from torchbiggraph.util import CouldNotLoadData
+from torchbiggraph.types import Bucket, FloatTensorType, LongTensorType, Side
+from torchbiggraph.util import CouldNotLoadData, EmbeddingHolder
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -815,28 +815,32 @@ class MultiRelationEmbedder(nn.Module):
 
         self.max_norm: Optional[float] = max_norm
 
-    def set_embeddings(self, entity: str, weights: nn.Parameter, side: Side):
+    def set_embeddings(self, entity: str, side: Side, weights: nn.Parameter) -> None:
         if self.entities[entity].featurized:
             emb = FeaturizedEmbedding(weights, max_norm=self.max_norm)
         else:
             emb = SimpleEmbedding(weights, max_norm=self.max_norm)
         side.pick(self.lhs_embs, self.rhs_embs)[self.EMB_PREFIX + entity] = emb
 
-    def clear_embeddings(self, entity: str, side: Side) -> None:
-        embs = side.pick(self.lhs_embs, self.rhs_embs)
-        try:
-            del embs[self.EMB_PREFIX + entity]
-        except KeyError:
-            pass
+    def set_all_embeddings(self, holder: EmbeddingHolder, bucket: Bucket) -> None:
+        # This could be a method of the EmbeddingHolder, but it's here as
+        # utils.py cannot depend on model.py.
+        for entity in holder.lhs_unpartitioned_types:
+            self.set_embeddings(
+                entity, Side.LHS, holder.unpartitioned_embeddings[entity])
+        for entity in holder.rhs_unpartitioned_types:
+            self.set_embeddings(
+                entity, Side.RHS, holder.unpartitioned_embeddings[entity])
+        for entity in holder.lhs_partitioned_types:
+            self.set_embeddings(
+                entity, Side.LHS, holder.partitioned_embeddings[entity, bucket.lhs])
+        for entity in holder.rhs_partitioned_types:
+            self.set_embeddings(
+                entity, Side.RHS, holder.partitioned_embeddings[entity, bucket.rhs])
 
-    def get_embeddings(self, entity: str, side: Side) -> nn.Parameter:
-        embs = side.pick(self.lhs_embs, self.rhs_embs)
-        try:
-            emb = embs[self.EMB_PREFIX + entity]
-        except KeyError:
-            return None
-        else:
-            return emb.weight
+    def clear_all_embeddings(self) -> None:
+        self.lhs_embs.clear()
+        self.rhs_embs.clear()
 
     def adjust_embs(
         self,

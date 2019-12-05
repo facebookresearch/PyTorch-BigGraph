@@ -13,7 +13,7 @@ import time
 from abc import ABC, abstractmethod
 from functools import partial
 from itertools import chain
-from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple
 
 import torch
 import torch.distributed as td
@@ -73,11 +73,11 @@ from torchbiggraph.types import (
 from torchbiggraph.util import (
     BucketLogger,
     DummyOptimizer,
+    EmbeddingHolder,
     create_pool,
     fast_approx_rand,
     get_async_result,
     get_num_workers,
-    get_partitioned_types,
     hide_distributed_logging,
     round_up_to_nearest_multiple,
     set_logging_verbosity,
@@ -98,14 +98,15 @@ class Trainer(AbstractBatchProcessor):
 
     def __init__(
         self,
-        global_optimizer: Optimizer,
+        model_optimizer: Optimizer,
         loss_fn: str,
         margin: float,
         relations: List[RelationSchema],
     ) -> None:
         super().__init__()
-        self.global_optimizer = global_optimizer
-        self.entity_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
+        self.model_optimizer = model_optimizer
+        self.unpartitioned_optimizers: Dict[EntityName, Optimizer] = {}
+        self.partitioned_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
 
         loss_fn_class = LOSS_FUNCTIONS.get_class(loss_fn)
         # TODO This is awful! Can we do better?
@@ -139,8 +140,10 @@ class Trainer(AbstractBatchProcessor):
             count=len(batch_edges))
 
         loss.backward()
-        self.global_optimizer.step(closure=None)
-        for optimizer in self.entity_optimizers.values():
+        self.model_optimizer.step(closure=None)
+        for optimizer in self.unpartitioned_optimizers.values():
+            optimizer.step(closure=None)
+        for optimizer in self.partitioned_optimizers.values():
             optimizer.step(closure=None)
 
         return stats
@@ -287,8 +290,6 @@ def should_preserve_old_checkpoint(
 
 def get_num_edge_chunks(
     edge_paths: List[str],
-    nparts_lhs: int,
-    nparts_rhs: int,
     max_edges_per_chunk: int,
 ) -> int:
     max_edges_per_bucket = 0
@@ -335,12 +336,11 @@ def train_and_report_stats(
             entity_counts[entity].append(entity_storage.load_count(entity, part))
 
     # Figure out how many lhs and rhs partitions we need
-    nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
-    nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
+    holder = EmbeddingHolder(config)
     logger.debug(
-        f"nparts {nparts_lhs} {nparts_rhs} "
-        f"types {lhs_partitioned_types} {rhs_partitioned_types}")
-    total_buckets = nparts_lhs * nparts_rhs
+        f"nparts {holder.nparts_lhs} {holder.nparts_rhs} "
+        f"types {holder.lhs_partitioned_types} {holder.rhs_partitioned_types}")
+    total_buckets = holder.nparts_lhs * holder.nparts_rhs
 
     sync: AbstractSynchronizer
     bucket_scheduler: AbstractBucketScheduler
@@ -360,10 +360,10 @@ def train_and_report_stats(
             start_server(
                 LockServer(
                     num_clients=len(ranks.trainers),
-                    nparts_lhs=nparts_lhs,
-                    nparts_rhs=nparts_rhs,
-                    entities_lhs=lhs_partitioned_types,
-                    entities_rhs=rhs_partitioned_types,
+                    nparts_lhs=holder.nparts_lhs,
+                    nparts_rhs=holder.nparts_rhs,
+                    entities_lhs=holder.lhs_partitioned_types,
+                    entities_rhs=holder.rhs_partitioned_types,
                     entity_counts=entity_counts,
                     init_tree=config.distributed_tree_init_order,
                 ),
@@ -429,7 +429,7 @@ def train_and_report_stats(
     else:
         sync = DummySynchronizer()
         bucket_scheduler = SingleMachineBucketScheduler(
-            nparts_lhs, nparts_rhs, config.bucket_order)
+            holder.nparts_lhs, holder.nparts_rhs, config.bucket_order)
         parameter_sharer = None
         partition_client = None
         hide_distributed_logging()
@@ -478,7 +478,7 @@ def train_and_report_stats(
         num_edge_chunks = config.num_edge_chunks
     else:
         num_edge_chunks = get_num_edge_chunks(
-            config.edge_paths, nparts_lhs, nparts_rhs, config.max_edges_per_chunk)
+            config.edge_paths, config.max_edges_per_chunk)
     iteration_manager = IterationManager(
         config.num_epochs, config.edge_paths, num_edge_chunks,
         iteration_idx=checkpoint_manager.checkpoint_version)
@@ -494,7 +494,7 @@ def train_and_report_stats(
         part: Partition,
         strict: bool = False,
         force_dirty: bool = False,
-    ) -> Tuple[torch.nn.Parameter, Optional[OptimizerStateDict]]:
+    ) -> Tuple[torch.nn.Parameter, Adagrad]:
         if strict:
             embs, optim_state = checkpoint_manager.read(entity, part,
                                                         force_dirty=force_dirty)
@@ -510,7 +510,10 @@ def train_and_report_stats(
                 embs, optim_state = init_embs(entity, entity_counts[entity][part],
                                               config.dimension, config.init_scale)
         assert embs.is_shared()
-        return torch.nn.Parameter(embs), optim_state
+        optimizer = make_optimizer([embs], True)
+        if optim_state is not None:
+            optimizer.load_state_dict(optim_state)
+        return torch.nn.Parameter(embs), optimizer
 
     logger.info("Initializing global model...")
 
@@ -519,7 +522,7 @@ def train_and_report_stats(
     model.share_memory()
     if trainer is None:
         trainer = Trainer(
-            global_optimizer=make_optimizer(model.parameters(), False),
+            model_optimizer=make_optimizer(model.parameters(), False),
             loss_fn=config.loss_fn,
             margin=config.margin,
             relations=config.relations,
@@ -538,22 +541,28 @@ def train_and_report_stats(
     if state_dict is not None:
         model.load_state_dict(state_dict, strict=False)
     if optim_state is not None:
-        trainer.global_optimizer.load_state_dict(optim_state)
+        trainer.model_optimizer.load_state_dict(optim_state)
 
     logger.debug("Loading unpartitioned entities...")
-    for entity, econfig in config.entities.items():
-        if econfig.num_partitions == 1:
-            embs, optim_state = load_embeddings(entity, Partition(0))
-            model.set_embeddings(entity, embs, Side.LHS)
-            model.set_embeddings(entity, embs, Side.RHS)
-            optimizer = make_optimizer([embs], True)
-            if optim_state is not None:
-                optimizer.load_state_dict(optim_state)
-            trainer.entity_optimizers[(entity, Partition(0))] = optimizer
+    for entity in holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types:
+        embs, optimizer = load_embeddings(entity, Partition(0))
+        holder.unpartitioned_embeddings[entity] = embs
+        trainer.unpartitioned_optimizers[entity] = optimizer
 
     # start communicating shared parameters with the parameter server
     if parameter_sharer is not None:
-        parameter_sharer.share_model_params(model)
+        shared_parameters: Set[int] = set()
+        for name, param in model.named_parameters():
+            if id(param) in shared_parameters:
+                continue
+            shared_parameters.add(id(param))
+            key = f"model.{name}"
+            logger.info(f"Adding {key} ({param.numel()} params) to parameter server")
+            parameter_sharer.set_param(key, param.data)
+        for entity, embs in holder.unpartitioned_embeddings.items():
+            key = f"entity.{entity}"
+            logger.info(f"Adding {key} ({embs.numel()} params) to parameter server")
+            parameter_sharer.set_param(key, embs.data)
 
     strict = False
 
@@ -561,90 +570,51 @@ def train_and_report_stats(
         old_b: Optional[Bucket],
         new_b: Optional[Bucket],
         old_stats: Optional[BucketStats],
-    ):
-        # 0. given the old and new buckets, construct data structures to keep
-        #    track of old and new embedding (entity, part) tuples
-
+    ) -> int:
         io_bytes = 0
         logger.info(f"Swapping partitioned embeddings {old_b} {new_b}")
 
-        types = ([(e, Side.LHS) for e in lhs_partitioned_types]
-                 + [(e, Side.RHS) for e in rhs_partitioned_types])
-        old_parts = {(e, old_b.get_partition(side)): side
-                     for e, side in types if old_b is not None}
-        new_parts = {(e, new_b.get_partition(side)): side
-                     for e, side in types if new_b is not None}
+        old_parts: Set[Tuple[EntityName, Partition]] = set()
+        if old_b is not None:
+            old_parts.update((e, old_b.lhs) for e in holder.lhs_partitioned_types)
+            old_parts.update((e, old_b.rhs) for e in holder.rhs_partitioned_types)
+        new_parts: Set[Tuple[EntityName, Partition]] = set()
+        if new_b is not None:
+            new_parts.update((e, new_b.lhs) for e in holder.lhs_partitioned_types)
+            new_parts.update((e, new_b.rhs) for e in holder.rhs_partitioned_types)
 
-        to_checkpoint = set(old_parts) - set(new_parts)
-        preserved = set(old_parts) & set(new_parts)
+        assert old_parts == holder.partitioned_embeddings.keys()
 
-        # 1. checkpoint embeddings that will not be used in the next pair
-        #
-        if old_b is not None:  # there are previous embeddings to checkpoint
+        if old_b is not None:
             if old_stats is None:
                 raise TypeError("Got old bucket but not its stats")
-            logger.info("Writing partitioned embeddings")
-            for entity, part in to_checkpoint:
-                side = old_parts[(entity, part)]
-                side_name = side.pick("lhs", "rhs")
-                logger.debug(f"Checkpointing ({entity} {part} {side_name})")
-                embs = model.get_embeddings(entity, side)
-                optim_key = (entity, part)
-                optim_state = OptimizerStateDict(trainer.entity_optimizers[optim_key].state_dict())
+            logger.info("Saving partitioned embeddings to checkpoint")
+            for entity, part in old_parts - new_parts:
+                logger .debug(f"Saving ({entity} {part})")
+                embs = holder.partitioned_embeddings.pop((entity, part))
+                optimizer = trainer.partitioned_optimizers.pop((entity, part))
+                checkpoint_manager.write(
+                    entity, part,
+                    embs.detach(), OptimizerStateDict(optimizer.state_dict()))
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
-                checkpoint_manager.write(entity, part, embs.detach(), optim_state)
-                if optim_key in trainer.entity_optimizers:
-                    del trainer.entity_optimizers[optim_key]
                 # these variables are holding large objects; let them be freed
                 del embs
-                del optim_state
+                del optimizer
 
             bucket_scheduler.release_bucket(old_b, old_stats)
 
-        # 2. copy old embeddings that will be used in the next pair
-        #    into a temporary dictionary
-        #
-        tmp_emb = {x: model.get_embeddings(x[0], old_parts[x]) for x in preserved}
-
-        for entity, _ in types:
-            model.clear_embeddings(entity, Side.LHS)
-            model.clear_embeddings(entity, Side.RHS)
-
-        if new_b is None:  # there are no new embeddings to load
-            return io_bytes
-
-        bucket_logger = BucketLogger(logger, bucket=new_b)
-
-        # 3. load new embeddings into the model/optimizer, either from disk
-        #    or the temporary dictionary
-        #
-        bucket_logger.info("Loading entities")
-        for entity, side in types:
-            part = new_b.get_partition(side)
-            part_key = (entity, part)
-            if part_key in tmp_emb:
-                bucket_logger.debug(f"Loading ({entity}, {part}) from preserved")
-                embs, optim_state = tmp_emb[part_key], None
-            else:
-                bucket_logger.debug(f"Loading ({entity}, {part})")
-
+        if new_b is not None:
+            logger.info("Loading partitioned embeddings from checkpoint")
+            for entity, part in new_parts - old_parts:
+                logger.debug(f"Loading ({entity} {part})")
                 force_dirty = bucket_scheduler.check_and_set_dirty(entity, part)
-                embs, optim_state = load_embeddings(
+                embs, optimizer = load_embeddings(
                     entity, part, strict=strict, force_dirty=force_dirty)
+                holder.partitioned_embeddings[entity, part] = embs
+                trainer.partitioned_optimizers[entity, part] = optimizer
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
 
-            model.set_embeddings(entity, embs, side)
-            tmp_emb[part_key] = embs
-
-            optim_key = (entity, part)
-            if optim_key not in trainer.entity_optimizers:
-                bucket_logger.debug(f"Resetting optimizer {optim_key}")
-                optimizer = make_optimizer([embs], True)
-                if optim_state is not None:
-                    bucket_logger.debug("Setting optim state")
-                    optimizer.load_state_dict(optim_state)
-
-                trainer.entity_optimizers[optim_key] = optimizer
+        assert new_parts == holder.partitioned_embeddings.keys()
 
         return io_bytes
 
@@ -701,6 +671,8 @@ def train_and_report_stats(
 
             io_bytes += swap_partitioned_embeddings(old_b, cur_b, old_stats)
 
+            model.set_all_embeddings(holder, cur_b)
+
             current_index = \
                 (iteration_manager.iteration_idx + 1) * total_buckets - remaining
 
@@ -710,9 +682,9 @@ def train_and_report_stats(
                 checkpoint_manager.wait_for_marker(current_index - 1)
 
                 bucket_logger.debug("Prefetching")
-                for entity in lhs_partitioned_types:
+                for entity in holder.lhs_partitioned_types:
                     checkpoint_manager.prefetch(entity, next_b.lhs)
-                for entity in rhs_partitioned_types:
+                for entity in holder.rhs_partitioned_types:
                     checkpoint_manager.prefetch(entity, next_b.rhs)
 
                 checkpoint_manager.record_marker(current_index)
@@ -812,6 +784,8 @@ def train_and_report_stats(
                 eval_stats_after = Stats.sum(all_eval_stats_after).average()
                 bucket_logger.info(f"Stats after training: {eval_stats_after}")
 
+            model.clear_all_embeddings()
+
             yield current_index, eval_stats_before, stats, eval_stats_after
 
             cur_stats = BucketStats(
@@ -846,25 +820,16 @@ def train_and_report_stats(
         if rank == 0:
             for entity, econfig in config.entities.items():
                 if econfig.num_partitions == 1:
-                    embs = model.get_embeddings(entity, Side.LHS)
-                    optimizer = trainer.entity_optimizers[(entity, Partition(0))]
-
+                    embs = holder.unpartitioned_embeddings[entity]
+                    optimizer = trainer.unpartitioned_optimizers[entity]
                     checkpoint_manager.write(
                         entity, Partition(0),
                         embs.detach(), OptimizerStateDict(optimizer.state_dict()))
 
-            sanitized_state_dict: ModuleStateDict = {}
-            for k, v in ModuleStateDict(model.state_dict()).items():
-                if k.startswith('lhs_embs') or k.startswith('rhs_embs'):
-                    # skipping state that's an entity embedding
-                    continue
-                sanitized_state_dict[k] = v
-
             logger.info("Writing the metadata")
+            state_dict: ModuleStateDict = ModuleStateDict(model.state_dict())
             checkpoint_manager.write_model(
-                sanitized_state_dict,
-                OptimizerStateDict(trainer.global_optimizer.state_dict()),
-            )
+                state_dict, OptimizerStateDict(trainer.model_optimizer.state_dict()))
 
             logger.info("Writing the training stats")
             all_stats_dicts: List[Dict[...]] = []

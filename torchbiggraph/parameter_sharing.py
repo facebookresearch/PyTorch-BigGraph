@@ -499,11 +499,3 @@ class ParameterSharer:
         self.q.put(('join', None))
         self.check()
         self.p.join()
-
-    def share_model_params(self, model: nn.Module) -> None:
-        shared_parameters: Set[int] = set()
-        for k, v in ModuleStateDict(model.state_dict()).items():
-            if v._cdata not in shared_parameters:
-                shared_parameters.add(v._cdata)
-                logger.info(f"Adding {k} ({v.numel()} params) to parameter server")
-                self.set_param(k, v.data)

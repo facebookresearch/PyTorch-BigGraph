@@ -11,7 +11,7 @@ import logging
 import time
 from functools import partial
 from itertools import chain
-from typing import Callable, Generator, List, Optional, Tuple
+from typing import Callable, Dict, Generator, List, Optional, Tuple
 
 import torch
 
@@ -31,11 +31,11 @@ from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
 from torchbiggraph.stats import Stats, average_of_sums
 from torchbiggraph.types import Bucket, EntityName, Partition, Side
 from torchbiggraph.util import (
+    EmbeddingHolder,
     compute_randomized_auc,
     create_pool,
     get_async_result,
     get_num_workers,
-    get_partitioned_types,
     set_logging_verbosity,
     setup_logging,
     split_almost_equally,
@@ -115,8 +115,7 @@ def do_eval_and_report_stats(
         assert embs.is_shared()
         return torch.nn.Parameter(embs)
 
-    nparts_lhs, lhs_partitioned_types = get_partitioned_types(config, Side.LHS)
-    nparts_rhs, rhs_partitioned_types = get_partitioned_types(config, Side.RHS)
+    holder = EmbeddingHolder(config)
 
     num_workers = get_num_workers(config.workers)
     pool = create_pool(
@@ -135,11 +134,9 @@ def do_eval_and_report_stats(
 
     model.eval()
 
-    for entity, econfig in config.entities.items():
-        if econfig.num_partitions == 1:
-            embs = load_embeddings(entity, Partition(0))
-            model.set_embeddings(entity, embs, Side.LHS)
-            model.set_embeddings(entity, embs, Side.RHS)
+    for entity in holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types:
+        embs = load_embeddings(entity, Partition(0))
+        holder.unpartitioned_embeddings[entity] = embs
 
     all_stats: List[Stats] = []
     for edge_path_idx, edge_path in enumerate(config.edge_paths):
@@ -149,22 +146,22 @@ def do_eval_and_report_stats(
         edge_storage = EDGE_STORAGES.make_instance(edge_path)
 
         all_edge_path_stats = []
-        last_lhs, last_rhs = None, None
-        for bucket in create_buckets_ordered_lexicographically(nparts_lhs, nparts_rhs):
+        # FIXME This order assumes higher affinity on the left-hand side, as it's
+        # the one changing more slowly. Make this adaptive to the actual affinity.
+        for bucket in create_buckets_ordered_lexicographically(holder.nparts_lhs, holder.nparts_rhs):
             tic = time.time()
             # logger.info(f"{bucket}: Loading entities")
 
-            if last_lhs != bucket.lhs:
-                for e in lhs_partitioned_types:
-                    model.clear_embeddings(e, Side.LHS)
-                    embs = load_embeddings(e, bucket.lhs)
-                    model.set_embeddings(e, embs, Side.LHS)
-            if last_rhs != bucket.rhs:
-                for e in rhs_partitioned_types:
-                    model.clear_embeddings(e, Side.RHS)
-                    embs = load_embeddings(e, bucket.rhs)
-                    model.set_embeddings(e, embs, Side.RHS)
-            last_lhs, last_rhs = bucket.lhs, bucket.rhs
+            old_parts = set(holder.partitioned_embeddings.keys())
+            new_parts = {(e, bucket.lhs) for e in holder.lhs_partitioned_types} \
+                        | {(e, bucket.rhs) for e in holder.rhs_partitioned_types}
+            for entity, part in old_parts - new_parts:
+                del holder.partitioned_embeddings[entity, part]
+            for entity, part in new_parts - old_parts:
+                embs = load_embeddings(entity, part)
+                holder.partitioned_embeddings[entity, part] = embs
+
+            model.set_all_embeddings(holder, bucket)
 
             # logger.info(f"{bucket}: Loading edges")
             edges = edge_storage.load_edges(bucket.lhs, bucket.rhs)
@@ -198,6 +195,8 @@ def do_eval_and_report_stats(
             logger.info(
                 f"Stats for edge path {edge_path_idx + 1} / {len(config.edge_paths)}, "
                 f"bucket {bucket}: {mean_bucket_stats}")
+
+            model.clear_all_embeddings()
 
             yield edge_path_idx, bucket, mean_bucket_stats
 
