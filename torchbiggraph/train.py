@@ -510,10 +510,11 @@ def train_and_report_stats(
                 embs, optim_state = init_embs(entity, entity_counts[entity][part],
                                               config.dimension, config.init_scale)
         assert embs.is_shared()
+        embs = torch.nn.Parameter(embs)
         optimizer = make_optimizer([embs], True)
         if optim_state is not None:
             optimizer.load_state_dict(optim_state)
-        return torch.nn.Parameter(embs), optimizer
+        return embs, optimizer
 
     logger.info("Initializing global model...")
 
