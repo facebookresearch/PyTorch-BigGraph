@@ -9,8 +9,9 @@
 import gzip
 import shutil
 import tarfile
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple, Union
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
@@ -83,3 +84,67 @@ def download_url(url: str, root: Path, filename: Optional[str] = None) -> str:
             print(f"Failed to download from url: {url}")
 
     return fpath
+
+
+class EdgelistReader(ABC):
+    @abstractmethod
+    def read(self, path: Path) -> Tuple[str, str, Optional[str]]:
+        """Read rows from a path. Returns (lhs, rhs, rel)."""
+        pass
+
+
+class TSVEdgelistReader(EdgelistReader):
+    def __init__(self,
+                 lhs_col: int,
+                 rhs_col: int,
+                 rel_col: int,
+    ):
+        self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
+
+    def read(self, path: Path):
+        with path.open("rt") as tf:
+            for line_num, line in enumerate(tf, start=1):
+                try:
+                    words = line.split()
+                    lhs_word = words[self.lhs_col]
+                    rhs_word = words[self.rhs_col]
+                    rel_word = words[self.rel_col] if self.rel_col is not None else None
+                    yield lhs_word, rhs_word, rel_word
+                except IndexError:
+                    raise RuntimeError(
+                        f"Line {line_num} of {path} has only {len(words)} words"
+                    ) from None
+
+
+ParquetCol = Union[int, str]
+class ParquetEdgelistReader(EdgelistReader):
+    def __init__(self,
+                 lhs_col: ParquetCol,
+                 rhs_col: ParquetCol,
+                 rel_col: Optional[ParquetCol],
+    ):
+        """Reads edgelists from a Parquet file.
+
+        col arguments can either be the column name or the offset of the col.
+        """
+        self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
+
+    def _get_col(self, tf, col):
+        if isinstance(col, str):
+            return col
+        elif isinstance(col, int):
+            return tf.columns[col]
+        else:
+            raise RuntimeError(f"Unknown column type: {col}")
+
+    def read(self, path: Path):
+        import parquet
+        with path.open() as tf:
+            columns = [self._get_col(col) for col in (self.lhs_col, self.rhs_col)]
+            if self.rel_col is not None:
+                columns.append(self._get_col(self.rel_col))
+            for row in parquet.reader(tf, columns=columns):
+                if self.rel_col is not None:
+                    yield row
+                else:
+                    yield (row[0], row[1], None)

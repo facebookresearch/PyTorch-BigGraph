@@ -16,7 +16,7 @@ import pkg_resources
 
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
-from torchbiggraph.converters.utils import download_url, extract_gzip
+from torchbiggraph.converters.utils import download_url, extract_gzip, TSVEdgelistReader
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 from torchbiggraph.util import (
@@ -114,9 +114,7 @@ def main():
         config.entity_path,
         config.edge_paths,
         input_edge_paths,
-        lhs_col=0,
-        rhs_col=1,
-        rel_col=None,
+        TSVEdgelistReader(lhs_col=0, rhs_col=1, rel_col=None),
         dynamic_relations=config.dynamic_relations,
     )
 
