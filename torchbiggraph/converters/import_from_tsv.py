@@ -23,6 +23,11 @@ from torchbiggraph.config import (
     override_config_dict,
 )
 from torchbiggraph.converters.dictionary import Dictionary
+from torchbiggraph.converters.utils import (
+    EdgelistReader,
+    TSVEdgelistReader,
+    ParquetEdgelistReader
+)
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
@@ -40,26 +45,18 @@ def collect_relation_types(
     relation_configs: List[RelationSchema],
     edge_paths: List[Path],
     dynamic_relations: bool,
-    rel_col: Optional[int],
+    edgelist_reader: EdgelistReader,
     relation_type_min_count: int,
 ) -> Dictionary:
 
     if dynamic_relations:
-        if rel_col is None:
+        if edgelist_reader.rel_col is None:
             raise RuntimeError("Need to specify rel_col in dynamic mode.")
         print("Looking up relation types in the edge files...")
         counter: Counter[str] = Counter()
         for edgepath in edge_paths:
-            with edgepath.open("rt") as tf:
-                for line_num, line in enumerate(tf, start=1):
-                    words = line.split()
-                    try:
-                        rel_word = words[rel_col]
-                    except IndexError:
-                        raise RuntimeError(
-                            f"Line {line_num} of {edgepath} has only {len(words)} words"
-                        ) from None
-                    counter[rel_word] += 1
+            for _lhs_word, _rhs_word, rel_word in edgelist_reader.read(edgepath):
+                counter[rel_word] += 1
         print(f"- Found {len(counter)} relation types")
         if relation_type_min_count > 0:
             print(f"- Removing the ones with fewer than {relation_type_min_count} occurrences...")
@@ -83,9 +80,7 @@ def collect_entities_by_type(
     relation_configs: List[RelationSchema],
     edge_paths: List[Path],
     dynamic_relations: bool,
-    lhs_col: int,
-    rhs_col: int,
-    rel_col: Optional[int],
+    edgelist_reader: EdgelistReader,
     entity_min_count: int,
 ) -> Dict[str, Dictionary]:
 
@@ -95,28 +90,17 @@ def collect_entities_by_type(
 
     print("Searching for the entities in the edge files...")
     for edgepath in edge_paths:
-        with edgepath.open("rt") as tf:
-            for line_num, line in enumerate(tf, start=1):
-                words = line.split()
+        for lhs_word, rhs_word, rel_word in edgelist_reader.read(edgepath):
+            if dynamic_relations or rel_word is None:
+                rel_id = 0
+            else:
                 try:
-                    lhs_word = words[lhs_col]
-                    rhs_word = words[rhs_col]
-                    rel_word = words[rel_col] if rel_col is not None else None
-                except IndexError:
-                    raise RuntimeError(
-                        "Line %d of %s has only %d words"
-                        % (line_num, edgepath, len(words))) from None
+                    rel_id = relation_types.get_id(rel_word)
+                except KeyError:
+                    raise RuntimeError("Could not find relation type in config")
 
-                if dynamic_relations or rel_col is None:
-                    rel_id = 0
-                else:
-                    try:
-                        rel_id = relation_types.get_id(rel_word)
-                    except KeyError:
-                        raise RuntimeError("Could not find relation type in config")
-
-                counters[relation_configs[rel_id].lhs][lhs_word] += 1
-                counters[relation_configs[rel_id].rhs][rhs_word] += 1
+            counters[relation_configs[rel_id].lhs][lhs_word] += 1
+            counters[relation_configs[rel_id].rhs][rhs_word] += 1
 
     entities_by_type: Dict[str, Dictionary] = {}
     for entity_name, counter in counters.items():
@@ -168,9 +152,7 @@ def generate_edge_path_files(
     relation_types: Dictionary,
     relation_configs: List[RelationSchema],
     dynamic_relations: bool,
-    lhs_col: int,
-    rhs_col: int,
-    rel_col: Optional[int],
+    edgelist_reader: EdgelistReader,
 ) -> None:
     print(f"Preparing edge path {edge_path_out}, "
           f"out of the edges found in {edge_file_in}")
@@ -187,20 +169,10 @@ def generate_edge_path_files(
     skipped = 0
 
     # We use an ExitStack in order to close the dynamically-created edge appenders.
-    with edge_file_in.open("rt") as tf, ExitStack() as appender_stack:
+    with ExitStack() as appender_stack:
         appenders: Dict[Tuple[int, int], AbstractEdgeAppender] = {}
-        for line_num, line in enumerate(tf, start=1):
-            words = line.split()
-            try:
-                lhs_word = words[lhs_col]
-                rhs_word = words[rhs_col]
-                rel_word = words[rel_col] if rel_col is not None else None
-            except IndexError:
-                raise RuntimeError(
-                    f"Line {line_num} of {edge_file_in} has only {len(words)} words"
-                ) from None
-
-            if rel_col is None:
+        for lhs_word, rhs_word, rel_word in edgelist_reader.read(edge_file_in):
+            if rel_word is None:
                 rel_id = 0
             else:
                 try:
@@ -253,9 +225,8 @@ def convert_input_data(
     entity_path: str,
     edge_paths_out: List[str],
     edge_paths_in: List[Path],
-    lhs_col: int,
-    rhs_col: int,
-    rel_col: Optional[int] = None,
+    edgelist_reader: EdgelistReader,
+    edgelist_format: str = "tsv",
     entity_min_count: int = 1,
     relation_type_min_count: int = 1,
     dynamic_relations: bool = False,
@@ -295,7 +266,7 @@ def convert_input_data(
         relation_configs,
         edge_paths_in,
         dynamic_relations,
-        rel_col,
+        edgelist_reader,
         relation_type_min_count,
     )
 
@@ -305,9 +276,7 @@ def convert_input_data(
         relation_configs,
         edge_paths_in,
         dynamic_relations,
-        lhs_col,
-        rhs_col,
-        rel_col,
+        edgelist_reader,
         entity_min_count,
     )
 
@@ -329,9 +298,7 @@ def convert_input_data(
             relation_types,
             relation_configs,
             dynamic_relations,
-            lhs_col,
-            rhs_col,
-            rel_col,
+            edgelist_reader,
         )
 
 
@@ -384,6 +351,8 @@ def main():
                         help='Column index for target entity')
     parser.add_argument('--rel-col', type=int,
                         help='Column index for relation entity')
+    parser.add_argument('--edgelist-format', type=str, default='tsv',
+                        help='Edgelist format [tsv|parquet]')
     parser.add_argument('--relation-type-min-count', type=int, default=1,
                         help='Min count for relation types')
     parser.add_argument('--entity-min-count', type=int, default=1,
@@ -404,15 +373,20 @@ def main():
         print(f"The edge paths provided on the command line ({opt.edge_paths}) "
               f"don't match the ones found in the config file ({edge_paths})")
 
+    if opt.edgelist_format == "tsv":
+        edgelist_reader = TSVEdgelistReader(opt.lhs_col, opt.rhs_col, opt.rel_col)
+    elif opt.edgelist_format == "parquet":
+        edgelist_reader = ParquetEdgelistReader(opt.lhs_col, opt.rhs_col, opt.rel_col)
+    else:
+        raise RuntimeError(f"Unknown edgelist format: {opt.edgelist_format}")
+
     convert_input_data(
         entity_configs,
         relation_configs,
         entity_path,
         edge_paths,
         opt.edge_paths,
-        opt.lhs_col,
-        opt.rhs_col,
-        opt.rel_col,
+        edgelist_reader,
         opt.entity_min_count,
         opt.relation_type_min_count,
         dynamic_relations,

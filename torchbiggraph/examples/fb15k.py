@@ -13,7 +13,7 @@ from pathlib import Path
 import attr
 import pkg_resources
 
-from torchbiggraph.converters.utils import download_url, extract_tar
+from torchbiggraph.converters.utils import download_url, extract_tar, TSVEdgelistReader
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
 from torchbiggraph.converters.import_from_tsv import convert_input_data
 from torchbiggraph.eval import do_eval
@@ -77,9 +77,7 @@ def main():
         config.entity_path,
         config.edge_paths,
         input_edge_paths,
-        lhs_col=0,
-        rhs_col=2,
-        rel_col=1,
+        TSVEdgelistReader(lhs_col=0, rhs_col=2, rel_col=1),
         dynamic_relations=config.dynamic_relations,
     )
 
