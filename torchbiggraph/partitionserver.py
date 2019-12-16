@@ -8,7 +8,6 @@
 
 import argparse
 import logging
-from itertools import chain
 from typing import Callable, Optional
 
 import torch.distributed as td
@@ -77,12 +76,8 @@ def main():
                         help="For multi-machine, this machine's rank")
     opt = parser.parse_args()
 
-    if opt.param is not None:
-        overrides = chain.from_iterable(opt.param)  # flatten
-    else:
-        overrides = None
     loader = ConfigFileLoader()
-    config = loader.load_config(opt.config, overrides)
+    config = loader.load_config(opt.config, opt.param)
     set_logging_verbosity(config.verbose)
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)

@@ -8,15 +8,14 @@
 
 import argparse
 import random
-from itertools import chain
 from pathlib import Path
 
 import attr
 import pkg_resources
 
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
-from torchbiggraph.converters.import_from_tsv import convert_input_data
-from torchbiggraph.converters.utils import download_url, extract_gzip, TSVEdgelistReader
+from torchbiggraph.converters.importers import convert_input_data, TSVEdgelistReader
+from torchbiggraph.converters.utils import download_url, extract_gzip
 from torchbiggraph.eval import do_eval
 from torchbiggraph.train import train
 from torchbiggraph.util import (
@@ -84,11 +83,6 @@ def main():
 
     args = parser.parse_args()
 
-    if args.param is not None:
-        overrides = chain.from_iterable(args.param)  # flatten
-    else:
-        overrides = None
-
     # download data
     data_dir = args.data_dir
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -100,7 +94,7 @@ def main():
     random_split_file(fpath)
 
     loader = ConfigFileLoader()
-    config = loader.load_config(args.config, overrides)
+    config = loader.load_config(args.config, args.param)
     set_logging_verbosity(config.verbose)
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)

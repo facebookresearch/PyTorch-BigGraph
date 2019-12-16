@@ -7,7 +7,6 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-from itertools import chain
 from typing import Iterable, TextIO
 
 from torchbiggraph.checkpoint_manager import CheckpointManager
@@ -26,9 +25,9 @@ def write(outf: TextIO, key: Iterable[str], value: Iterable[float]) -> None:
 
 
 def make_tsv(
-    config: ConfigSchema,
-    entities_tf: TextIO,
-    relation_types_tf: TextIO,
+        config: ConfigSchema,
+        entities_tf: TextIO,
+        relation_types_tf: TextIO,
 ) -> None:
     print("Loading relation types and entities...")
     entity_storage = ENTITY_STORAGES.make_instance(config.entity_path)
@@ -57,10 +56,10 @@ def make_tsv(
 
 
 def make_tsv_for_entities(
-    model: MultiRelationEmbedder,
-    checkpoint_manager: CheckpointManager,
-    entity_storage: AbstractEntityStorage,
-    entities_tf: TextIO,
+        model: MultiRelationEmbedder,
+        checkpoint_manager: CheckpointManager,
+        entity_storage: AbstractEntityStorage,
+        entities_tf: TextIO,
 ) -> None:
     print("Writing entity embeddings...")
     for ent_t_name, ent_t_config in model.entities.items():
@@ -86,9 +85,9 @@ def make_tsv_for_entities(
 
 
 def make_tsv_for_relation_types(
-    model: MultiRelationEmbedder,
-    relation_type_storage: AbstractRelationTypeStorage,
-    relation_types_tf: TextIO,
+        model: MultiRelationEmbedder,
+        relation_type_storage: AbstractRelationTypeStorage,
+        relation_types_tf: TextIO,
 ) -> None:
     print("Writing relation type parameters...")
     relation_types = relation_type_storage.load_names()
@@ -139,12 +138,8 @@ def main():
     parser.add_argument('--relation-types-output', required=True)
     opt = parser.parse_args()
 
-    if opt.param is not None:
-        overrides = chain.from_iterable(opt.param)  # flatten
-    else:
-        overrides = None
     loader = ConfigFileLoader()
-    config = loader.load_config(opt.config, overrides)
+    config = loader.load_config(opt.config, opt.param)
 
     with open(opt.entities_output, "xt") as entities_tf, \
             open(opt.relation_types_output, "xt") as relation_types_tf:
