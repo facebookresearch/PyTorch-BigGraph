@@ -8,14 +8,15 @@
 
 import argparse
 import importlib
-from itertools import chain
 import logging
 import os.path
 import shutil
 import sys
 import tempfile
 import uuid
+
 from enum import Enum
+from itertools import chain
 from typing import Any, ClassVar, Dict, List, Optional
 
 import attr

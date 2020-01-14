@@ -83,7 +83,7 @@ class ParquetEdgelistReader(EdgelistReader):
             raise ImportError(f"{e}. HINT: You can install Parquet by running "
                               "'pip install parquet'")
 
-        with path.open() as tf:
+        with path.open("rt") as tf:
             columns = [self.lhs_col, self.rhs_col]
             if self.rel_col is not None:
                 columns.append(self.rel_col)

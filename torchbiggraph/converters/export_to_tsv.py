@@ -25,9 +25,9 @@ def write(outf: TextIO, key: Iterable[str], value: Iterable[float]) -> None:
 
 
 def make_tsv(
-        config: ConfigSchema,
-        entities_tf: TextIO,
-        relation_types_tf: TextIO,
+    config: ConfigSchema,
+    entities_tf: TextIO,
+    relation_types_tf: TextIO,
 ) -> None:
     print("Loading relation types and entities...")
     entity_storage = ENTITY_STORAGES.make_instance(config.entity_path)
