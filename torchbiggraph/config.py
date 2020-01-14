@@ -473,7 +473,7 @@ class ConfigFileLoader:
         path: str,
         overrides: Optional[List[str]] = None,
     ) -> ConfigSchema:
-        config_dict = self.load_raw_config(path)
+        config_dict = self.load_raw_config(path, overrides=overrides)
         config = parse_config(config_dict)
         return config
 
