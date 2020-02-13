@@ -56,10 +56,10 @@ def make_tsv(
 
 
 def make_tsv_for_entities(
-        model: MultiRelationEmbedder,
-        checkpoint_manager: CheckpointManager,
-        entity_storage: AbstractEntityStorage,
-        entities_tf: TextIO,
+    model: MultiRelationEmbedder,
+    checkpoint_manager: CheckpointManager,
+    entity_storage: AbstractEntityStorage,
+    entities_tf: TextIO,
 ) -> None:
     print("Writing entity embeddings...")
     for ent_t_name, ent_t_config in model.entities.items():
@@ -85,9 +85,9 @@ def make_tsv_for_entities(
 
 
 def make_tsv_for_relation_types(
-        model: MultiRelationEmbedder,
-        relation_type_storage: AbstractRelationTypeStorage,
-        relation_types_tf: TextIO,
+    model: MultiRelationEmbedder,
+    relation_type_storage: AbstractRelationTypeStorage,
+    relation_types_tf: TextIO,
 ) -> None:
     print("Writing relation type parameters...")
     relation_types = relation_type_storage.load_names()

@@ -398,7 +398,7 @@ class ConfigSchema(Schema):
 
 
 # TODO make this a non-inplace operation
-def override_config_dict(config_dict: Any, overrides: Optional[List[str]]) -> Any:
+def override_config_dict(config_dict: Any, overrides: Optional[List[List[str]]]) -> Any:
     if overrides is None:
         overrides = []
     overrides = chain.from_iterable(overrides)
@@ -459,7 +459,7 @@ class ConfigFileLoader:
         self.sys_path.remove(self.config_dir.name)
         self.config_dir.cleanup()
 
-    def load_raw_config(self, path: str, overrides: Optional[List[str]] = None) -> Any:
+    def load_raw_config(self, path: str, overrides: Optional[List[List[str]]] = None) -> Any:
         module_name = f"torchbiggraph_config_{uuid.uuid4().hex}"
         shutil.copyfile(path, os.path.join(self.config_dir.name, f"{module_name}.py"))
         importlib.invalidate_caches()
@@ -471,7 +471,7 @@ class ConfigFileLoader:
     def load_config(
         self,
         path: str,
-        overrides: Optional[List[str]] = None,
+        overrides: Optional[List[List[str]]] = None,
     ) -> ConfigSchema:
         config_dict = self.load_raw_config(path, overrides=overrides)
         config = parse_config(config_dict)

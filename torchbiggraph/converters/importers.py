@@ -41,10 +41,10 @@ class EdgelistReader(ABC):
 
 class TSVEdgelistReader(EdgelistReader):
     def __init__(
-            self,
-            lhs_col: int,
-            rhs_col: int,
-            rel_col: int,
+        self,
+        lhs_col: int,
+        rhs_col: int,
+        rel_col: int,
     ):
         self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
 
@@ -65,10 +65,10 @@ class TSVEdgelistReader(EdgelistReader):
 
 class ParquetEdgelistReader(EdgelistReader):
     def __init__(
-            self,
-            lhs_col: str,
-            rhs_col: str,
-            rel_col: Optional[str],
+        self,
+        lhs_col: str,
+        rhs_col: str,
+        rel_col: Optional[str],
     ):
         """Reads edgelists from a Parquet file.
 
@@ -95,11 +95,11 @@ class ParquetEdgelistReader(EdgelistReader):
 
 
 def collect_relation_types(
-        relation_configs: List[RelationSchema],
-        edge_paths: List[Path],
-        dynamic_relations: bool,
-        edgelist_reader: EdgelistReader,
-        relation_type_min_count: int,
+    relation_configs: List[RelationSchema],
+    edge_paths: List[Path],
+    dynamic_relations: bool,
+    edgelist_reader: EdgelistReader,
+    relation_type_min_count: int,
 ) -> Dictionary:
 
     if dynamic_relations:
@@ -129,13 +129,13 @@ def collect_relation_types(
 
 
 def collect_entities_by_type(
-        relation_types: Dictionary,
-        entity_configs: Dict[str, EntitySchema],
-        relation_configs: List[RelationSchema],
-        edge_paths: List[Path],
-        dynamic_relations: bool,
-        edgelist_reader: EdgelistReader,
-        entity_min_count: int,
+    relation_types: Dictionary,
+    entity_configs: Dict[str, EntitySchema],
+    relation_configs: List[RelationSchema],
+    edge_paths: List[Path],
+    dynamic_relations: bool,
+    edgelist_reader: EdgelistReader,
+    entity_min_count: int,
 ) -> Dict[str, Dictionary]:
 
     counters: Dict[str, Counter[str]] = {}
@@ -175,11 +175,11 @@ def collect_entities_by_type(
 
 
 def generate_entity_path_files(
-        entity_storage: AbstractEntityStorage,
-        entities_by_type: Dict[str, Dictionary],
-        relation_type_storage: AbstractRelationTypeStorage,
-        relation_types: Dictionary,
-        dynamic_relations: bool,
+    entity_storage: AbstractEntityStorage,
+    entities_by_type: Dict[str, Dictionary],
+    relation_type_storage: AbstractRelationTypeStorage,
+    relation_types: Dictionary,
+    dynamic_relations: bool,
 ) -> None:
     print(f"Preparing counts and dictionaries for entities and relation types:")
     entity_storage.prepare()
@@ -199,14 +199,14 @@ def generate_entity_path_files(
 
 
 def generate_edge_path_files(
-        edge_file_in: Path,
-        edge_path_out: Path,
-        edge_storage: AbstractEdgeStorage,
-        entities_by_type: Dict[str, Dictionary],
-        relation_types: Dictionary,
-        relation_configs: List[RelationSchema],
-        dynamic_relations: bool,
-        edgelist_reader: EdgelistReader,
+    edge_file_in: Path,
+    edge_path_out: Path,
+    edge_storage: AbstractEdgeStorage,
+    entities_by_type: Dict[str, Dictionary],
+    relation_types: Dictionary,
+    relation_configs: List[RelationSchema],
+    dynamic_relations: bool,
+    edgelist_reader: EdgelistReader,
 ) -> None:
     print(f"Preparing edge path {edge_path_out}, "
           f"out of the edges found in {edge_file_in}")
@@ -274,15 +274,15 @@ def generate_edge_path_files(
 
 
 def convert_input_data(
-        entity_configs: Dict[str, EntitySchema],
-        relation_configs: List[RelationSchema],
-        entity_path: str,
-        edge_paths_out: List[str],
-        edge_paths_in: List[Path],
-        edgelist_reader: EdgelistReader,
-        entity_min_count: int = 1,
-        relation_type_min_count: int = 1,
-        dynamic_relations: bool = False,
+    entity_configs: Dict[str, EntitySchema],
+    relation_configs: List[RelationSchema],
+    entity_path: str,
+    edge_paths_out: List[str],
+    edge_paths_in: List[Path],
+    edgelist_reader: EdgelistReader,
+    entity_min_count: int = 1,
+    relation_type_min_count: int = 1,
+    dynamic_relations: bool = False,
 ) -> None:
     if len(edge_paths_in) != len(edge_paths_out):
         raise ValueError(
@@ -356,7 +356,7 @@ def convert_input_data(
 
 
 def parse_config_partial(
-        config_dict: Any,
+    config_dict: Any,
 ) -> Tuple[Dict[str, EntitySchema], List[RelationSchema], str, bool]:
     entities_config = config_dict.get("entities")
     relations_config = config_dict.get("relations")
