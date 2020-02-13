@@ -7,7 +7,6 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-from itertools import chain
 from pathlib import Path
 
 import attr
@@ -15,7 +14,7 @@ import pkg_resources
 
 from torchbiggraph.converters.utils import download_url, extract_tar
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
-from torchbiggraph.converters.import_from_tsv import convert_input_data
+from torchbiggraph.converters.importers import convert_input_data, TSVEdgelistReader
 from torchbiggraph.eval import do_eval
 from torchbiggraph.filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.train import train
@@ -51,11 +50,6 @@ def main():
                         help='Run unfiltered eval')
     args = parser.parse_args()
 
-    if args.param is not None:
-        overrides = chain.from_iterable(args.param)  # flatten
-    else:
-        overrides = None
-
     # download data
     data_dir = args.data_dir
     fpath = download_url(FB15K_URL, data_dir)
@@ -63,7 +57,7 @@ def main():
     print('Downloaded and extracted file.')
 
     loader = ConfigFileLoader()
-    config = loader.load_config(args.config, overrides)
+    config = loader.load_config(args.config, args.param)
     set_logging_verbosity(config.verbose)
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)
@@ -77,9 +71,7 @@ def main():
         config.entity_path,
         config.edge_paths,
         input_edge_paths,
-        lhs_col=0,
-        rhs_col=2,
-        rel_col=1,
+        TSVEdgelistReader(lhs_col=0, rhs_col=2, rel_col=1),
         dynamic_relations=config.dynamic_relations,
     )
 

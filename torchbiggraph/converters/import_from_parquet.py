@@ -12,13 +12,12 @@ from pathlib import Path
 from torchbiggraph.converters.importers import (
     convert_input_data,
     parse_config_partial,
-    TSVEdgelistReader,
+    ParquetEdgelistReader,
 )
 
 from torchbiggraph.config import (
     ConfigFileLoader,
     ConfigSchema,
-    override_config_dict,
 )
 
 def main():
@@ -31,11 +30,11 @@ def main():
     parser.add_argument('config', help='Path to config file')
     parser.add_argument('-p', '--param', action='append', nargs='*')
     parser.add_argument('edge_paths', type=Path, nargs='*', help='Input file paths')
-    parser.add_argument('-l', '--lhs-col', type=int, required=True,
+    parser.add_argument('-l', '--lhs-col', type=str, required=True,
                         help='Column index for source entity')
-    parser.add_argument('-r', '--rhs-col', type=int, required=True,
+    parser.add_argument('-r', '--rhs-col', type=str, required=True,
                         help='Column index for target entity')
-    parser.add_argument('--rel-col', type=int,
+    parser.add_argument('--rel-col', type=str,
                         help='Column index for relation entity')
     parser.add_argument('--relation-type-min-count', type=int, default=1,
                         help='Min count for relation types')
@@ -55,7 +54,7 @@ def main():
         entity_path,
         edge_paths,
         opt.edge_paths,
-        TSVEdgelistReader(opt.lhs_col, opt.rhs_col, opt.rel_col),
+        ParquetEdgelistReader(opt.lhs_col, opt.rhs_col, opt.rel_col),
         opt.entity_min_count,
         opt.relation_type_min_count,
         dynamic_relations,

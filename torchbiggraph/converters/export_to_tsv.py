@@ -7,7 +7,6 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import argparse
-from itertools import chain
 from typing import Iterable, TextIO
 
 from torchbiggraph.checkpoint_manager import CheckpointManager
@@ -139,12 +138,8 @@ def main():
     parser.add_argument('--relation-types-output', required=True)
     opt = parser.parse_args()
 
-    if opt.param is not None:
-        overrides = chain.from_iterable(opt.param)  # flatten
-    else:
-        overrides = None
     loader = ConfigFileLoader()
-    config = loader.load_config(opt.config, overrides)
+    config = loader.load_config(opt.config, opt.param)
 
     with open(opt.entities_output, "xt") as entities_tf, \
             open(opt.relation_types_output, "xt") as relation_types_tf:

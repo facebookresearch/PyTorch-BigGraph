@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+
 from enum import Enum
 from itertools import chain
 from typing import Any, ClassVar, Dict, List, Optional
@@ -397,7 +398,10 @@ class ConfigSchema(Schema):
 
 
 # TODO make this a non-inplace operation
-def override_config_dict(config_dict: Any, overrides: List[str]) -> Any:
+def override_config_dict(config_dict: Any, overrides: Optional[List[List[str]]]) -> Any:
+    if overrides is None:
+        overrides = []
+    overrides = chain.from_iterable(overrides)
     for override in overrides:
         try:
             key, _, value = override.rpartition("=")
@@ -455,22 +459,21 @@ class ConfigFileLoader:
         self.sys_path.remove(self.config_dir.name)
         self.config_dir.cleanup()
 
-    def load_raw_config(self, path: str) -> Any:
+    def load_raw_config(self, path: str, overrides: Optional[List[List[str]]] = None) -> Any:
         module_name = f"torchbiggraph_config_{uuid.uuid4().hex}"
         shutil.copyfile(path, os.path.join(self.config_dir.name, f"{module_name}.py"))
         importlib.invalidate_caches()
         module = importlib.import_module(module_name)
         raw_config = module.get_torchbiggraph_config()
-        return raw_config
+        config_with_overrides = override_config_dict(raw_config, overrides)
+        return config_with_overrides
 
     def load_config(
         self,
         path: str,
-        overrides: Optional[List[str]] = None,
+        overrides: Optional[List[List[str]]] = None,
     ) -> ConfigSchema:
-        config_dict = self.load_raw_config(path)
-        if overrides is not None:
-            config_dict = override_config_dict(config_dict, overrides)
+        config_dict = self.load_raw_config(path, overrides=overrides)
         config = parse_config(config_dict)
         return config
 

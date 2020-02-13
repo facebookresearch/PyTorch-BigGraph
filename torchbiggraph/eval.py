@@ -10,7 +10,6 @@ import argparse
 import logging
 import time
 from functools import partial
-from itertools import chain
 from typing import Callable, Dict, Generator, List, Optional, Tuple
 
 import torch
@@ -245,12 +244,8 @@ def main():
     parser.add_argument('-p', '--param', action='append', nargs='*')
     opt = parser.parse_args()
 
-    if opt.param is not None:
-        overrides = chain.from_iterable(opt.param)  # flatten
-    else:
-        overrides = None
     loader = ConfigFileLoader()
-    config = loader.load_config(opt.config, overrides)
+    config = loader.load_config(opt.config, opt.param)
     set_logging_verbosity(config.verbose)
     subprocess_init = SubprocessInitializer()
     subprocess_init.register(setup_logging, config.verbose)
