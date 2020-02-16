@@ -4,7 +4,7 @@
 
 PyTorch-BigGraph (PBG) is a distributed system for learning graph embeddings for large graphs, particularly big web interaction graphs with up to billions of entities and trillions of edges.
 
-PBG was introduced in the [PyTorch-BigGraph: A Large-scale Graph Embedding Framework](https://arxiv.org/pdf/1903.12287) paper, presented at the [SysML conference](https://www.sysml.cc/) in 2019.
+PBG was introduced in the [PyTorch-BigGraph: A Large-scale Graph Embedding Framework](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) paper, presented at the [SysML conference](https://www.sysml.cc/) in 2019.
 
 PBG trains on an input graph by ingesting its list of edges, each identified by its source and target entities and, possibly, a relation type. It outputs a feature vector (embedding) for each entity, trying to place adjacent entities close to each other in the vector space, while pushing unconnected entities apart. Therefore, entities that have a similar distribution of neighbors will end up being nearby.
 
