@@ -28,10 +28,10 @@ FALSE_STRINGS = {"0", "n", "no", "false", "off"}
 # Optional[foo] is an alias for Union[foo, NoneType], but Unions are weird.
 def unpack_optional(type_):
     try:
-        candidate_arg = type_.__args__[0]
-    except (AttributeError, LookupError):
+        candidate_arg, = set(type_.__args__) - {type(None)}
+    except (AttributeError, LookupError, ValueError):
         raise TypeError("Not an optional type")
-    if type_ is not Optional[candidate_arg]:
+    if type_ != Optional[candidate_arg]:
         raise TypeError("Not an optional type")
     return candidate_arg
 

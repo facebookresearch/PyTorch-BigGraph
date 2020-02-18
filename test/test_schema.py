@@ -52,6 +52,8 @@ class TestUnpackOptional(TestCase):
     def test_is_optional(self):
         self.assertIs(unpack_optional(Optional[int]), int)
         self.assertIs(unpack_optional(Optional[str]), str)
+        self.assertIs(unpack_optional(Union[None, str]), str)
+        self.assertIs(unpack_optional(Union[int, type(None)]), int)
 
 
 class SampleEnum(Enum):
