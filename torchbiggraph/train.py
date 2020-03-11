@@ -311,6 +311,8 @@ def train_and_report_stats(
     """
     tag_logs_with_process_name(f"Trainer-{rank}")
 
+    assert config.num_gpus == 0, "GPU training not supported"
+
     if config.verbose > 0:
         import pprint
         pprint.PrettyPrinter().pprint(config.to_dict())
@@ -701,7 +703,12 @@ def train_and_report_stats(
 
             bucket_logger.debug("Loading edges")
             edges = edge_storage.load_chunk_of_edges(
-                cur_b.lhs, cur_b.rhs, edge_chunk_idx, iteration_manager.num_edge_chunks)
+                cur_b.lhs,
+                cur_b.rhs,
+                edge_chunk_idx,
+                iteration_manager.num_edge_chunks,
+                shared=True
+            )
             num_edges = len(edges)
             # this might be off in the case of tensorlist or extra edge fields
             io_bytes += edges.lhs.tensor.numel() * edges.lhs.tensor.element_size()

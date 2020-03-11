@@ -417,6 +417,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
         rhs_p: int,
         chunk_idx: int = 0,
         num_chunks: int = 1,
+        shared: bool = False,
     ) -> EdgeList:
         file_path = self.get_edges_file(lhs_p, rhs_p)
         try:
@@ -433,9 +434,10 @@ class FileEdgeStorage(AbstractEdgeStorage):
                 end = min((chunk_idx + 1) * chunk_size, num_edges)
                 chunk_size = end - begin
 
-                lhs = allocate_shared_tensor((chunk_size,), dtype=torch.long)
-                rhs = allocate_shared_tensor((chunk_size,), dtype=torch.long)
-                rel = allocate_shared_tensor((chunk_size,), dtype=torch.long)
+                allocator = allocate_shared_tensor if shared else torch.empty
+                lhs = allocator((chunk_size,), dtype=torch.long)
+                rhs = allocator((chunk_size,), dtype=torch.long)
+                rel = allocator((chunk_size,), dtype=torch.long)
 
                 # Needed because https://github.com/h5py/h5py/issues/870.
                 if chunk_size > 0:
@@ -443,8 +445,8 @@ class FileEdgeStorage(AbstractEdgeStorage):
                     rhs_ds.read_direct(rhs.numpy(), source_sel=np.s_[begin:end])
                     rel_ds.read_direct(rel.numpy(), source_sel=np.s_[begin:end])
 
-                lhsd = self.read_dynamic(hf, "lhsd", begin, end)
-                rhsd = self.read_dynamic(hf, "rhsd", begin, end)
+                lhsd = self.read_dynamic(hf, "lhsd", begin, end, shared=shared)
+                rhsd = self.read_dynamic(hf, "rhsd", begin, end, shared=shared)
 
                 return EdgeList(EntityList(lhs, lhsd),
                                 EntityList(rhs, rhsd),
@@ -462,6 +464,8 @@ class FileEdgeStorage(AbstractEdgeStorage):
         key: str,
         begin: int,
         end: int,
+        *,
+        shared: bool = False
     ) -> TensorList:
         try:
             offsets_ds = hf[f"{key}_offsets"]
@@ -469,11 +473,12 @@ class FileEdgeStorage(AbstractEdgeStorage):
         except LookupError:
             return TensorList.empty(num_tensors=end - begin)
 
-        offsets = allocate_shared_tensor((end - begin + 1,), dtype=torch.long)
+        allocator = allocate_shared_tensor if shared else torch.empty
+        offsets = allocator((end - begin + 1,), dtype=torch.long)
         offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
         data_begin = offsets[0].item()
         data_end = offsets[-1].item()
-        data = allocate_shared_tensor((data_end - data_begin,), dtype=torch.long)
+        data = allocator((data_end - data_begin,), dtype=torch.long)
         # Needed because https://github.com/h5py/h5py/issues/870.
         if data_end - data_begin > 0:
             data_ds.read_direct(data.numpy(), source_sel=np.s_[data_begin:data_end])

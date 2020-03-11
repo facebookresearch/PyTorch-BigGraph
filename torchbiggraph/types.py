@@ -41,9 +41,11 @@ class Side(Enum):
             raise NotImplementedError("Unknown side: %s" % self)
 
 
-EntityName = NewType("EntityName", str)
-Rank = NewType("Rank", int)
-Partition = NewType("Partition", int)
+EntityName = str
+Rank = int
+GPURank = int
+Partition = int
+SubPartition = int
 ModuleStateDict = NewType("ModuleStateDict", Dict[str, torch.Tensor])
 OptimizerStateDict = NewType("OptimizerStateDict", Dict[str, Any])
 

@@ -41,7 +41,7 @@ from torchbiggraph.util import CouldNotLoadData, EmbeddingHolder
 logger = logging.getLogger("torchbiggraph")
 
 
-def match_shape(tensor, *expected_shape):
+def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]) -> Union[None, int, Tuple[int, ...]]:
     """Compare the given tensor's shape with what you expect it to be.
 
     This function serves two goals: it can be used both to assert that the size
@@ -1019,10 +1019,10 @@ class MultiRelationEmbedder(nn.Module):
             chunk_size = num_pos
             negative_sampling_method = Negatives.ALL
         elif self.num_batch_negs == 0:
-            chunk_size = self.num_uniform_negs
+            chunk_size = min(self.num_uniform_negs, num_pos)
             negative_sampling_method = Negatives.UNIFORM
         else:
-            chunk_size = self.num_batch_negs
+            chunk_size = min(self.num_batch_negs, num_pos)
             negative_sampling_method = Negatives.BATCH_UNIFORM
 
         lhs_negative_sampling_method = negative_sampling_method

@@ -378,8 +378,13 @@ class ConfigSchema(Schema):
                           "one of its partitions is 0, for bootstrapping)."},
     )
 
+    num_gpus: int = attr.ib(
+        default=0,
+        metadata={'help': "Number of GPUs to use for GPU training. "
+                          "Experimental: Not yet supported."},
+    )
     num_groups_for_partition_server: int = attr.ib(
-        default=1,
+        default=16,
         metadata={'help': "Number of td.distributed 'groups' to use. Setting "
                           "this to a value around 16 typically increases "
                           "communication bandwidth."},

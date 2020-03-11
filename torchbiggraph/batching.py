@@ -120,8 +120,6 @@ def process_in_batches(
         all_stats.append(batch_processor.process_one_batch(model, batch_edges))
 
     stats = Stats.sum(all_stats)
-    if indices is not None:
-        assert stats.count == indices.size(0)
     return stats
 
 
