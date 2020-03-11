@@ -44,7 +44,7 @@ class EdgeList:
             raise TypeError(
                 "Expected left- and right-hand side to be entity lists, got "
                 "%s and %s instead" % (type(lhs), type(rhs)))
-        if not isinstance(rel, torch.LongTensor):
+        if not isinstance(rel, (torch.LongTensor, torch.cuda.LongTensor)):
             raise TypeError(
                 "Expected relation to be a long tensor, got %s" % type(rel))
         if len(lhs) != len(rhs):
@@ -96,11 +96,11 @@ class EdgeList:
         return "EdgeList(%r, %r, %r)" % (self.lhs, self.rhs, self.rel)
 
     def __getitem__(self, index: Union[int, slice, LongTensorType]) -> "EdgeList":
-        if not isinstance(index, (int, slice, torch.LongTensor)):
+        if not isinstance(index, (int, slice, (torch.LongTensor, torch.cuda.LongTensor))):
             raise TypeError(
                 "Index can only be int, slice or long tensor, got %s"
                 % type(index))
-        if isinstance(index, torch.LongTensor) and index.dim() != 1:
+        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)) and index.dim() != 1:
             raise ValueError(
                 "Long tensor index must be 1-dimensional, got %d-dimensional"
                 % (index.dim(),))
@@ -114,3 +114,10 @@ class EdgeList:
 
     def __len__(self) -> int:
         return len(self.lhs)
+
+    def to(self, *args, **kwargs):
+        return type(self)(
+            self.lhs.to(*args, **kwargs),
+            self.rhs.to(*args, **kwargs),
+            self.rel.to(*args, **kwargs),
+        )

@@ -44,7 +44,7 @@ from torchbiggraph.tensorlist import TensorList
 class TensorTestCase(TestCase):
 
     def assertTensorEqual(self, actual, expected):
-        if not isinstance(actual, torch.FloatTensor):
+        if not isinstance(actual, (torch.FloatTensor, torch.cuda.FloatTensor)):
             self.fail("Expected FloatTensor, got %s" % type(actual))
         if actual.size() != expected.size():
             self.fail("Expected tensor of size %s, got %s"

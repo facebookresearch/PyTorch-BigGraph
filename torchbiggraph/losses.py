@@ -58,12 +58,12 @@ class LogisticLossFunction(AbstractLossFunction):
 
         pos_loss = F.binary_cross_entropy_with_logits(
             pos_scores,
-            torch.ones(()).expand(num_pos),
+            pos_scores.new_ones(()).expand(num_pos),
             reduction='sum',
         )
         neg_loss = F.binary_cross_entropy_with_logits(
             neg_scores,
-            torch.zeros(()).expand(num_pos, num_neg),
+            neg_scores.new_zeros(()).expand(num_pos, num_neg),
             reduction='sum',
         )
         loss = pos_loss + neg_weight * neg_loss
@@ -88,12 +88,12 @@ class RankingLossFunction(AbstractLossFunction):
 
         # FIXME Workaround for https://github.com/pytorch/pytorch/issues/15223.
         if num_pos == 0 or num_neg == 0:
-            return torch.zeros((), requires_grad=True)
+            return torch.zeros((), device=pos_scores.device, requires_grad=True)
 
         loss = F.margin_ranking_loss(
             neg_scores,
             pos_scores.unsqueeze(1),
-            target=torch.full((1, 1), -1, dtype=torch.float),
+            target=pos_scores.new_full((1, 1), -1, dtype=torch.float),
             margin=self.margin,
             reduction='sum',
         )
@@ -115,14 +115,14 @@ class SoftmaxLossFunction(AbstractLossFunction):
         # FIXME Workaround for https://github.com/pytorch/pytorch/issues/15870
         # and https://github.com/pytorch/pytorch/issues/15223.
         if num_pos == 0 or num_neg == 0:
-            return torch.zeros((), requires_grad=True)
+            return torch.zeros((), device=pos_scores.device, requires_grad=True)
 
         scores = torch.cat([
             pos_scores.unsqueeze(1), neg_scores.logsumexp(dim=1, keepdim=True)
         ], dim=1)
         loss = F.cross_entropy(
             scores,
-            torch.zeros((), dtype=torch.long).expand(num_pos),
+            pos_scores.new_zeros((), dtype=torch.long).expand(num_pos),
             reduction='sum',
         )
 

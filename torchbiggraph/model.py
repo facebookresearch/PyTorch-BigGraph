@@ -142,10 +142,17 @@ class SimpleEmbedding(AbstractEmbedding):
         )
 
     def get_all_entities(self) -> FloatTensorType:
-        return self.get(torch.arange(self.weight.size(0), dtype=torch.long))
+        return self.get(torch.arange(self.weight.size(0), dtype=torch.long, device=self.weight.device))
 
     def sample_entities(self, *dims: int) -> FloatTensorType:
-        return self.get(torch.randint(low=0, high=self.weight.size(0), size=dims))
+        return self.get(
+            torch.randint(
+                low=0,
+                high=self.weight.size(0),
+                size=dims,
+                device=self.weight.device
+            )
+        )
 
 
 class FeaturizedEmbedding(AbstractEmbedding):
@@ -216,7 +223,7 @@ class DiagonalOperator(AbstractOperator):
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
-        return self.diagonal * embeddings
+        return self.diagonal.to(device=embeddings.device) * embeddings
 
 
 @OPERATORS.register_as("translation")
@@ -228,7 +235,7 @@ class TranslationOperator(AbstractOperator):
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
-        return embeddings + self.translation
+        return embeddings + self.translation.to(device=embeddings.device)
 
 
 @OPERATORS.register_as("linear")
@@ -241,7 +248,7 @@ class LinearOperator(AbstractOperator):
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
-        return torch.matmul(self.linear_transformation,
+        return torch.matmul(self.linear_transformation.to(device=embeddings.device),
                             embeddings.unsqueeze(-1)).squeeze(-1)
 
 
@@ -256,9 +263,9 @@ class AffineOperator(AbstractOperator):
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
-        return (torch.matmul(self.linear_transformation,
+        return (torch.matmul(self.linear_transformation.to(device=embeddings.device),
                              embeddings.unsqueeze(-1)).squeeze(-1)
-                + self.translation)
+                + self.translation.to(device=embeddings.device))
 
     # FIXME This adapts from the pre-D14024710 format; remove eventually.
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
@@ -283,11 +290,13 @@ class ComplexDiagonalOperator(AbstractOperator):
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
-        real = embeddings[..., :self.dim // 2]
-        imag = embeddings[..., self.dim // 2:]
+        real_a = embeddings[..., :self.dim // 2]
+        imag_a = embeddings[..., self.dim // 2:]
+        real_b = self.real.to(device=embeddings.device)
+        imag_b = self.imag.to(device=embeddings.device)
         prod = torch.empty_like(embeddings)
-        prod[..., :self.dim // 2] = real * self.real - imag * self.imag
-        prod[..., self.dim // 2:] = real * self.imag + imag * self.real
+        prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
         return prod
 
 
@@ -350,7 +359,7 @@ class DiagonalDynamicOperator(AbstractDynamicOperator):
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
-        return self.diagonals[operator_idxs] * embeddings
+        return self.diagonals.to(device=embeddings.device)[operator_idxs] * embeddings
 
 
 @DYNAMIC_OPERATORS.register_as("translation")
@@ -367,7 +376,7 @@ class TranslationDynamicOperator(AbstractDynamicOperator):
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
-        return embeddings + self.translations[operator_idxs]
+        return embeddings + self.translations.to(device=embeddings.device)[operator_idxs]
 
 
 @DYNAMIC_OPERATORS.register_as("linear")
@@ -386,7 +395,7 @@ class LinearDynamicOperator(AbstractDynamicOperator):
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         # We add a dimension so that matmul performs a matrix-vector product.
-        return torch.matmul(self.linear_transformations[operator_idxs],
+        return torch.matmul(self.linear_transformations.to(device=embeddings.device)[operator_idxs],
                             embeddings.unsqueeze(-1)).squeeze(-1)
 
 
@@ -407,9 +416,9 @@ class AffineDynamicOperator(AbstractDynamicOperator):
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         # We add a dimension so that matmul performs a matrix-vector product.
-        return (torch.matmul(self.linear_transformations[operator_idxs],
+        return (torch.matmul(self.linear_transformations.to(device=embeddings.device)[operator_idxs],
                              embeddings.unsqueeze(-1)).squeeze(-1)
-                + self.translations[operator_idxs])
+                + self.translations.to(device=embeddings.device)[operator_idxs])
 
     # FIXME This adapts from the pre-D14024710 format; remove eventually.
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
@@ -441,8 +450,8 @@ class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
         match_shape(operator_idxs, *embeddings.size()[:-1])
         real_a = embeddings[..., :self.dim // 2]
         imag_a = embeddings[..., self.dim // 2:]
-        real_b = self.real[operator_idxs]
-        imag_b = self.imag[operator_idxs]
+        real_b = self.real.to(device=embeddings.device)[operator_idxs]
+        imag_b = self.imag.to(device=embeddings.device)[operator_idxs]
         prod = torch.empty_like(embeddings)
         prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
         prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
@@ -853,7 +862,7 @@ class MultiRelationEmbedder(nn.Module):
         if self.global_embs is not None:
             if not isinstance(rel, int):
                 raise RuntimeError("Cannot have global embs with dynamic rels")
-            embs += self.global_embs[self.EMB_PREFIX + entity_type]
+            embs += self.global_embs[self.EMB_PREFIX + entity_type].to(device=embs.device)
 
         # 2. Apply the relation operator
         if operator is not None:
@@ -901,7 +910,7 @@ class MultiRelationEmbedder(nn.Module):
 
         ignore_mask: Mask = []
         if type_ is Negatives.NONE:
-            neg_embs = torch.empty((num_chunks, 0, dim))
+            neg_embs = pos_embs.new_empty((num_chunks, 0, dim))
         elif type_ is Negatives.UNIFORM:
             uniform_neg_embs = module.sample_entities(
                 num_chunks, num_uniform_neg)
@@ -926,7 +935,7 @@ class MultiRelationEmbedder(nn.Module):
                         )
                     ], dim=1)
 
-            chunk_indices = torch.arange(chunk_size, dtype=torch.long)
+            chunk_indices = torch.arange(chunk_size, dtype=torch.long, device=pos_embs.device)
             last_chunk_indices = chunk_indices[:last_chunk_size]
             # Ignore scores between positive pairs.
             ignore_mask.append(
@@ -951,7 +960,11 @@ class MultiRelationEmbedder(nn.Module):
                 logger.warning("Adding uniform negatives makes no sense "
                                "when already using all negatives")
 
-            chunk_indices = torch.arange(chunk_size, dtype=torch.long)
+            chunk_indices = torch.arange(
+                chunk_size,
+                dtype=torch.long,
+                device=pos_embs.device
+            )
             last_chunk_indices = chunk_indices[:last_chunk_size]
             # Ignore scores between positive pairs: since the i-th such pair has
             # the pos_input[i] entity on this side, ignore_mask[i, pos_input[i]]
@@ -959,7 +972,11 @@ class MultiRelationEmbedder(nn.Module):
             # the rows may be wrapped into multiple chunks (the last of which
             # may be smaller).
             ignore_mask.append((
-                torch.arange(num_chunks - 1, dtype=torch.long).unsqueeze(1),
+                torch.arange(
+                    num_chunks - 1,
+                    dtype=torch.long,
+                    device=pos_embs.device
+                ).unsqueeze(1),
                 chunk_indices.unsqueeze(0),
                 pos_input[:-last_chunk_size].view(num_chunks - 1, chunk_size),
             ))
@@ -1128,10 +1145,10 @@ class MultiRelationEmbedder(nn.Module):
         src_dim = src_pos.size(-1)
         dst_dim = dst_pos.size(-1)
         if num_pos < num_chunks * chunk_size:
-            src_padding = torch.zeros(()).expand(
+            src_padding = src_pos.new_zeros(()).expand(
                 (num_chunks * chunk_size - num_pos, src_dim))
             src_pos = torch.cat((src_pos, src_padding), dim=0)
-            dst_padding = torch.zeros(()).expand(
+            dst_padding = dst_pos.new_zeros(()).expand(
                 (num_chunks * chunk_size - num_pos, dst_dim))
             dst_pos = torch.cat((dst_pos, dst_padding), dim=0)
         src_pos = src_pos.view((num_chunks, chunk_size, src_dim))

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
 #
@@ -84,7 +86,7 @@ class TensorList(object):
 
     def __init__(self, offsets, data):
         # some sanity checks
-        assert(isinstance(offsets, torch.LongTensor))
+        assert(isinstance(offsets, (torch.LongTensor, torch.cuda.LongTensor)))
         assert(offsets.ndimension() == 1)
         assert(offsets[0] == 0)
         assert(offsets[-1] == (data.size(0) if data.ndimension() > 0 else 0))
@@ -99,7 +101,7 @@ class TensorList(object):
         self.data = data
 
     def __getitem__(self, index):
-        if isinstance(index, torch.LongTensor):
+        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)):
             offsets_sub = self.offsets[index]
             sizes_sub = self.offsets[index + 1] - offsets_sub
             new_offsets, new_data = _extract_intervals(
@@ -209,3 +211,9 @@ class TensorList(object):
             dim = self.data.ndimension() + dim
         assert dim > 0, "Can't sum along the 'list' dimension"
         return self.__class__(self.offsets, self.data.sum(dim, keepdim=keepdim))
+
+    def to(self, *args, **kwargs) -> "TensorList":
+        return type(self)(
+            self.offsets.to(*args, **kwargs),
+            self.data.to(*args, **kwargs),
+        )
