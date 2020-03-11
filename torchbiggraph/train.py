@@ -506,8 +506,10 @@ def train_and_report_stats(
             if embs is None and loadpath_manager is not None:
                 embs, optim_state = loadpath_manager.maybe_read(entity, part)
             if embs is None:
-                embs, optim_state = init_embs(entity, entity_counts[entity][part],
-                                              config.dimension, config.init_scale)
+                embs, optim_state = init_embs(
+                    entity, entity_counts[entity][part],
+                    config.entities[entity].dimension or config.dimension,
+                    config.init_scale)
         assert embs.is_shared()
         embs = torch.nn.Parameter(embs)
         optimizer = make_optimizer([embs], True)

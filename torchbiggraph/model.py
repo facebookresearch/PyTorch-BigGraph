@@ -767,7 +767,7 @@ class MultiRelationEmbedder(nn.Module):
 
     def __init__(
         self,
-        dim: int,
+        default_dim: int,
         relations: List[RelationSchema],
         entities: Dict[str, EntitySchema],
         num_batch_negs: int,
@@ -782,8 +782,6 @@ class MultiRelationEmbedder(nn.Module):
         num_dynamic_rels: int = 0,
     ) -> None:
         super().__init__()
-
-        self.dim: int = dim
 
         self.relations: List[RelationSchema] = relations
         self.entities: Dict[str, EntitySchema] = entities
@@ -806,10 +804,11 @@ class MultiRelationEmbedder(nn.Module):
         self.rhs_embs: nn.ParameterDict = nn.ModuleDict()
 
         if global_emb:
-            self.global_embs: Optional[nn.ParameterDict] = nn.ParameterDict()
-            for entity in entities.keys():
-                self.global_embs[self.EMB_PREFIX + entity] = \
-                    nn.Parameter(torch.zeros((dim,)))
+            global_embs = nn.ParameterDict()
+            for entity, entity_schema in entities.items():
+                global_embs[self.EMB_PREFIX + entity] = \
+                    nn.Parameter(torch.zeros((entity_schema.dimension or default_dim,)))
+            self.global_embs = global_embs
         else:
             self.global_embs: Optional[nn.ParameterDict] = None
 
@@ -1126,12 +1125,17 @@ class MultiRelationEmbedder(nn.Module):
         dst_pos = self.adjust_embs(dst_pos, rel, dst_entity_type, dst_operator)
 
         num_chunks = ceil_of_ratio(num_pos, chunk_size)
+        src_dim = src_pos.size(-1)
+        dst_dim = dst_pos.size(-1)
         if num_pos < num_chunks * chunk_size:
-            padding = torch.zeros(()).expand((num_chunks * chunk_size - num_pos, self.dim))
-            src_pos = torch.cat((src_pos, padding), dim=0)
-            dst_pos = torch.cat((dst_pos, padding), dim=0)
-        src_pos = src_pos.view((num_chunks, chunk_size, self.dim))
-        dst_pos = dst_pos.view((num_chunks, chunk_size, self.dim))
+            src_padding = torch.zeros(()).expand(
+                (num_chunks * chunk_size - num_pos, src_dim))
+            src_pos = torch.cat((src_pos, src_padding), dim=0)
+            dst_padding = torch.zeros(()).expand(
+                (num_chunks * chunk_size - num_pos, dst_dim))
+            dst_pos = torch.cat((dst_pos, dst_padding), dim=0)
+        src_pos = src_pos.view((num_chunks, chunk_size, src_dim))
+        dst_pos = dst_pos.view((num_chunks, chunk_size, dst_dim))
 
         src_neg, src_ignore_mask = self.prepare_negatives(
             src, src_pos, src_module, src_negative_sampling_method,
@@ -1189,9 +1193,11 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
     rhs_operators: List[Optional[Union[AbstractOperator, AbstractDynamicOperator]]] = []
     for r in config.relations:
         lhs_operators.append(
-            instantiate_operator(r.operator, Side.LHS, num_dynamic_rels, config.dimension))
+            instantiate_operator(r.operator, Side.LHS, num_dynamic_rels,
+                                 config.entities[r.lhs].dimension or config.dimension))
         rhs_operators.append(
-            instantiate_operator(r.operator, Side.RHS, num_dynamic_rels, config.dimension))
+            instantiate_operator(r.operator, Side.RHS, num_dynamic_rels,
+                                 config.entities[r.rhs].dimension or config.dimension))
 
     comparator_class = COMPARATORS.get_class(config.comparator)
     comparator = comparator_class()

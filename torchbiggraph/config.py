@@ -69,6 +69,11 @@ class EntitySchema(Schema):
         metadata={'help': "Whether the entities of this type are represented "
                           "as sets of features."},
     )
+    dimension: Optional[int] = attr.ib(
+        default=None,
+        validator=optional(positive),
+        metadata={'help': "Override the default dimension for this entity."}
+    )
 
 
 @schema
