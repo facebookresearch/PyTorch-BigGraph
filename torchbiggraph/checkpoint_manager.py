@@ -139,8 +139,13 @@ class PartitionClient:
     partitions (i.e. pairs (embs, optim_state)) to the parameter servers.
     """
 
-    def __init__(self, server_ranks: List[Rank], log_stats: bool = False) -> None:
-        self._clients = [ParameterClient(rank, log_stats) for rank in server_ranks]
+    def __init__(
+        self,
+        server_ranks: List[Rank],
+        groups: Optional[List['td.ProcessGroup']] = None,
+        log_stats: bool = False,
+    ) -> None:
+        self._clients = [ParameterClient(rank, groups, log_stats) for rank in server_ranks]
 
     def store(
         self,

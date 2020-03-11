@@ -358,6 +358,11 @@ def train_and_report_stats(
         ranks = ProcessRanks.from_num_invocations(
             config.num_machines, config.num_partition_servers)
 
+        num_ps_groups = config.num_groups_for_partition_server
+        groups: List[List[int]] = [ranks.trainers]  # barrier group
+        groups += [ranks.trainers + ranks.partition_servers] * num_ps_groups  # ps groups
+        group_idxs_for_partition_servers = range(1, len(groups))
+    
         if rank == RANK_ZERO:
             logger.info("Setup lock server...")
             start_server(
@@ -374,7 +379,7 @@ def train_and_report_stats(
                 init_method=config.distributed_init_method,
                 world_size=ranks.world_size,
                 server_rank=ranks.lock_server,
-                groups=[ranks.trainers],
+                groups=groups,
                 subprocess_init=subprocess_init,
             )
 
@@ -390,7 +395,7 @@ def train_and_report_stats(
             init_method=config.distributed_init_method,
             world_size=ranks.world_size,
             server_rank=ranks.parameter_servers[rank],
-            groups=[ranks.trainers],
+            groups=groups,
             subprocess_init=subprocess_init,
         )
 
@@ -400,35 +405,42 @@ def train_and_report_stats(
             all_server_ranks=ranks.parameter_servers,
             init_method=config.distributed_init_method,
             world_size=ranks.world_size,
-            groups=[ranks.trainers],
+            groups=groups,
             subprocess_init=subprocess_init,
         )
 
         if config.num_partition_servers == -1:
             start_server(
-                ParameterServer(num_clients=len(ranks.trainers), log_stats=True),
+                ParameterServer(
+                    num_clients=len(ranks.trainers),
+                    group_idxs=group_idxs_for_partition_servers,
+                    log_stats=True,
+                ),
                 process_name=f"PartS-{rank}",
                 init_method=config.distributed_init_method,
                 world_size=ranks.world_size,
                 server_rank=ranks.partition_servers[rank],
-                groups=[ranks.trainers],
+                groups=groups,
                 subprocess_init=subprocess_init,
             )
-
-        if len(ranks.partition_servers) > 0:
-            partition_client = PartitionClient(ranks.partition_servers, log_stats=True)
-        else:
-            partition_client = None
 
         groups = init_process_group(
             rank=ranks.trainers[rank],
             world_size=ranks.world_size,
             init_method=config.distributed_init_method,
-            groups=[ranks.trainers],
+            groups=groups,
         )
-        trainer_group, = groups
+        trainer_group, *groups_for_partition_servers = groups
         sync = DistributedSynchronizer(trainer_group)
 
+        if len(ranks.partition_servers) > 0:
+            partition_client = PartitionClient(
+                ranks.partition_servers,
+                groups=groups_for_partition_servers,
+                log_stats=True,
+            )
+        else:
+            partition_client = None
     else:
         sync = DummySynchronizer()
         bucket_scheduler = SingleMachineBucketScheduler(

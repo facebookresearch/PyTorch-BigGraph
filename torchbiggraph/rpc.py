@@ -99,7 +99,7 @@ class Server(object):
         """
         self.num_clients = num_clients
 
-    def start(self):
+    def start(self, groups=None):
         join_clients = []
 
         while True:

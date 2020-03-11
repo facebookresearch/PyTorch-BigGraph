@@ -98,7 +98,7 @@ def init_process_group(
 class Startable(ABC):
 
     @abstractmethod
-    def start(self) -> None:
+    def start(self, groups: List['td.ProcessGroup']) -> None:
         pass
 
 
@@ -114,13 +114,13 @@ def _server_init(
     tag_logs_with_process_name(process_name)
     if subprocess_init is not None:
         subprocess_init()
-    init_process_group(
+    groups = init_process_group(
         init_method=init_method,
         world_size=world_size,
         rank=server_rank,
         groups=groups,
     )
-    server.start()
+    server.start(groups)
 
 
 def start_server(

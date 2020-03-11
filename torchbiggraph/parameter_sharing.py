@@ -20,7 +20,11 @@ import torch.nn as nn
 
 from torchbiggraph.distributed import Startable, init_process_group
 from torchbiggraph.types import CharTensorType, ModuleStateDict, Rank
-from torchbiggraph.util import allocate_shared_tensor, tag_logs_with_process_name
+from torchbiggraph.util import (
+    allocate_shared_tensor,
+    tag_logs_with_process_name,
+    split_almost_equally,
+)
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -70,12 +74,20 @@ class ParameterServer(Startable):
     That would simplify this code a lot.
     """
 
-    def __init__(self, num_clients: int, log_stats: bool = False) -> None:
+    def __init__(
+        self,
+        num_clients: int,
+        group_idxs: Optional[List[int]] = None,
+        log_stats: bool = False,
+    ) -> None:
         self.num_clients = num_clients
         self.parameters: Dict[str, torch.Tensor] = {}
+        self.group_idxs = group_idxs
+        self.groups: Optional[List['td.ProcessGroup']] = None
         self.log_stats = log_stats
 
-    def start(self) -> None:
+    def start(self, groups: List['td.ProcessGroup']) -> None:
+        self.groups = [groups[idx] for idx in self.group_idxs] if self.group_idxs is not None else None
         join_count = 0
         while True:
             # 1. receive the command
@@ -144,7 +156,16 @@ class ParameterServer(Startable):
         data = torch.empty(size, dtype=dtype)
 
         start_t = time.monotonic()
-        td.recv(data, src=rank)
+        if self.groups is None:
+            td.recv(tensor=data, src=rank)
+        else:
+            outstanding_work = []
+            flattened_data = data.flatten()
+            flattened_size = flattened_data.shape[0]
+            for idx, (pg, slice_) in enumerate(zip(self.groups, split_almost_equally(flattened_size, num_parts=len(self.groups)))):
+                outstanding_work.append(td.irecv(tensor=flattened_data[slice_], src=rank, group=pg, tag=idx))
+            for w in outstanding_work:
+                w.wait()
         end_t = time.monotonic()
         if self.log_stats:
             stats_size = data.numel() * data.element_size()
@@ -174,7 +195,16 @@ class ParameterServer(Startable):
             td.send(torch.tensor(list(data.size()), dtype=torch.long), rank)
 
         start_t = time.monotonic()
-        td.send(data, dst=rank)
+        if self.groups is None:
+            td.send(data, dst=rank)
+        else:
+            outstanding_work = []
+            flattened_data = data.flatten()
+            flattened_size = flattened_data.shape[0]
+            for idx, (pg, slice_) in enumerate(zip(self.groups, split_almost_equally(flattened_size, num_parts=len(self.groups)))):
+                outstanding_work.append(td.isend(tensor=flattened_data[slice_], dst=rank, group=pg, tag=idx))
+            for w in outstanding_work:
+                w.wait()
         end_t = time.monotonic()
         if self.log_stats:
             stats_size = data.numel() * data.element_size()
@@ -190,8 +220,14 @@ class ParameterClient:
     """Client for ParameterServer.
     Supports store, accumulate, swap, swap-accumulate, and get operations."""
 
-    def __init__(self, server_rank: int, log_stats: bool = False) -> None:
+    def __init__(
+        self,
+        server_rank: int,
+        groups: Optional[List['td.ProcessGroup']] = None,
+        log_stats: bool = False,
+    ) -> None:
         self.server_rank = server_rank
+        self.groups = groups
         self.log_stats = log_stats
 
     def store(
@@ -215,7 +251,16 @@ class ParameterClient:
         if not accum:
             td.send(torch.tensor(list(src.size()), dtype=torch.long), self.server_rank)
         start_t = time.monotonic()
-        td.send(src, self.server_rank)
+        if self.groups is None:
+            td.send(src, dst=self.server_rank)
+        else:
+            outstanding_work = []
+            flattened_src = src.flatten()
+            flattened_size = flattened_src.shape[0]
+            for idx, (pg, slice_) in enumerate(zip(self.groups, split_almost_equally(flattened_size, num_parts=len(self.groups)))):
+                outstanding_work.append(td.isend(tensor=flattened_src[slice_], dst=self.server_rank, group=pg, tag=idx))
+            for w in outstanding_work:
+                w.wait()
         end_t = time.monotonic()
         if self.log_stats:
             stats_size = src.numel() * src.element_size()
@@ -251,7 +296,16 @@ class ParameterClient:
             else:
                 dst = torch.empty(size.tolist(), dtype=dtype)
         start_t = time.monotonic()
-        td.recv(dst, src=self.server_rank)
+        if self.groups is None:
+            td.recv(dst, src=self.server_rank)
+        else:
+            outstanding_work = []
+            flattened_dst = dst.flatten()
+            flattened_size = flattened_dst.shape[0]
+            for idx, (pg, slice_) in enumerate(zip(self.groups, split_almost_equally(flattened_size, num_parts=len(self.groups)))):
+                outstanding_work.append(td.irecv(tensor=flattened_dst[slice_], src=self.server_rank, group=pg, tag=idx))
+            for w in outstanding_work:
+                w.wait()
         end_t = time.monotonic()
         if self.log_stats:
             stats_size = dst.numel() * dst.element_size()

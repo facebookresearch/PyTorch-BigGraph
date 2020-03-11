@@ -378,6 +378,13 @@ class ConfigSchema(Schema):
                           "one of its partitions is 0, for bootstrapping)."},
     )
 
+    num_groups_for_partition_server: int = attr.ib(
+        default=1,
+        metadata={'help': "Number of td.distributed 'groups' to use. Setting "
+                          "this to a value around 16 typically increases "
+                          "communication bandwidth."},
+    )
+
     # Additional global validation.
 
     def __attrs_post_init__(self):

@@ -8,7 +8,7 @@
 
 import argparse
 import logging
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import torch.distributed as td
 
@@ -50,16 +50,26 @@ def run_partition_server(
                            "distributed training capabilities.")
     ranks = ProcessRanks.from_num_invocations(
         config.num_machines, config.num_partition_servers)
+   
+    num_ps_groups = config.num_groups_for_partition_server
+    groups: List[List[int]] = [ranks.trainers]  # barrier group
+    groups += [ranks.trainers + ranks.partition_servers] * num_ps_groups  # ps groups
+    group_idxs_for_partition_servers = range(1, len(groups))
+
     if subprocess_init is not None:
         subprocess_init()
-    init_process_group(
+    groups = init_process_group(
         rank=ranks.partition_servers[rank],
         world_size=ranks.world_size,
         init_method=config.distributed_init_method,
-        groups=[ranks.trainers],
+        groups=groups,
     )
-    ps = ParameterServer(num_clients=len(ranks.trainers), log_stats=True)
-    ps.start()
+    ps = ParameterServer(
+        num_clients=len(ranks.trainers),
+        group_idxs=group_idxs_for_partition_servers,
+        log_stats=True,
+    )
+    ps.start(groups)
 
 
 def main():
