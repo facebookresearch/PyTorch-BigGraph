@@ -576,10 +576,6 @@ class TestFunctional(TestCase):
             if not trainer1.is_alive() and not done[1]:
                 self.assertEqual(trainer1.exitcode, 0)
                 done[1] = True
-            if not partition_server.is_alive():
-                self.fail("Partition server died with exit code %d"
-                          % partition_server.exitcode)
-        partition_server.terminate()  # Cannot be shut down gracefully.
         partition_server.join()
         logger.info(f"Partition server died with exit code {partition_server.exitcode}")
         self.assertCheckpointWritten(train_config, version=1)

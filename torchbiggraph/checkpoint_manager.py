@@ -508,8 +508,8 @@ class CheckpointManager:
             self.pool.close()
             self.pool.join()
 
+        self.join()
+
     def join(self) -> None:
-        # FIXME: this whole join thing doesn't work with torch.distributed
-        # can just get rid of it
         if self.partition_client is not None:
             self.partition_client.join()
