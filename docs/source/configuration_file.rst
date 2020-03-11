@@ -247,10 +247,6 @@ See :ref:`dynamic-relations` for more details.
 Misc
 ^^^^
 
-- ``background_io`` (type: boolean; default: ``false``)
-
-  Whether to do load/save in a background process.
-
 - ``verbose`` (type: integer; default: ``0``)
 
   The verbosity level of logging, currently 0 or 1.

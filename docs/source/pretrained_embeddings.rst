@@ -62,7 +62,6 @@ The embeddings were trained with the following configuration::
             eval_num_uniform_negs=0,
 
             # Misc
-            background_io=False,
             verbose=1,
         )
 

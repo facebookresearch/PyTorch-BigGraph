@@ -9,11 +9,8 @@
 import io
 import json
 import logging
-import multiprocessing as mp
-import multiprocessing.pool  # noqa: F401
 import re
 from abc import ABC, abstractmethod
-from collections import OrderedDict
 from typing import (
     Any,
     Callable,
@@ -47,7 +44,7 @@ from torchbiggraph.types import (
     Partition,
     Rank,
 )
-from torchbiggraph.util import CouldNotLoadData, create_pool, get_async_result
+from torchbiggraph.util import CouldNotLoadData
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -222,7 +219,6 @@ class CheckpointManager:
         url: str,
         rank: Rank = 0,
         num_machines: int = 1,
-        background: bool = False,
         partition_client: Optional[PartitionClient] = None,
         subprocess_name: Optional[str] = None,
         subprocess_init: Optional[Callable[[], None]] = None,
@@ -236,17 +232,6 @@ class CheckpointManager:
 
         self.checkpoint_version = self.storage.load_version()
 
-        self.background: bool = background
-        if self.background:
-            self.pool: mp.pool.Pool = create_pool(
-                1,
-                subprocess_name=subprocess_name,
-                subprocess_init=subprocess_init,
-            )
-            # FIXME In py-3.7 switch to typing.OrderedDict[str, AsyncResult].
-            self.outstanding: OrderedDict = OrderedDict()
-            self.prefetched: Dict[str, Tuple[FloatTensorType, Optional[OptimizerStateDict]]] = {}
-
         self.partition_client = partition_client
 
         self.metadata_providers: List[MetadataProvider] = []
@@ -259,38 +244,6 @@ class CheckpointManager:
         for provider in self.metadata_providers:
             metadata.update(provider.get_checkpoint_metadata())
         return metadata
-
-    def record_marker(self, marker: int) -> None:
-        assert self.background
-        marker_token = f"marker {marker}"
-        future_res = self.pool.apply_async(noop, ())
-        self.outstanding[marker_token] = future_res
-
-    def wait_for_marker(self, marker: int) -> None:
-        marker_token = f"marker {marker}"
-        if marker_token not in self.outstanding:
-            return
-        self._sync(marker_token)
-
-    def _sync(self, sync_token: Optional[str] = None) -> None:
-        assert self.background
-        logger.debug(f"CheckpointManager=>_sync( {sync_token} )")
-        logger.debug(f"outstanding= {set(self.outstanding)}")
-        while len(self.outstanding) > 0:
-            token, future_res = self.outstanding.popitem(last=False)
-            try:
-                res = get_async_result(future_res, self.pool)
-            except CouldNotLoadData:
-                # Don't freak out if prefetch fails, read will just try again.
-                res = None
-
-            if res is not None:
-                logger.info(
-                    f"Setting prefetched {token}; {len(self.outstanding)} outstanding")
-                self.prefetched[token] = res
-
-            if sync_token is not None and token == sync_token:
-                break
 
     def _version(self, dirty: bool = False) -> int:
         version = self.checkpoint_version
@@ -310,23 +263,12 @@ class CheckpointManager:
             self.dirty.add((entity, part))
 
         version = self._version((entity, part) in self.dirty)
-        token = f"entity {entity} {part} v{version}"
-
-        if self.background:
-            self._sync(token)
 
         metadata = self.collect_metadata()
         serialized_optim_state = serialize_optim_state(optim_state)
 
         if self.partition_client is not None:
             self.partition_client.store(entity, part, embs, serialized_optim_state)
-        elif self.background:
-            if token in self.prefetched:
-                self.prefetched.pop(token)
-            future_res = self.pool.apply_async(
-                self.storage.save_entity_partition,
-                (version, entity, part, embs, serialized_optim_state, metadata))
-            self.outstanding[token] = future_res
         else:
             self.storage.save_entity_partition(
                 version, entity, part, embs, serialized_optim_state, metadata)
@@ -344,16 +286,8 @@ class CheckpointManager:
             self.dirty.add((entity, part))
 
         version = self._version((entity, part) in self.dirty)
-        token = f"entity {entity} {part} v{version}"
         if (entity, part) in self.dirty and self.partition_client is not None:
             embs, serialized_optim_state = self.partition_client.get(entity, part)
-        elif self.background:
-            self._sync(token)
-            if token in self.prefetched:
-                embs, serialized_optim_state = self.prefetched.pop(token)
-            else:
-                embs, serialized_optim_state = \
-                    self.storage.load_entity_partition(version, entity, part)
         else:
             embs, serialized_optim_state = \
                 self.storage.load_entity_partition(version, entity, part)
@@ -374,24 +308,6 @@ class CheckpointManager:
             if (entity, part) in self.dirty:
                 raise
             return None, None
-
-    def prefetch(
-        self,
-        entity: EntityName,
-        part: Partition,
-    ) -> None:
-        if not self.background:
-            return
-
-        version = self._version((entity, part) in self.dirty)
-        token = f"entity {entity} {part} v{version}"
-        if token in self.outstanding or token in self.prefetched:
-            logger.debug(f"Bailing from prefetch of {token}")
-            return
-        future_res = self.pool.apply_async(
-            self.storage.load_entity_partition,
-            (version, entity, part))
-        self.outstanding[token] = future_res
 
     def write_model(
         self,
@@ -446,8 +362,6 @@ class CheckpointManager:
             pass
 
     def write_new_version(self, config: ConfigSchema) -> None:
-        if self.background:
-            self._sync()
         metadata = self.collect_metadata()
         new_version = self._version(True)
         if self.partition_client is not None:
@@ -504,10 +418,6 @@ class CheckpointManager:
             self.storage.copy_version_to_snapshot(version, epoch_idx)
 
     def close(self) -> None:
-        if self.background:
-            self.pool.close()
-            self.pool.join()
-
         self.join()
 
     def join(self) -> None:

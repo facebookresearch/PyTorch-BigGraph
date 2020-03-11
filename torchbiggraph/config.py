@@ -322,7 +322,8 @@ class ConfigSchema(Schema):
 
     background_io: bool = attr.ib(
         default=False,
-        metadata={'help': "Whether to do load/save in a background process."},
+        metadata={'help': "Whether to do load/save in a background process. "
+                          "DEPRECATED."},
     )
     verbose: int = attr.ib(
         default=0,
@@ -400,6 +401,10 @@ class ConfigSchema(Schema):
 
         if self.disable_lhs_negs and self.disable_rhs_negs:
             raise ValueError("Cannot disable negative sampling on both sides.")
+
+        if self.background_io:
+            logger.warning("`background_io` is deprecated and will have no effect.")
+
 
 
 # TODO make this a non-inplace operation

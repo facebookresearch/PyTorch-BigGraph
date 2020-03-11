@@ -457,12 +457,8 @@ def train_and_report_stats(
         optimizer.share_memory()
         return optimizer
 
-    # background_io is only supported in single-machine mode
-    background_io = config.background_io and config.num_machines == 1
-
     checkpoint_manager = CheckpointManager(
         config.checkpoint_path,
-        background=background_io,
         rank=rank,
         num_machines=config.num_machines,
         partition_client=partition_client,
@@ -677,19 +673,6 @@ def train_and_report_stats(
 
             current_index = \
                 (iteration_manager.iteration_idx + 1) * total_buckets - remaining
-
-            next_b = bucket_scheduler.peek()
-            if next_b is not None and background_io:
-                # Ensure the previous bucket finished writing to disk.
-                checkpoint_manager.wait_for_marker(current_index - 1)
-
-                bucket_logger.debug("Prefetching")
-                for entity in holder.lhs_partitioned_types:
-                    checkpoint_manager.prefetch(entity, next_b.lhs)
-                for entity in holder.rhs_partitioned_types:
-                    checkpoint_manager.prefetch(entity, next_b.rhs)
-
-                checkpoint_manager.record_marker(current_index)
 
             bucket_logger.debug("Loading edges")
             edges = edge_storage.load_chunk_of_edges(
