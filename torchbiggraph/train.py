@@ -345,7 +345,7 @@ def train_and_report_stats(
     bucket_scheduler: AbstractBucketScheduler
     parameter_sharer: Optional[ParameterSharer]
     partition_client: Optional[PartitionClient]
-    if config.num_machines > 1:
+    if config.num_machines > 1 or config.num_partition_servers > 0:
         if not 0 <= rank < config.num_machines:
             raise RuntimeError("Invalid rank for trainer")
         if not td.is_available():
