@@ -25,7 +25,7 @@ class TestSplitAlmostEqually(TestCase):
     def test_more(self):
         self.assertEqual(
             list(split_almost_equally(25, num_parts=4)),
-            [slice(0, 7), slice(7, 13), slice(13, 19), slice(19, 25)],
+            [slice(0, 7), slice(7, 14), slice(14, 21), slice(21, 25)],
         )
 
     def test_fewer(self):

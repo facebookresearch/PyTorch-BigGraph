@@ -11,6 +11,7 @@ import logging
 import math
 import time
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from functools import partial
 from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple
 
@@ -73,6 +74,7 @@ from torchbiggraph.util import (
     BucketLogger,
     DummyOptimizer,
     EmbeddingHolder,
+    allocate_shared_tensor,
     create_pool,
     fast_approx_rand,
     get_async_result,
@@ -168,19 +170,6 @@ class TrainingRankingEvaluator(RankingEvaluator):
                             num_batch_negs=self.override_num_batch_negs,
                             num_uniform_negs=self.override_num_uniform_negs):
             return super().process_one_batch(model, batch_edges)
-
-
-def init_embs(
-    entity: EntityName,
-    entity_count: int,
-    dim: int,
-    scale: float,
-) -> Tuple[FloatTensorType, None]:
-    """Initialize embeddings of size entity_count x dim.
-    """
-    # FIXME: Use multi-threaded instead of fast_approx_rand
-    logger.debug(f"Initializing {entity}")
-    return fast_approx_rand(entity_count * dim).view(entity_count, dim).mul_(scale), None
 
 
 RANK_ZERO = Rank(0)
@@ -341,6 +330,21 @@ def train_and_report_stats(
         f"types {holder.lhs_partitioned_types} {holder.rhs_partitioned_types}")
     total_buckets = holder.nparts_lhs * holder.nparts_rhs
 
+    # We know ahead of time that we wil need 1-2 storages for each embedding type,
+    # as well as the max size of this storage (num_entities x D).
+    # We allocate these storages n advance in `embedding_storage_freelist`.
+    # When we need storage for an entity type, we pop it from this free list,
+    # and then add it back when we 'delete' the embedding table.
+    embedding_storage_freelist: Dict[EntityName, Set[torch.FloatStorage]] = defaultdict(set)
+    for entity_type, counts in entity_counts.items():
+        max_count = max(counts)
+        num_sides = ((1 if entity_type in holder.lhs_partitioned_types else 0)
+                     + (1 if entity_type in holder.rhs_partitioned_types else 0)
+                     + (1 if entity_type in (holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types) else 0))
+        for _ in range(num_sides):
+            embedding_storage_freelist[entity_type].add(
+                allocate_shared_tensor((max_count, config.dimension), dtype=torch.float).storage())
+
     sync: AbstractSynchronizer
     bucket_scheduler: AbstractBucketScheduler
     parameter_sharer: Optional[ParameterSharer]
@@ -487,26 +491,28 @@ def train_and_report_stats(
     def load_embeddings(
         entity: EntityName,
         part: Partition,
+        out: FloatTensorType,
         strict: bool = False,
         force_dirty: bool = False,
     ) -> Tuple[torch.nn.Parameter, Adagrad]:
         if strict:
             embs, optim_state = checkpoint_manager.read(entity, part,
+                                                        out=out,
                                                         force_dirty=force_dirty)
         else:
             # Strict is only false during the first iteration, because in that
             # case the checkpoint may not contain any data (unless a previous
             # run was resumed) so we fall back on initial values.
             embs, optim_state = checkpoint_manager.maybe_read(entity, part,
+                                                              out=out,
                                                               force_dirty=force_dirty)
             if embs is None and loadpath_manager is not None:
-                embs, optim_state = loadpath_manager.maybe_read(entity, part)
+                embs, optim_state = loadpath_manager.maybe_read(entity, part, out=out)
             if embs is None:
-                embs, optim_state = init_embs(
-                    entity, entity_counts[entity][part],
-                    config.entities[entity].dimension or config.dimension,
-                    config.init_scale)
-        assert embs.is_shared()
+                embs = out
+                fast_approx_rand(embs)
+                embs.mul_(config.init_scale)
+                optim_state = None
         embs = torch.nn.Parameter(embs)
         optimizer = make_optimizer([embs], True)
         if optim_state is not None:
@@ -543,7 +549,10 @@ def train_and_report_stats(
 
     logger.debug("Loading unpartitioned entities...")
     for entity in holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types:
-        embs, optimizer = load_embeddings(entity, Partition(0))
+        count = entity_counts[entity][0]
+        s = embedding_storage_freelist[entity].pop()
+        embs = torch.FloatTensor(s).view(-1, config.dimension)[:count]
+        embs, optimizer = load_embeddings(entity, Partition(0), out=embs)
         holder.unpartitioned_embeddings[entity] = embs
         trainer.unpartitioned_optimizers[entity] = optimizer
 
@@ -594,6 +603,7 @@ def train_and_report_stats(
                 checkpoint_manager.write(
                     entity, part,
                     embs.detach(), OptimizerStateDict(optimizer.state_dict()))
+                embedding_storage_freelist[entity].add(embs.storage())
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
                 # these variables are holding large objects; let them be freed
                 del embs
@@ -606,8 +616,11 @@ def train_and_report_stats(
             for entity, part in new_parts - old_parts:
                 logger.debug(f"Loading ({entity} {part})")
                 force_dirty = bucket_scheduler.check_and_set_dirty(entity, part)
+                count = entity_counts[entity][part]
+                s = embedding_storage_freelist[entity].pop()
+                embs = torch.FloatTensor(s).view(-1, config.dimension)[:count]
                 embs, optimizer = load_embeddings(
-                    entity, part, strict=strict, force_dirty=force_dirty)
+                    entity, part, out=embs, strict=strict, force_dirty=force_dirty)
                 holder.partitioned_embeddings[entity, part] = embs
                 trainer.partitioned_optimizers[entity, part] = optimizer
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
@@ -836,7 +849,7 @@ def train_and_report_stats(
             checkpoint_manager.append_stats(all_stats_dicts)
 
         logger.info("Writing the checkpoint")
-        checkpoint_manager.write_new_version(config)
+        checkpoint_manager.write_new_version(config, entity_counts, embedding_storage_freelist)
 
         dist_logger.info("Waiting for other workers to write their parts of the checkpoint")
         sync.barrier()

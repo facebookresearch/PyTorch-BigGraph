@@ -160,10 +160,11 @@ class PartitionClient:
         self,
         entity: EntityName,
         part: Partition,
+        out: Optional[FloatTensorType] = None,
     ) -> Tuple[FloatTensorType, Optional[bytes]]:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
-        embs = client.get(key + "__embs", shared=True)
+        embs = client.get(key + "__embs", dst=out, shared=True)
         assert embs is not None
         optim_state_tensor = client.get(key + "__optim")
         if optim_state_tensor is not None:
@@ -277,6 +278,7 @@ class CheckpointManager:
         self,
         entity: EntityName,
         part: Partition,
+        out: Optional[FloatTensorType] = None,
         *,
         force_dirty: bool = False,
     ) -> Tuple[FloatTensorType, Optional[OptimizerStateDict]]:
@@ -287,10 +289,10 @@ class CheckpointManager:
 
         version = self._version((entity, part) in self.dirty)
         if (entity, part) in self.dirty and self.partition_client is not None:
-            embs, serialized_optim_state = self.partition_client.get(entity, part)
+            embs, serialized_optim_state = self.partition_client.get(entity, part, out)
         else:
             embs, serialized_optim_state = \
-                self.storage.load_entity_partition(version, entity, part)
+                self.storage.load_entity_partition(version, entity, part, out)
         optim_state = deserialize_optim_state(serialized_optim_state)
         return embs, optim_state
 
@@ -298,11 +300,12 @@ class CheckpointManager:
         self,
         entity: EntityName,
         part: Partition,
+        out: Optional[FloatTensorType] = None,
         *,
         force_dirty: bool = False,
     ) -> Tuple[Optional[FloatTensorType], Optional[OptimizerStateDict]]:
         try:
-            return self.read(entity, part, force_dirty=force_dirty)
+            return self.read(entity, part, out=out, force_dirty=force_dirty)
         except CouldNotLoadData:
             # if it's dirty then we've already written this file, so it should exist
             if (entity, part) in self.dirty:
@@ -361,15 +364,24 @@ class CheckpointManager:
         except CouldNotLoadData:
             pass
 
-    def write_new_version(self, config: ConfigSchema) -> None:
+    def write_new_version(
+        self,
+        config: ConfigSchema,
+        entity_counts: Dict[EntityName, List[int]],
+        embedding_storage_freelist: Dict[EntityName, Set[torch.FloatStorage]],
+    ) -> None:
         metadata = self.collect_metadata()
         new_version = self._version(True)
         if self.partition_client is not None:
             for entity, econf in config.entities.items():
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
                     logger.debug(f"Getting {entity} {part}")
-                    embs, serialized_optim_state = \
-                        self.partition_client.get(EntityName(entity), Partition(part))
+                    count = entity_counts[entity][part]
+                    s = next(iter(embedding_storage_freelist[entity]))
+                    out = torch.FloatTensor(s).view(-1, config.dimension)[:count]
+                    embs, serialized_optim_state = self.partition_client.get(
+                        EntityName(entity), Partition(part), out=out
+                    )
                     logger.debug(f"Done getting {entity} {part}")
                     logger.debug(f"Saving {entity} {part} v{new_version}")
                     self.storage.save_entity_partition(

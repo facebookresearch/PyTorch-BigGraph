@@ -75,6 +75,7 @@ class AbstractCheckpointStorage(ABC):
         version: int,
         entity_name: EntityName,
         partition: Partition,
+        out: Optional[FloatTensorType] = None,
     ) -> Tuple[FloatTensorType, Optional[bytes]]:
         pass
 
@@ -167,13 +168,14 @@ def save_embeddings(hf: h5py.File, embeddings: FloatTensorType) -> None:
     hf.create_dataset(EMBEDDING_DATASET, data=embeddings.numpy())
 
 
-def load_embeddings(hf: h5py.File) -> FloatTensorType:
+def load_embeddings(hf: h5py.File, out: Optional[FloatTensorType] = None) -> FloatTensorType:
     dataset: h5py.Dataset = hf[EMBEDDING_DATASET]
-    embeddings = allocate_shared_tensor(dataset.shape, dtype=torch.float)
+    if out is None:
+        out = allocate_shared_tensor(dataset.shape, dtype=torch.float)
     # Needed because https://github.com/h5py/h5py/issues/870.
     if dataset.size > 0:
-        dataset.read_direct(embeddings.numpy())
-    return embeddings
+        dataset.read_direct(out.numpy())
+    return out
 
 
 def save_optimizer_state_dict(
@@ -346,6 +348,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         version: int,
         entity_name: EntityName,
         partition: Partition,
+        out: Optional[FloatTensorType] = None,
     ) -> Tuple[FloatTensorType, Optional[bytes]]:
         path = self.get_entity_partition_file(version, entity_name, partition)
         logger.debug(f"Loading from {path}")
@@ -353,7 +356,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
             with h5py.File(path, "r") as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                     raise RuntimeError(f"Version mismatch in embeddings file {path}")
-                embs = load_embeddings(hf)
+                embs = load_embeddings(hf, out=out)
                 optim_state = load_optimizer_state_dict(hf)
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno

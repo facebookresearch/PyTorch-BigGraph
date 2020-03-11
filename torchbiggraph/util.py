@@ -136,34 +136,30 @@ def split_almost_equally(size: int, *, num_parts: int) -> Iterable[slice]:
     "exact" fractional size, with larger intervals preceding smaller ones.
 
     """
-    size_per_part = size // num_parts
-    num_larger_parts = size % num_parts
-    prev = 0
+    size_per_part = size // num_parts + (1 if size % num_parts != 0 else 0)
     for i in range(num_parts):
-        next_ = prev + size_per_part + (1 if i < num_larger_parts else 0)
-        yield slice(prev, next_)
-        prev = next_
+        yield slice(i * size_per_part, min((i + 1) * size_per_part, size))
+
+
+def div_roundup(num: int, denom: int) -> int:
+    return (num + denom - 1) // denom
 
 
 def round_up_to_nearest_multiple(value: int, factor: int) -> int:
     return ((value - 1) // factor + 1) * factor
 
 
-def fast_approx_rand(numel: int) -> FloatTensorType:
+def fast_approx_rand(out: FloatTensorType) -> None:
+    out = out.flatten()
+    numel = out.numel()
     if numel < 1_000_003:
-        tensor = torch.randn(numel)
-        # share_memory_ does return the tensor but its type annotation says it
-        # doesn't, thus we do this in two separate steps.
-        tensor.share_memory_()
-        return tensor
-    # construct the tensor storage in shared mem so we don't have to copy it
-    tensor = allocate_shared_tensor((numel,), dtype=torch.float)
-    rand = torch.randn(1_000_003)
+        torch.randn(numel, out=out)
+        return
+    t = torch.randn(1_000_003)
     excess = numel % 1_000_003
     # Using just `-excess` would give bad results when excess == 0.
-    tensor[:numel - excess].view(-1, 1_000_003)[...] = rand
-    tensor[numel - excess:] = rand[:excess]
-    return tensor
+    out[:numel - excess].view(-1, 1_000_003)[...] = t
+    out[numel - excess:] = t[:excess]
 
 
 class DummyOptimizer(Optimizer):

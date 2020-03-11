@@ -23,7 +23,11 @@ from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.tensorlist import TensorList
-from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor
+from torchbiggraph.util import (
+    CouldNotLoadData, 
+    allocate_shared_tensor,
+    div_roundup,
+)
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -424,8 +428,9 @@ class FileEdgeStorage(AbstractEdgeStorage):
                 rel_ds = hf["rel"]
 
                 num_edges = rel_ds.len()
-                begin = int(chunk_idx * num_edges / num_chunks)
-                end = int((chunk_idx + 1) * num_edges / num_chunks)
+                chunk_size = div_roundup(num_edges, num_chunks)
+                begin = chunk_idx * chunk_size
+                end = min((chunk_idx + 1) * chunk_size, num_edges)
                 chunk_size = end - begin
 
                 lhs = allocate_shared_tensor((chunk_size,), dtype=torch.long)
