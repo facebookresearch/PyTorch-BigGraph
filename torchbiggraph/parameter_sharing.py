@@ -115,12 +115,18 @@ class ParameterServer(Startable):
                 self.handle_get(rank, key, False)
             elif cmd == JOIN_CMD:
                 join_count += 1
+                logger.info(f"ParameterServer join: join_count= {join_count}")
                 if join_count == self.num_clients:
                     for r in range(self.num_clients):
                         # after sending the join cmd,
                         # each client waits on this ack to know everyone is done
                         # and it's safe to exit
                         td.send(torch.zeros((1,)), dst=r)
+                    do_barrier = cmd_buffer[1].item()
+                    if do_barrier:
+                        logger.info("ParameterServer barrier begin")
+                        td.barrier(self.groups[0])
+                        logger.info("ParameterServer barrier end")
                     break
             else:
                 raise RuntimeError("Command is unknown value %d from rank %d."
@@ -357,16 +363,18 @@ class ParameterClient:
                 f"in {stats_time:,g} seconds "
                 f"=> {stats_size / stats_time:,.0f} B/s")
 
-    def join(self) -> None:
+    def join(self, do_barrier: bool = False) -> None:
         """All clients should call join at the end, which will allow the server
         to exit.
+        If barrier is True, *caller* must actually execute the barrier on
+        self.groups[0].
         """
-
-        cmd_rpc = torch.tensor([JOIN_CMD, 0, 0, 0, 0, 0], dtype=torch.long)
+        cmd_rpc = torch.tensor([JOIN_CMD, do_barrier and 1 or 0, 0, 0, 0, 0], dtype=torch.long)
+        logger.info("ParameterClient join start")
         td.send(cmd_rpc, self.server_rank)
         ack = torch.empty((1,))
         td.recv(ack, src=self.server_rank)
-
+        logger.info("ParameterClient join end")
 
 class GradientParameterClient:
     """We keep track of the last pull of each tensor from the server, and then when

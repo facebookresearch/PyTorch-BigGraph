@@ -26,6 +26,7 @@ from typing import (
 import numpy as np
 import torch
 import torch.multiprocessing
+import torch.distributed as td
 
 from torchbiggraph.checkpoint_storage import (
     AbstractCheckpointStorage,
@@ -145,6 +146,7 @@ class PartitionClient:
         groups: Optional[List['td.ProcessGroup']] = None,
         log_stats: bool = False,
     ) -> None:
+        self.groups = groups
         self._clients = [ParameterClient(rank, groups, log_stats) for rank in server_ranks]
 
     def store(
@@ -180,7 +182,10 @@ class PartitionClient:
 
     def join(self) -> None:
         for client in self._clients:
-            client.join()
+            client.join(do_barrier=True)
+        logger.info("PartitionClient join barrier start")
+        td.barrier(self.groups[0])
+        logger.info("PartitionClient join barrier end")
 
 
 class MetadataProvider(ABC):

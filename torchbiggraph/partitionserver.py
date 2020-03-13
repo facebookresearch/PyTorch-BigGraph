@@ -50,7 +50,7 @@ def run_partition_server(
                            "distributed training capabilities.")
     ranks = ProcessRanks.from_num_invocations(
         config.num_machines, config.num_partition_servers)
-   
+
     num_ps_groups = config.num_groups_for_partition_server
     groups: List[List[int]] = [ranks.trainers]  # barrier group
     groups += [ranks.trainers + ranks.partition_servers] * num_ps_groups  # ps groups
@@ -70,6 +70,7 @@ def run_partition_server(
         log_stats=True,
     )
     ps.start(groups)
+    logger.info("ps.start done")
 
 
 def main():

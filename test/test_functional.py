@@ -517,7 +517,7 @@ class TestFunctional(TestCase):
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
             num_machines=2,
-            num_partition_servers=1,
+            num_partition_servers=2,
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
             workers=2,
         )
@@ -547,7 +547,7 @@ class TestFunctional(TestCase):
                 partial(train, train_config, rank=1, subprocess_init=self.subprocess_init),
             ),
         )
-        partition_server = mp.get_context("spawn").Process(
+        partition_server0 = mp.get_context("spawn").Process(
             name="PartitionServer-0",
             target=partial(
                 call_one_after_the_other,
@@ -560,13 +560,28 @@ class TestFunctional(TestCase):
                 ),
             ),
         )
+        partition_server1 = mp.get_context("spawn").Process(
+            name="PartitionServer-1",
+            target=partial(
+                call_one_after_the_other,
+                self.subprocess_init,
+                partial(
+                    run_partition_server,
+                    train_config,
+                    rank=1,
+                    subprocess_init=self.subprocess_init,
+                ),
+            ),
+        )
         # FIXME In Python 3.7 use kill here.
         self.addCleanup(trainer0.terminate)
         self.addCleanup(trainer1.terminate)
-        self.addCleanup(partition_server.terminate)
+        self.addCleanup(partition_server0.terminate)
+        self.addCleanup(partition_server1.terminate)
         trainer0.start()
         trainer1.start()
-        partition_server.start()
+        partition_server0.start()
+        partition_server1.start()
         done = [False, False]
         while not all(done):
             time.sleep(1)
@@ -576,8 +591,10 @@ class TestFunctional(TestCase):
             if not trainer1.is_alive() and not done[1]:
                 self.assertEqual(trainer1.exitcode, 0)
                 done[1] = True
-        partition_server.join()
-        logger.info(f"Partition server died with exit code {partition_server.exitcode}")
+        partition_server0.join()
+        partition_server1.join()
+        logger.info(f"Partition server 0 died with exit code {partition_server0.exitcode}")
+        logger.info(f"Partition server 0 died with exit code {partition_server1.exitcode}")
         self.assertCheckpointWritten(train_config, version=1)
 
     def test_dynamic_relations(self):
