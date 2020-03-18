@@ -15,7 +15,6 @@ from torchbiggraph.config import BucketOrder
 
 
 class TestCreateOrderedBuckets(TestCase):
-
     def test_valid(self):
         """Ensure every method produces a valid order (contain all pairs once).
 
@@ -35,7 +34,7 @@ class TestCreateOrderedBuckets(TestCase):
             for nparts_lhs, nparts_rhs in shapes:
                 seed = random.getrandbits(32)
                 with self.subTest(
-                    order=order, shape=(nparts_lhs, nparts_rhs), seed=seed,
+                    order=order, shape=(nparts_lhs, nparts_rhs), seed=seed
                 ):
                     generator.seed(seed)
                     actual_buckets = create_ordered_buckets(
@@ -46,10 +45,9 @@ class TestCreateOrderedBuckets(TestCase):
                     )
 
                     self.assertCountEqual(
-                        actual_buckets,
-                        product(range(nparts_lhs), range(nparts_rhs))
+                        actual_buckets, product(range(nparts_lhs), range(nparts_rhs))
                     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

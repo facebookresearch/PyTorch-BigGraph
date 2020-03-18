@@ -19,7 +19,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, Ty
 import torch
 import torch.multiprocessing
 from torch.optim import Optimizer
-
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.types import Bucket, EntityName, FloatTensorType, Partition, Side
 
@@ -31,12 +30,14 @@ def tag_logs_with_process_name(process_name: str) -> None:
     def filter_(record: logging.LogRecord) -> bool:
         record.processName = process_name
         return True
+
     logger.addFilter(filter_)
 
 
 def hide_distributed_logging() -> None:
     def filter_(record: logging.LogRecord) -> bool:
         return not getattr(record, "distributed", False)
+
     logger.addFilter(filter_)
 
 
@@ -58,7 +59,6 @@ def setup_logging(verbosity_level: int = 0) -> None:
 
 
 class BucketLogger(logging.LoggerAdapter):
-
     def __init__(self, logger_: logging.Logger, bucket: Bucket) -> None:
         super().__init__(logger_, extra={"bucket": bucket})
 
@@ -69,7 +69,6 @@ class BucketLogger(logging.LoggerAdapter):
 
 
 class CustomLoggingFormatter(logging.Formatter):
-
     def usesTime(self) -> bool:
         return True
 
@@ -87,15 +86,11 @@ class CustomLoggingFormatter(logging.Formatter):
 
 
 class SubprocessInitializer:
-
     def __init__(self) -> None:
         self.initializers: List[Callable[[], None]] = []
 
     def register(
-        self,
-        init_function: Callable[[], None],
-        *args: Any,
-        **kwargs: Any,
+        self, init_function: Callable[[], None], *args: Any, **kwargs: Any
     ) -> None:
         # A check in case anyone *calls* the function when passing it.
         if init_function is None:
@@ -158,15 +153,14 @@ def fast_approx_rand(out: FloatTensorType) -> None:
     t = torch.randn(1_000_003)
     excess = numel % 1_000_003
     # Using just `-excess` would give bad results when excess == 0.
-    out[:numel - excess].view(-1, 1_000_003)[...] = t
-    out[numel - excess:] = t[:excess]
+    out[: numel - excess].view(-1, 1_000_003)[...] = t
+    out[numel - excess :] = t[:excess]
 
 
 class DummyOptimizer(Optimizer):
-
     def __init__(self) -> None:
         # This weird dance makes Optimizer accept an empty parameter list.
-        super().__init__([{'params': []}], {})
+        super().__init__([{"params": []}], {})
 
     def step(self, closure: None = None) -> None:
         pass
@@ -182,6 +176,7 @@ class DummyOptimizer(Optimizer):
 
 
 # HOGWILD
+
 
 def _pool_init(
     subprocess_name: Optional[str] = None,
@@ -215,7 +210,7 @@ def create_pool(
     # and discussion.
     torch.set_num_threads(1)
     return mp.get_context("spawn").Pool(
-        num_workers, initializer=_pool_init, initargs=(subprocess_name, subprocess_init,)
+        num_workers, initializer=_pool_init, initargs=(subprocess_name, subprocess_init)
     )
 
 
@@ -248,16 +243,17 @@ def get_async_result(
         for p in processes:
             if not p.is_alive():
                 raise RuntimeError(
-                    f"A subprocess exited unexpectedly with status {p.exitcode}")
+                    f"A subprocess exited unexpectedly with status {p.exitcode}"
+                )
 
 
 # config routines
 
+
 def get_partitioned_types(
-    config: ConfigSchema,
-    side: Side,
+    config: ConfigSchema, side: Side
 ) -> Tuple[int, Set[EntityName], Set[EntityName]]:
-    """Return the number of partitions on a given side and the (un-)partitioned entity types
+    """Return the number of partitions on a given side and the entity types
 
     Each of the entity types that appear on the given side (LHS or RHS) of a relation
     type is split into some number of partitions. The ones that are split into one
@@ -279,8 +275,10 @@ def get_partitioned_types(
     if len(entity_names_by_num_parts) == 0:
         return 1, unpartitioned_entity_names, set()
     if len(entity_names_by_num_parts) > 1:
-        raise RuntimeError("Currently num_partitions must be a single "
-                           "value across all partitioned entities.")
+        raise RuntimeError(
+            "Currently num_partitions must be a single "
+            "value across all partitioned entities."
+        )
 
     (num_partitions, partitioned_entity_names), = entity_names_by_num_parts.items()
     return num_partitions, unpartitioned_entity_names, partitioned_entity_names
@@ -288,25 +286,29 @@ def get_partitioned_types(
 
 class EmbeddingHolder:
     def __init__(self, config: ConfigSchema) -> None:
-        self.nparts_lhs, self.lhs_unpartitioned_types, self.lhs_partitioned_types = \
-            get_partitioned_types(config, Side.LHS)
-        self.nparts_rhs, self.rhs_unpartitioned_types, self.rhs_partitioned_types = \
-            get_partitioned_types(config, Side.RHS)
+        self.nparts_lhs, self.lhs_unpartitioned_types, self.lhs_partitioned_types = get_partitioned_types(  # noqa
+            config, Side.LHS
+        )
+        self.nparts_rhs, self.rhs_unpartitioned_types, self.rhs_partitioned_types = get_partitioned_types(  # noqa
+            config, Side.RHS
+        )
         self.unpartitioned_embeddings: Dict[EntityName, torch.nn.Parameter] = {}
-        self.partitioned_embeddings: Dict[Tuple[EntityName, Partition], torch.nn.Parameter] = {}
+        self.partitioned_embeddings: Dict[
+            Tuple[EntityName, Partition], torch.nn.Parameter
+        ] = {}
 
 
 # compute a randomized AUC using a fixed number of sample points
 # NOTE: AUC is the probability that a randomly chosen positive example
 # has a higher score than a randomly chosen negative example
 def compute_randomized_auc(
-    pos_: FloatTensorType,
-    neg_: FloatTensorType,
-    num_samples: int,
+    pos_: FloatTensorType, neg_: FloatTensorType, num_samples: int
 ) -> float:
     pos_, neg_ = pos_.view(-1), neg_.view(-1)
-    diff = (pos_[torch.randint(len(pos_), (num_samples,))]
-            > neg_[torch.randint(len(neg_), (num_samples,))])
+    diff = (
+        pos_[torch.randint(len(pos_), (num_samples,))]
+        > neg_[torch.randint(len(neg_), (num_samples,))]
+    )
     return float(diff.float().mean())
 
 
@@ -319,5 +321,6 @@ def get_num_workers(override: Optional[int]) -> int:
     result = 40
     logger.warning(
         f"The number of workers was left unspecified and the CPU count "
-        f"couldn't be auto-detected; defaulting to {result} workers.")
+        f"couldn't be auto-detected; defaulting to {result} workers."
+    )
     return result

@@ -10,25 +10,12 @@ import logging
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum
-from typing import (
-    Dict,
-    List,
-    NamedTuple,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from torchbiggraph.config import (
-    ConfigSchema,
-    EntitySchema,
-    RelationSchema,
-)
+from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import RELATION_TYPE_STORAGES
@@ -41,7 +28,9 @@ from torchbiggraph.util import CouldNotLoadData, EmbeddingHolder
 logger = logging.getLogger("torchbiggraph")
 
 
-def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]) -> Union[None, int, Tuple[int, ...]]:
+def match_shape(
+    tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]
+) -> Union[None, int, Tuple[int, ...]]:
     """Compare the given tensor's shape with what you expect it to be.
 
     This function serves two goals: it can be used both to assert that the size
@@ -77,26 +66,33 @@ def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)
     """
     if not all(isinstance(d, int) or d is Ellipsis for d in expected_shape):
         raise RuntimeError(
-            "Some arguments aren't ints or ellipses: %s" % (expected_shape,))
+            "Some arguments aren't ints or ellipses: %s" % (expected_shape,)
+        )
     actual_shape = tensor.size()
-    error = TypeError("Shape doesn't match: (%s) != (%s)" % (
-        ", ".join("%d" % d for d in actual_shape),
-        ", ".join("..." if d is Ellipsis else "*" if d < 0 else "%d" % d
-                  for d in expected_shape)),
+    error = TypeError(
+        "Shape doesn't match: (%s) != (%s)"
+        % (
+            ", ".join("%d" % d for d in actual_shape),
+            ", ".join(
+                "..." if d is Ellipsis else "*" if d < 0 else "%d" % d
+                for d in expected_shape
+            ),
+        )
     )
     if Ellipsis not in expected_shape:
         if len(actual_shape) != len(expected_shape):
             raise error
     else:
         if expected_shape.count(Ellipsis) > 1:
-            raise RuntimeError("Two or more ellipses in %s"
-                               % (tuple(expected_shape),))
+            raise RuntimeError("Two or more ellipses in %s" % (tuple(expected_shape),))
         if len(actual_shape) < len(expected_shape) - 1:
             raise error
         pos = expected_shape.index(Ellipsis)
-        expected_shape = (expected_shape[:pos]
-                          + actual_shape[pos:pos + 1 - len(expected_shape)]
-                          + expected_shape[pos + 1:])
+        expected_shape = (
+            expected_shape[:pos]
+            + actual_shape[pos : pos + 1 - len(expected_shape)]
+            + expected_shape[pos + 1 :]
+        )
     unknown_dims: List[int] = []
     for actual_dim, expected_dim in zip(actual_shape, expected_shape):
         if expected_dim < 0:
@@ -112,7 +108,6 @@ def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)
 
 
 class AbstractEmbedding(nn.Module, ABC):
-
     @abstractmethod
     def forward(self, input_: EntityList) -> FloatTensorType:
         pass
@@ -127,7 +122,6 @@ class AbstractEmbedding(nn.Module, ABC):
 
 
 class SimpleEmbedding(AbstractEmbedding):
-
     def __init__(self, weight: nn.Parameter, max_norm: Optional[float] = None):
         super().__init__()
         self.weight: nn.Parameter = weight
@@ -137,26 +131,24 @@ class SimpleEmbedding(AbstractEmbedding):
         return self.get(input_.to_tensor())
 
     def get(self, input_: LongTensorType) -> FloatTensorType:
-        return F.embedding(
-            input_, self.weight, max_norm=self.max_norm, sparse=True,
-        )
+        return F.embedding(input_, self.weight, max_norm=self.max_norm, sparse=True)
 
     def get_all_entities(self) -> FloatTensorType:
-        return self.get(torch.arange(self.weight.size(0), dtype=torch.long, device=self.weight.device))
+        return self.get(
+            torch.arange(
+                self.weight.size(0), dtype=torch.long, device=self.weight.device
+            )
+        )
 
     def sample_entities(self, *dims: int) -> FloatTensorType:
         return self.get(
             torch.randint(
-                low=0,
-                high=self.weight.size(0),
-                size=dims,
-                device=self.weight.device
+                low=0, high=self.weight.size(0), size=dims, device=self.weight.device
             )
         )
 
 
 class FeaturizedEmbedding(AbstractEmbedding):
-
     def __init__(self, weight: nn.Parameter, max_norm: Optional[float] = None):
         super().__init__()
         self.weight: nn.Parameter = weight
@@ -169,16 +161,18 @@ class FeaturizedEmbedding(AbstractEmbedding):
         if input_.size(0) == 0:
             return torch.empty((0, self.weight.size(1)))
         return F.embedding_bag(
-            input_.data.long(), self.weight, input_.offsets[:-1],
-            max_norm=self.max_norm, sparse=True,
+            input_.data.long(),
+            self.weight,
+            input_.offsets[:-1],
+            max_norm=self.max_norm,
+            sparse=True,
         )
 
     def get_all_entities(self) -> FloatTensorType:
         raise NotImplementedError("Cannot list all entities for featurized entities")
 
     def sample_entities(self, *dims: int) -> FloatTensorType:
-        raise NotImplementedError(
-            "Cannot sample entities for featurized entities.")
+        raise NotImplementedError("Cannot sample entities for featurized entities.")
 
 
 class AbstractOperator(nn.Module, ABC):
@@ -208,7 +202,6 @@ OPERATORS = PluginRegistry[AbstractOperator]()
 
 @OPERATORS.register_as("none")
 class IdentityOperator(AbstractOperator):
-
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         return embeddings
@@ -216,7 +209,6 @@ class IdentityOperator(AbstractOperator):
 
 @OPERATORS.register_as("diagonal")
 class DiagonalOperator(AbstractOperator):
-
     def __init__(self, dim: int):
         super().__init__(dim)
         self.diagonal = nn.Parameter(torch.ones((self.dim,)))
@@ -228,7 +220,6 @@ class DiagonalOperator(AbstractOperator):
 
 @OPERATORS.register_as("translation")
 class TranslationOperator(AbstractOperator):
-
     def __init__(self, dim: int):
         super().__init__(dim)
         self.translation = nn.Parameter(torch.zeros((self.dim,)))
@@ -240,7 +231,6 @@ class TranslationOperator(AbstractOperator):
 
 @OPERATORS.register_as("linear")
 class LinearOperator(AbstractOperator):
-
     def __init__(self, dim: int):
         super().__init__(dim)
         self.linear_transformation = nn.Parameter(torch.eye(self.dim))
@@ -248,13 +238,14 @@ class LinearOperator(AbstractOperator):
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
-        return torch.matmul(self.linear_transformation.to(device=embeddings.device),
-                            embeddings.unsqueeze(-1)).squeeze(-1)
+        return torch.matmul(
+            self.linear_transformation.to(device=embeddings.device),
+            embeddings.unsqueeze(-1),
+        ).squeeze(-1)
 
 
 @OPERATORS.register_as("affine")
 class AffineOperator(AbstractOperator):
-
     def __init__(self, dim: int):
         super().__init__(dim)
         self.linear_transformation = nn.Parameter(torch.eye(self.dim))
@@ -263,40 +254,43 @@ class AffineOperator(AbstractOperator):
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
-        return (torch.matmul(self.linear_transformation.to(device=embeddings.device),
-                             embeddings.unsqueeze(-1)).squeeze(-1)
-                + self.translation.to(device=embeddings.device))
+        return torch.matmul(
+            self.linear_transformation.to(device=embeddings.device),
+            embeddings.unsqueeze(-1),
+        ).squeeze(-1) + self.translation.to(device=embeddings.device)
 
     # FIXME This adapts from the pre-D14024710 format; remove eventually.
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
         param_key = "%slinear_transformation" % prefix
         old_param_key = "%srotation" % prefix
         if old_param_key in state_dict:
-            state_dict[param_key] = \
+            state_dict[param_key] = (
                 state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+            )
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
 @OPERATORS.register_as("complex_diagonal")
 class ComplexDiagonalOperator(AbstractOperator):
-
     def __init__(self, dim: int):
         super().__init__(dim)
         if dim % 2 != 0:
-            raise ValueError("Need even dimension as 1st half is real "
-                             "and 2nd half is imaginary coordinates")
+            raise ValueError(
+                "Need even dimension as 1st half is real "
+                "and 2nd half is imaginary coordinates"
+            )
         self.real = nn.Parameter(torch.ones((self.dim // 2,)))
         self.imag = nn.Parameter(torch.zeros((self.dim // 2,)))
 
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
-        real_a = embeddings[..., :self.dim // 2]
-        imag_a = embeddings[..., self.dim // 2:]
+        real_a = embeddings[..., : self.dim // 2]
+        imag_a = embeddings[..., self.dim // 2 :]
         real_b = self.real.to(device=embeddings.device)
         imag_b = self.imag.to(device=embeddings.device)
         prod = torch.empty_like(embeddings)
-        prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
-        prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        prod[..., : self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[..., self.dim // 2 :] = real_a * imag_b + imag_a * real_b
         return prod
 
 
@@ -322,9 +316,7 @@ class AbstractDynamicOperator(nn.Module, ABC):
 
     @abstractmethod
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         pass
 
@@ -334,11 +326,8 @@ DYNAMIC_OPERATORS = PluginRegistry[AbstractDynamicOperator]()
 
 @DYNAMIC_OPERATORS.register_as("none")
 class IdentityDynamicOperator(AbstractDynamicOperator):
-
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
@@ -347,15 +336,12 @@ class IdentityDynamicOperator(AbstractDynamicOperator):
 
 @DYNAMIC_OPERATORS.register_as("diagonal")
 class DiagonalDynamicOperator(AbstractDynamicOperator):
-
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
         self.diagonals = nn.Parameter(torch.ones((self.num_operations, self.dim)))
 
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
@@ -364,105 +350,103 @@ class DiagonalDynamicOperator(AbstractDynamicOperator):
 
 @DYNAMIC_OPERATORS.register_as("translation")
 class TranslationDynamicOperator(AbstractDynamicOperator):
-
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
         self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
 
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
-        return embeddings + self.translations.to(device=embeddings.device)[operator_idxs]
+        return (
+            embeddings + self.translations.to(device=embeddings.device)[operator_idxs]
+        )
 
 
 @DYNAMIC_OPERATORS.register_as("linear")
 class LinearDynamicOperator(AbstractDynamicOperator):
-
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
         self.linear_transformations = nn.Parameter(
-            torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+            torch.diag_embed(torch.ones(()).expand(num_operations, dim))
+        )
 
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         # We add a dimension so that matmul performs a matrix-vector product.
-        return torch.matmul(self.linear_transformations.to(device=embeddings.device)[operator_idxs],
-                            embeddings.unsqueeze(-1)).squeeze(-1)
+        return torch.matmul(
+            self.linear_transformations.to(device=embeddings.device)[operator_idxs],
+            embeddings.unsqueeze(-1),
+        ).squeeze(-1)
 
 
 @DYNAMIC_OPERATORS.register_as("affine")
 class AffineDynamicOperator(AbstractDynamicOperator):
-
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
         self.linear_transformations = nn.Parameter(
-            torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+            torch.diag_embed(torch.ones(()).expand(num_operations, dim))
+        )
         self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
 
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
         # We add a dimension so that matmul performs a matrix-vector product.
-        return (torch.matmul(self.linear_transformations.to(device=embeddings.device)[operator_idxs],
-                             embeddings.unsqueeze(-1)).squeeze(-1)
-                + self.translations.to(device=embeddings.device)[operator_idxs])
+        return (
+            torch.matmul(
+                self.linear_transformations.to(device=embeddings.device)[operator_idxs],
+                embeddings.unsqueeze(-1),
+            ).squeeze(-1)
+            + self.translations.to(device=embeddings.device)[operator_idxs]
+        )
 
     # FIXME This adapts from the pre-D14024710 format; remove eventually.
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
         param_key = "%slinear_transformations" % prefix
         old_param_key = "%srotations" % prefix
         if old_param_key in state_dict:
-            state_dict[param_key] = \
+            state_dict[param_key] = (
                 state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+            )
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
 @DYNAMIC_OPERATORS.register_as("complex_diagonal")
 class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
-
     def __init__(self, dim: int, num_operations: int):
         super().__init__(dim, num_operations)
         if dim % 2 != 0:
-            raise ValueError("Need even dimension as 1st half is real "
-                             "and 2nd half is imaginary coordinates")
+            raise ValueError(
+                "Need even dimension as 1st half is real "
+                "and 2nd half is imaginary coordinates"
+            )
         self.real = nn.Parameter(torch.ones((self.num_operations, self.dim // 2)))
         self.imag = nn.Parameter(torch.zeros((self.num_operations, self.dim // 2)))
 
     def forward(
-        self,
-        embeddings: FloatTensorType,
-        operator_idxs: LongTensorType,
+        self, embeddings: FloatTensorType, operator_idxs: LongTensorType
     ) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         match_shape(operator_idxs, *embeddings.size()[:-1])
-        real_a = embeddings[..., :self.dim // 2]
-        imag_a = embeddings[..., self.dim // 2:]
+        real_a = embeddings[..., : self.dim // 2]
+        imag_a = embeddings[..., self.dim // 2 :]
         real_b = self.real.to(device=embeddings.device)[operator_idxs]
         imag_b = self.imag.to(device=embeddings.device)[operator_idxs]
         prod = torch.empty_like(embeddings)
-        prod[..., :self.dim // 2] = real_a * real_b - imag_a * imag_b
-        prod[..., self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        prod[..., : self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[..., self.dim // 2 :] = real_a * imag_b + imag_a * real_b
         return prod
 
 
 def instantiate_operator(
-    operator: str,
-    side: Side,
-    num_dynamic_rels: int,
-    dim: int,
+    operator: str, side: Side, num_dynamic_rels: int, dim: int
 ) -> Optional[Union[AbstractOperator, AbstractDynamicOperator]]:
     if num_dynamic_rels > 0:
         dynamic_operator_class = DYNAMIC_OPERATORS.get_class(operator)
@@ -512,10 +496,7 @@ class AbstractComparator(nn.Module, ABC):
     """
 
     @abstractmethod
-    def prepare(
-        self,
-        embs: FloatTensorType,
-    ) -> FloatTensorType:
+    def prepare(self, embs: FloatTensorType) -> FloatTensorType:
         pass
 
     @abstractmethod
@@ -534,11 +515,7 @@ COMPARATORS = PluginRegistry[AbstractComparator]()
 
 @COMPARATORS.register_as("dot")
 class DotComparator(AbstractComparator):
-
-    def prepare(
-        self,
-        embs: FloatTensorType,
-    ) -> FloatTensorType:
+    def prepare(self, embs: FloatTensorType) -> FloatTensorType:
         return embs
 
     def forward(
@@ -564,11 +541,7 @@ class DotComparator(AbstractComparator):
 
 @COMPARATORS.register_as("cos")
 class CosComparator(AbstractComparator):
-
-    def prepare(
-        self,
-        embs: FloatTensorType,
-    ) -> FloatTensorType:
+    def prepare(self, embs: FloatTensorType) -> FloatTensorType:
         # Dividing by the norm costs N * dim divisions, multiplying by the
         # reciprocal of the norm costs N divisions and N * dim multiplications.
         # The latter one is faster.
@@ -597,8 +570,7 @@ class CosComparator(AbstractComparator):
 
 
 def batched_all_pairs_squared_l2_dist(
-    a: FloatTensorType,
-    b: FloatTensorType,
+    a: FloatTensorType, b: FloatTensorType
 ) -> FloatTensorType:
     """For each batch, return the squared L2 distance between each pair of vectors
 
@@ -616,16 +588,15 @@ def batched_all_pairs_squared_l2_dist(
     # sum_j(a_i,j^2) - 2 sum_j(a_i,j b_k,j) + sum_j(b_k,j^2), by using a matrix
     # multiplication for the ab part, adding the b^2 as part of the baddbmm call
     # and the a^2 afterwards.
-    res = torch.baddbmm(
-        b_squared.unsqueeze(-2), a, b.transpose(-2, -1), alpha=-2
-    ).add_(a_squared.unsqueeze(-1))
+    res = torch.baddbmm(b_squared.unsqueeze(-2), a, b.transpose(-2, -1), alpha=-2).add_(
+        a_squared.unsqueeze(-1)
+    )
     match_shape(res, num_chunks, num_a, num_b)
     return res
 
 
 def batched_all_pairs_l2_dist(
-    a: FloatTensorType,
-    b: FloatTensorType,
+    a: FloatTensorType, b: FloatTensorType
 ) -> FloatTensorType:
     squared_res = batched_all_pairs_squared_l2_dist(a, b)
     res = squared_res.clamp_min_(1e-30).sqrt_()
@@ -634,11 +605,7 @@ def batched_all_pairs_l2_dist(
 
 @COMPARATORS.register_as("l2")
 class L2Comparator(AbstractComparator):
-
-    def prepare(
-        self,
-        embs: FloatTensorType,
-    ) -> FloatTensorType:
+    def prepare(self, embs: FloatTensorType) -> FloatTensorType:
         return embs
 
     def forward(
@@ -654,7 +621,14 @@ class L2Comparator(AbstractComparator):
         match_shape(rhs_neg, num_chunks, -1, dim)
 
         # Smaller distances are higher scores, so take their negatives.
-        pos_scores = (lhs_pos.float() - rhs_pos.float()).pow_(2).sum(dim=-1).clamp_min_(1e-30).sqrt_().neg()
+        pos_scores = (
+            (lhs_pos.float() - rhs_pos.float())
+            .pow_(2)
+            .sum(dim=-1)
+            .clamp_min_(1e-30)
+            .sqrt_()
+            .neg()
+        )
         lhs_neg_scores = batched_all_pairs_l2_dist(rhs_pos, lhs_neg).neg()
         rhs_neg_scores = batched_all_pairs_l2_dist(lhs_pos, rhs_neg).neg()
 
@@ -663,11 +637,7 @@ class L2Comparator(AbstractComparator):
 
 @COMPARATORS.register_as("squared_l2")
 class SquaredL2Comparator(AbstractComparator):
-
-    def prepare(
-        self,
-        embs: FloatTensorType,
-    ) -> FloatTensorType:
+    def prepare(self, embs: FloatTensorType) -> FloatTensorType:
         return embs
 
     def forward(
@@ -691,16 +661,14 @@ class SquaredL2Comparator(AbstractComparator):
 
 
 class BiasedComparator(AbstractComparator):
-
     def __init__(self, base_comparator):
         super().__init__()
         self.base_comparator = base_comparator
 
-    def prepare(
-        self,
-        embs: FloatTensorType,
-    ) -> FloatTensorType:
-        return torch.cat([embs[..., :1], self.base_comparator.prepare(embs[..., 1:])], dim=-1)
+    def prepare(self, embs: FloatTensorType) -> FloatTensorType:
+        return torch.cat(
+            [embs[..., :1], self.base_comparator.prepare(embs[..., 1:])], dim=-1
+        )
 
     def forward(
         self,
@@ -715,7 +683,8 @@ class BiasedComparator(AbstractComparator):
         match_shape(rhs_neg, num_chunks, -1, dim)
 
         pos_scores, lhs_neg_scores, rhs_neg_scores = self.base_comparator.forward(
-            lhs_pos[..., 1:], rhs_pos[..., 1:], lhs_neg[..., 1:], rhs_neg[..., 1:])
+            lhs_pos[..., 1:], rhs_pos[..., 1:], lhs_neg[..., 1:], rhs_neg[..., 1:]
+        )
 
         lhs_pos_bias = lhs_pos[..., 0]
         rhs_pos_bias = rhs_pos[..., 0]
@@ -783,8 +752,12 @@ class MultiRelationEmbedder(nn.Module):
         num_uniform_negs: int,
         disable_lhs_negs: bool,
         disable_rhs_negs: bool,
-        lhs_operators: Sequence[Optional[Union[AbstractOperator, AbstractDynamicOperator]]],
-        rhs_operators: Sequence[Optional[Union[AbstractOperator, AbstractDynamicOperator]]],
+        lhs_operators: Sequence[
+            Optional[Union[AbstractOperator, AbstractDynamicOperator]]
+        ],
+        rhs_operators: Sequence[
+            Optional[Union[AbstractOperator, AbstractDynamicOperator]]
+        ],
         comparator: AbstractComparator,
         global_emb: bool = False,
         max_norm: Optional[float] = None,
@@ -816,8 +789,9 @@ class MultiRelationEmbedder(nn.Module):
         if global_emb:
             global_embs = nn.ParameterDict()
             for entity, entity_schema in entities.items():
-                global_embs[self.EMB_PREFIX + entity] = \
-                    nn.Parameter(torch.zeros((entity_schema.dimension or default_dim,)))
+                global_embs[self.EMB_PREFIX + entity] = nn.Parameter(
+                    torch.zeros((entity_schema.dimension or default_dim,))
+                )
             self.global_embs = global_embs
         else:
             self.global_embs: Optional[nn.ParameterDict] = None
@@ -837,16 +811,20 @@ class MultiRelationEmbedder(nn.Module):
         # utils.py cannot depend on model.py.
         for entity in holder.lhs_unpartitioned_types:
             self.set_embeddings(
-                entity, Side.LHS, holder.unpartitioned_embeddings[entity])
+                entity, Side.LHS, holder.unpartitioned_embeddings[entity]
+            )
         for entity in holder.rhs_unpartitioned_types:
             self.set_embeddings(
-                entity, Side.RHS, holder.unpartitioned_embeddings[entity])
+                entity, Side.RHS, holder.unpartitioned_embeddings[entity]
+            )
         for entity in holder.lhs_partitioned_types:
             self.set_embeddings(
-                entity, Side.LHS, holder.partitioned_embeddings[entity, bucket.lhs])
+                entity, Side.LHS, holder.partitioned_embeddings[entity, bucket.lhs]
+            )
         for entity in holder.rhs_partitioned_types:
             self.set_embeddings(
-                entity, Side.RHS, holder.partitioned_embeddings[entity, bucket.rhs])
+                entity, Side.RHS, holder.partitioned_embeddings[entity, bucket.rhs]
+            )
 
     def clear_all_embeddings(self) -> None:
         self.lhs_embs.clear()
@@ -864,7 +842,9 @@ class MultiRelationEmbedder(nn.Module):
         if self.global_embs is not None:
             if not isinstance(rel, int):
                 raise RuntimeError("Cannot have global embs with dynamic rels")
-            embs += self.global_embs[self.EMB_PREFIX + entity_type].to(device=embs.device)
+            embs += self.global_embs[self.EMB_PREFIX + entity_type].to(
+                device=embs.device
+            )
 
         # 2. Apply the relation operator
         if operator is not None:
@@ -916,34 +896,34 @@ class MultiRelationEmbedder(nn.Module):
         if type_ is Negatives.NONE:
             neg_embs = pos_embs.new_empty((num_chunks, 0, dim))
         elif type_ is Negatives.UNIFORM:
-            uniform_neg_embs = module.sample_entities(
-                num_chunks, num_uniform_neg)
-            neg_embs = self.adjust_embs(
-                uniform_neg_embs,
-                rel, entity_type, operator,
-            )
+            uniform_neg_embs = module.sample_entities(num_chunks, num_uniform_neg)
+            neg_embs = self.adjust_embs(uniform_neg_embs, rel, entity_type, operator)
         elif type_ is Negatives.BATCH_UNIFORM:
             neg_embs = pos_embs
             if num_uniform_neg > 0:
                 try:
                     uniform_neg_embs = module.sample_entities(
-                        num_chunks, num_uniform_neg)
+                        num_chunks, num_uniform_neg
+                    )
                 except NotImplementedError:
                     pass  # only use pos_embs i.e. batch negatives
                 else:
-                    neg_embs = torch.cat([
-                        pos_embs,
-                        self.adjust_embs(
-                            uniform_neg_embs,
-                            rel, entity_type, operator,
-                        )
-                    ], dim=1)
+                    neg_embs = torch.cat(
+                        [
+                            pos_embs,
+                            self.adjust_embs(
+                                uniform_neg_embs, rel, entity_type, operator
+                            ),
+                        ],
+                        dim=1,
+                    )
 
-            chunk_indices = torch.arange(chunk_size, dtype=torch.long, device=pos_embs.device)
+            chunk_indices = torch.arange(
+                chunk_size, dtype=torch.long, device=pos_embs.device
+            )
             last_chunk_indices = chunk_indices[:last_chunk_size]
             # Ignore scores between positive pairs.
-            ignore_mask.append(
-                (slice(num_chunks - 1), chunk_indices, chunk_indices))
+            ignore_mask.append((slice(num_chunks - 1), chunk_indices, chunk_indices))
             ignore_mask.append((-1, last_chunk_indices, last_chunk_indices))
             # In the last chunk, ignore the scores between the positives that
             # are not padding (i.e., the first last_chunk_size ones) and the
@@ -951,23 +931,26 @@ class MultiRelationEmbedder(nn.Module):
             # last_chunk_size ones). Stop the last slice at chunk_size so that
             # it doesn't also affect the uniformly-sampled negatives.
             ignore_mask.append(
-                (-1, slice(last_chunk_size), slice(last_chunk_size, chunk_size)))
+                (-1, slice(last_chunk_size), slice(last_chunk_size, chunk_size))
+            )
 
         elif type_ is Negatives.ALL:
             pos_input = pos_input.to_tensor()
             neg_embs = self.adjust_embs(
                 module.get_all_entities().expand(num_chunks, -1, dim),
-                rel, entity_type, operator,
+                rel,
+                entity_type,
+                operator,
             )
 
             if num_uniform_neg > 0:
-                logger.warning("Adding uniform negatives makes no sense "
-                               "when already using all negatives")
+                logger.warning(
+                    "Adding uniform negatives makes no sense "
+                    "when already using all negatives"
+                )
 
             chunk_indices = torch.arange(
-                chunk_size,
-                dtype=torch.long,
-                device=pos_embs.device
+                chunk_size, dtype=torch.long, device=pos_embs.device
             )
             last_chunk_indices = chunk_indices[:last_chunk_size]
             # Ignore scores between positive pairs: since the i-th such pair has
@@ -975,27 +958,23 @@ class MultiRelationEmbedder(nn.Module):
             # must be set to 1 for every i. This becomes slightly more tricky as
             # the rows may be wrapped into multiple chunks (the last of which
             # may be smaller).
-            ignore_mask.append((
-                torch.arange(
-                    num_chunks - 1,
-                    dtype=torch.long,
-                    device=pos_embs.device
-                ).unsqueeze(1),
-                chunk_indices.unsqueeze(0),
-                pos_input[:-last_chunk_size].view(num_chunks - 1, chunk_size),
-            ))
             ignore_mask.append(
-                (-1, last_chunk_indices, pos_input[-last_chunk_size:]))
+                (
+                    torch.arange(
+                        num_chunks - 1, dtype=torch.long, device=pos_embs.device
+                    ).unsqueeze(1),
+                    chunk_indices.unsqueeze(0),
+                    pos_input[:-last_chunk_size].view(num_chunks - 1, chunk_size),
+                )
+            )
+            ignore_mask.append((-1, last_chunk_indices, pos_input[-last_chunk_size:]))
 
         else:
             raise NotImplementedError("Unknown negative type %s" % type_)
 
         return neg_embs, ignore_mask
 
-    def forward(
-        self,
-        edges: EdgeList,
-    ) -> Scores:
+    def forward(self, edges: EdgeList) -> Scores:
         num_pos = len(edges)
 
         chunk_size: int
@@ -1046,12 +1025,14 @@ class MultiRelationEmbedder(nn.Module):
             # through the operator.
 
             if self.lhs_operators[relation_idx] is not None:
-                raise RuntimeError("In non-dynamic relation mode there should "
-                                   "be only a right-hand side operator")
+                raise RuntimeError(
+                    "In non-dynamic relation mode there should "
+                    "be only a right-hand side operator"
+                )
 
             # Apply operator to right-hand side, sample negatives on both sides unless
             # one side is disabled.
-            pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(
+            pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(  # noqa
                 edges.lhs,
                 edges.rhs,
                 edges.get_relation_type(),
@@ -1150,23 +1131,40 @@ class MultiRelationEmbedder(nn.Module):
         dst_dim = dst_pos.size(-1)
         if num_pos < num_chunks * chunk_size:
             src_padding = src_pos.new_zeros(()).expand(
-                (num_chunks * chunk_size - num_pos, src_dim))
+                (num_chunks * chunk_size - num_pos, src_dim)
+            )
             src_pos = torch.cat((src_pos, src_padding), dim=0)
             dst_padding = dst_pos.new_zeros(()).expand(
-                (num_chunks * chunk_size - num_pos, dst_dim))
+                (num_chunks * chunk_size - num_pos, dst_dim)
+            )
             dst_pos = torch.cat((dst_pos, dst_padding), dim=0)
         src_pos = src_pos.view((num_chunks, chunk_size, src_dim))
         dst_pos = dst_pos.view((num_chunks, chunk_size, dst_dim))
 
         src_neg, src_ignore_mask = self.prepare_negatives(
-            src, src_pos, src_module, src_negative_sampling_method,
-            self.num_uniform_negs, rel, src_entity_type, src_operator)
+            src,
+            src_pos,
+            src_module,
+            src_negative_sampling_method,
+            self.num_uniform_negs,
+            rel,
+            src_entity_type,
+            src_operator,
+        )
         dst_neg, dst_ignore_mask = self.prepare_negatives(
-            dst, dst_pos, dst_module, dst_negative_sampling_method,
-            self.num_uniform_negs, rel, dst_entity_type, dst_operator)
+            dst,
+            dst_pos,
+            dst_module,
+            dst_negative_sampling_method,
+            self.num_uniform_negs,
+            rel,
+            dst_entity_type,
+            dst_operator,
+        )
 
-        pos_scores, src_neg_scores, dst_neg_scores = \
-            self.comparator(src_pos, dst_pos, src_neg, dst_neg)
+        pos_scores, src_neg_scores, dst_neg_scores = self.comparator(
+            src_pos, dst_pos, src_neg, dst_neg
+        )
 
         pos_scores = pos_scores.float()
         src_neg_scores = src_neg_scores.float()
@@ -1198,7 +1196,9 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
                 "entry in config.relations with config for all relations."
             )
         try:
-            relation_type_storage = RELATION_TYPE_STORAGES.make_instance(config.entity_path)
+            relation_type_storage = RELATION_TYPE_STORAGES.make_instance(
+                config.entity_path
+            )
             num_dynamic_rels = relation_type_storage.load_count()
         except CouldNotLoadData:
             raise RuntimeError(
@@ -1210,19 +1210,29 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
 
     if config.num_batch_negs > 0 and config.batch_size % config.num_batch_negs != 0:
         raise RuntimeError(
-            "Batch size (%d) must be a multiple of num_batch_negs (%d)" %
-            (config.batch_size, config.num_batch_negs)
+            "Batch size (%d) must be a multiple of num_batch_negs (%d)"
+            % (config.batch_size, config.num_batch_negs)
         )
 
     lhs_operators: List[Optional[Union[AbstractOperator, AbstractDynamicOperator]]] = []
     rhs_operators: List[Optional[Union[AbstractOperator, AbstractDynamicOperator]]] = []
     for r in config.relations:
         lhs_operators.append(
-            instantiate_operator(r.operator, Side.LHS, num_dynamic_rels,
-                                 config.entities[r.lhs].dimension or config.dimension))
+            instantiate_operator(
+                r.operator,
+                Side.LHS,
+                num_dynamic_rels,
+                config.entities[r.lhs].dimension or config.dimension,
+            )
+        )
         rhs_operators.append(
-            instantiate_operator(r.operator, Side.RHS, num_dynamic_rels,
-                                 config.entities[r.rhs].dimension or config.dimension))
+            instantiate_operator(
+                r.operator,
+                Side.RHS,
+                num_dynamic_rels,
+                config.entities[r.rhs].dimension or config.dimension,
+            )
+        )
 
     comparator_class = COMPARATORS.get_class(config.comparator)
     comparator = comparator_class()

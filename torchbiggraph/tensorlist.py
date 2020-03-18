@@ -6,11 +6,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import torch
 
 
@@ -67,9 +62,7 @@ class TensorList(object):
         batch_offset = torch.LongTensor([o[-1] for o in offsets]).cumsum(0)
         for j in range(len(offsets) - 1):
             offsets[j + 1] = offsets[j + 1][1:] + batch_offset[j]
-        return cls(
-            torch.cat(offsets),
-            torch.cat(data))
+        return cls(torch.cat(offsets), torch.cat(data))
 
     @classmethod
     def empty(cls, num_tensors=0):
@@ -79,17 +72,14 @@ class TensorList(object):
         )
 
     def new(self):
-        return type(self)(
-            self.offsets.new_zeros((1,)),
-            self.data.new_empty((0,)),
-        )
+        return type(self)(self.offsets.new_zeros((1,)), self.data.new_empty((0,)))
 
     def __init__(self, offsets, data):
         # some sanity checks
-        assert(isinstance(offsets, (torch.LongTensor, torch.cuda.LongTensor)))
-        assert(offsets.ndimension() == 1)
-        assert(offsets[0] == 0)
-        assert(offsets[-1] == (data.size(0) if data.ndimension() > 0 else 0))
+        assert isinstance(offsets, (torch.LongTensor, torch.cuda.LongTensor))
+        assert offsets.ndimension() == 1
+        assert offsets[0] == 0
+        assert offsets[-1] == (data.size(0) if data.ndimension() > 0 else 0)
 
         # FIXME temporary workaround for below PyTorch bug
         # https://github.com/pytorch/pytorch/issues/5719
@@ -105,21 +95,21 @@ class TensorList(object):
             offsets_sub = self.offsets[index]
             sizes_sub = self.offsets[index + 1] - offsets_sub
             new_offsets, new_data = _extract_intervals(
-                offsets_sub, sizes_sub, self.data)
+                offsets_sub, sizes_sub, self.data
+            )
 
             return TensorList(new_offsets, new_data)
         elif isinstance(index, int):
             if self.offsets[index] != self.offsets[index + 1]:
-                return self.data[
-                    self.offsets[index]:self.offsets[index + 1]]
+                return self.data[self.offsets[index] : self.offsets[index + 1]]
             else:
                 return self.data.new()
         elif isinstance(index, slice):
             start, stop, step = index.indices(len(self))
             if step != 1:
                 raise ValueError("Expected slice with step 1, got %d" % step)
-            new_offsets = self.offsets[start:stop + 1]
-            new_data = self.data[new_offsets[0]:new_offsets[-1]]
+            new_offsets = self.offsets[start : stop + 1]
+            new_data = self.data[new_offsets[0] : new_offsets[-1]]
             new_offsets = new_offsets - new_offsets[0]
             return TensorList(new_offsets, new_data)
         else:
@@ -128,8 +118,9 @@ class TensorList(object):
     def __eq__(self, other):
         if not isinstance(other, TensorList):
             return NotImplemented
-        return (torch.equal(self.offsets, other.offsets)
-                and torch.equal(self.data, other.data))
+        return torch.equal(self.offsets, other.offsets) and torch.equal(
+            self.data, other.data
+        )
 
     def __len__(self):
         return self.offsets.size(0) - 1
@@ -152,7 +143,7 @@ class TensorList(object):
         # FIXME: this is a terrible API
 
         # to have similar appearance with other tensor types
-        assert dim == 0 or dim is None, 'TensorList can only have 1 dimension'
+        assert dim == 0 or dim is None, "TensorList can only have 1 dimension"
         if dim is None:
             return torch.Size([len(self)])
         else:
@@ -166,7 +157,9 @@ class TensorList(object):
 
     def __repr__(self):
         if self.offsets.nelement() < 100 or self.data.nelement() < 1000:
-            return "TensorList( [%s] )" % " , ".join(str(self[i].tolist()) for i in range(len(self)))
+            return "TensorList( [%s] )" % " , ".join(
+                str(self[i].tolist()) for i in range(len(self))
+            )
         return "TensorList{offsets=%s, data=%s}" % (self.offsets, self.data)
 
     def apply(self, F):
@@ -214,6 +207,5 @@ class TensorList(object):
 
     def to(self, *args, **kwargs) -> "TensorList":
         return type(self)(
-            self.offsets.to(*args, **kwargs),
-            self.data.to(*args, **kwargs),
+            self.offsets.to(*args, **kwargs), self.data.to(*args, **kwargs)
         )

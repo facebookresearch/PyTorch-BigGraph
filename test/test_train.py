@@ -13,23 +13,25 @@ from torchbiggraph.train import IterationManager
 
 
 class TestIterationManager(TestCase):
-
     def test_full(self):
         im = IterationManager(
-            num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4)
-        self.assertEqual(list(im),
-                         list(product(range(2), range(3), range(4))))
+            num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4
+        )
+        self.assertEqual(list(im), list(product(range(2), range(3), range(4))))
 
     def test_partial(self):
         im = IterationManager(
-            num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4,
-            iteration_idx=(1 * 3 + 2) * 4 + 3)
-        self.assertEqual(list(im),
-                         [(1, 2, 3)])
+            num_epochs=2,
+            edge_paths=["A", "B", "C"],
+            num_edge_chunks=4,
+            iteration_idx=(1 * 3 + 2) * 4 + 3,
+        )
+        self.assertEqual(list(im), [(1, 2, 3)])
 
     def test_tampering(self):
         im = IterationManager(
-            num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4)
+            num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4
+        )
         it = iter(im)
         self.assertEqual(next(it), (0, 0, 0))
         im.iteration_idx = (0 * 3 + 1) * 4 + 1
@@ -44,22 +46,28 @@ class TestIterationManager(TestCase):
 
     def test_properties(self):
         im = IterationManager(
-            num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4,
-            iteration_idx=(0 * 3 + 1) * 4 + 2)
+            num_epochs=2,
+            edge_paths=["A", "B", "C"],
+            num_edge_chunks=4,
+            iteration_idx=(0 * 3 + 1) * 4 + 2,
+        )
         self.assertEqual(im.epoch_idx, 0)
         self.assertEqual(im.edge_path_idx, 1)
         self.assertEqual(im.edge_path, "B")
         self.assertEqual(im.edge_chunk_idx, 2)
-        self.assertEqual(im.get_checkpoint_metadata(), {
-            "iteration/num_epochs": 2,
-            "iteration/epoch_idx": 0,
-            "iteration/num_edge_paths": 3,
-            "iteration/edge_path_idx": 1,
-            "iteration/edge_path": "B",
-            "iteration/num_edge_chunks": 4,
-            "iteration/edge_chunk_idx": 2,
-        })
+        self.assertEqual(
+            im.get_checkpoint_metadata(),
+            {
+                "iteration/num_epochs": 2,
+                "iteration/epoch_idx": 0,
+                "iteration/num_edge_paths": 3,
+                "iteration/edge_path_idx": 1,
+                "iteration/edge_path": "B",
+                "iteration/num_edge_chunks": 4,
+                "iteration/edge_chunk_idx": 2,
+            },
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

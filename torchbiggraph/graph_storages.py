@@ -18,23 +18,17 @@ from typing import ContextManager, Dict, List, Optional, Type
 import h5py
 import numpy as np
 import torch
-
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.tensorlist import TensorList
-from torchbiggraph.util import (
-    CouldNotLoadData, 
-    allocate_shared_tensor,
-    div_roundup,
-)
+from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor, div_roundup
 
 
 logger = logging.getLogger("torchbiggraph")
 
 
 class AbstractEntityStorage(ABC):
-
     @abstractmethod
     def __init__(self, url: str) -> None:
         pass
@@ -69,7 +63,6 @@ class AbstractEntityStorage(ABC):
 
 
 class AbstractRelationTypeStorage(ABC):
-
     @abstractmethod
     def __init__(self, url: str) -> None:
         pass
@@ -104,14 +97,12 @@ class AbstractRelationTypeStorage(ABC):
 
 
 class AbstractEdgeAppender(ABC):
-
     @abstractmethod
     def append_edges(self, edges: EdgeList) -> None:
         pass
 
 
 class AbstractEdgeStorage(ABC):
-
     @abstractmethod
     def __init__(self, url: str) -> None:
         pass
@@ -133,11 +124,7 @@ class AbstractEdgeStorage(ABC):
 
     @abstractmethod
     def load_chunk_of_edges(
-        self,
-        lhs_p: int,
-        rhs_p: int,
-        chunk_idx: int,
-        num_chunks: int,
+        self, lhs_p: int, rhs_p: int, chunk_idx: int, num_chunks: int
     ) -> EdgeList:
         pass
 
@@ -147,9 +134,7 @@ class AbstractEdgeStorage(ABC):
 
     @abstractmethod
     def save_edges_by_appending(
-        self,
-        lhs_p: int,
-        rhs_p: int,
+        self, lhs_p: int, rhs_p: int
     ) -> ContextManager[AbstractEdgeAppender]:
         pass
 
@@ -188,10 +173,9 @@ def load_names(path: Path) -> List[str]:
 @ENTITY_STORAGES.register_as("")  # No scheme
 @ENTITY_STORAGES.register_as("file")
 class FileEntityStorage(AbstractEntityStorage):
-
     def __init__(self, path: str) -> None:
         if path.startswith("file://"):
-            path = path[len("file://"):]
+            path = path[len("file://") :]
         self.path = Path(path).resolve(strict=False)
 
     def get_count_file(self, entity_name: str, partition: int) -> Path:
@@ -225,10 +209,9 @@ class FileEntityStorage(AbstractEntityStorage):
 @RELATION_TYPE_STORAGES.register_as("")  # No scheme
 @RELATION_TYPE_STORAGES.register_as("file")
 class FileRelationTypeStorage(AbstractRelationTypeStorage):
-
     def __init__(self, path: str) -> None:
         if path.startswith("file://"):
-            path = path[len("file://"):]
+            path = path[len("file://") :]
         self.path = Path(path).resolve(strict=False)
 
     def get_count_file(self) -> Path:
@@ -283,7 +266,9 @@ class BufferedDataset:
             chunks=(self.BUFFER_SIZE,),
             maxshape=(None,),
         )
-        self.buffer: torch.Tensor = torch.empty((self.BUFFER_SIZE,), dtype=self.DATA_TYPE)
+        self.buffer: torch.Tensor = torch.empty(
+            (self.BUFFER_SIZE,), dtype=self.DATA_TYPE
+        )
         self.buffer_offset: int = 0
         self.total_data: int = 0
 
@@ -292,10 +277,12 @@ class BufferedDataset:
             assert self.buffer_offset == self.BUFFER_SIZE
         elif self.buffer_offset == 0:
             return
-        logger.debug(f"Flushing one chunk of {self.buffer_offset} elements "
-                     f"to dataset {self.dataset_name!r} of file {self.hf.filename}")
+        logger.debug(
+            f"Flushing one chunk of {self.buffer_offset} elements "
+            f"to dataset {self.dataset_name!r} of file {self.hf.filename}"
+        )
         self.dataset.resize(self.dataset.shape[0] + self.buffer_offset, axis=0)
-        self.dataset[-self.buffer_offset:] = self.buffer[:self.buffer_offset].numpy()
+        self.dataset[-self.buffer_offset :] = self.buffer[: self.buffer_offset].numpy()
         self.buffer_offset = 0
 
     def append(self, tensor: torch.Tensor) -> None:
@@ -305,15 +292,17 @@ class BufferedDataset:
             tensor_left = tensor_size - tensor_offset
             buffer_left = self.BUFFER_SIZE - self.buffer_offset
             if tensor_left >= buffer_left:
-                self.buffer[self.buffer_offset:self.buffer_offset + buffer_left] = \
-                    tensor[tensor_offset:tensor_offset + buffer_left]
+                self.buffer[
+                    self.buffer_offset : self.buffer_offset + buffer_left
+                ] = tensor[tensor_offset : tensor_offset + buffer_left]
                 tensor_offset += buffer_left
                 self.buffer_offset += buffer_left
                 self.flush_buffer()
                 continue
             else:
-                self.buffer[self.buffer_offset:self.buffer_offset + tensor_left] = \
-                    tensor[tensor_offset:tensor_offset + tensor_left]
+                self.buffer[
+                    self.buffer_offset : self.buffer_offset + tensor_left
+                ] = tensor[tensor_offset : tensor_offset + tensor_left]
                 tensor_offset += tensor_left
                 self.buffer_offset += tensor_left
                 break
@@ -321,7 +310,6 @@ class BufferedDataset:
 
 
 class FileEdgeAppender(AbstractEdgeAppender):
-
     def __init__(self, hf: h5py.File) -> None:
         self.hf: h5py.File = hf
         self.datasets: Dict[str, BufferedDataset] = {}
@@ -381,7 +369,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
     def __init__(self, path: str) -> None:
         if path.startswith("file://"):
-            path = path[len("file://"):]
+            path = path[len("file://") :]
         self.path = Path(path).resolve(strict=False)
 
     def get_edges_file(self, lhs_p: int, rhs_p: int) -> Path:
@@ -390,11 +378,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
     def prepare(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
 
-    def has_edges(
-        self,
-        lhs_p: int,
-        rhs_p: int,
-    ) -> bool:
+    def has_edges(self, lhs_p: int, rhs_p: int) -> bool:
         return self.get_edges_file(lhs_p, rhs_p).is_file()
 
     def get_number_of_edges(self, lhs_p: int, rhs_p: int) -> int:
@@ -448,9 +432,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
                 lhsd = self.read_dynamic(hf, "lhsd", begin, end, shared=shared)
                 rhsd = self.read_dynamic(hf, "rhsd", begin, end, shared=shared)
 
-                return EdgeList(EntityList(lhs, lhsd),
-                                EntityList(rhs, rhsd),
-                                rel)
+                return EdgeList(EntityList(lhs, lhsd), EntityList(rhs, rhsd), rel)
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
@@ -460,12 +442,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
     @staticmethod
     def read_dynamic(
-        hf: h5py.File,
-        key: str,
-        begin: int,
-        end: int,
-        *,
-        shared: bool = False
+        hf: h5py.File, key: str, begin: int, end: int, *, shared: bool = False
     ) -> TensorList:
         try:
             offsets_ds = hf[f"{key}_offsets"]
@@ -475,7 +452,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
         allocator = allocate_shared_tensor if shared else torch.empty
         offsets = allocator((end - begin + 1,), dtype=torch.long)
-        offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin:end + 1])
+        offsets_ds.read_direct(offsets.numpy(), source_sel=np.s_[begin : end + 1])
         data_begin = offsets[0].item()
         data_end = offsets[-1].item()
         data = allocator((data_end - data_begin,), dtype=torch.long)
@@ -489,9 +466,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
     @contextmanager
     def save_edges_by_appending(
-        self,
-        lhs_p: int,
-        rhs_p: int,
+        self, lhs_p: int, rhs_p: int
     ) -> ContextManager[AbstractEdgeAppender]:
         file_path = self.get_edges_file(lhs_p, rhs_p)
         tmp_file_path = file_path.parent / f"{file_path.stem}.tmp{file_path.suffix}"

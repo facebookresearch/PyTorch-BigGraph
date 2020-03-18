@@ -16,14 +16,8 @@ from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple
 import h5py
 import numpy as np
 import torch
-
 from torchbiggraph.plugin import URLPluginRegistry
-from torchbiggraph.types import (
-    EntityName,
-    FloatTensorType,
-    ModuleStateDict,
-    Partition,
-)
+from torchbiggraph.types import EntityName, FloatTensorType, ModuleStateDict, Partition
 from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor
 
 
@@ -40,7 +34,6 @@ class ModelParameter(NamedTuple):
 
 
 class AbstractCheckpointStorage(ABC):
-
     @abstractmethod
     def __init__(self, url: str) -> None:
         pass
@@ -81,10 +74,7 @@ class AbstractCheckpointStorage(ABC):
 
     @abstractmethod
     def drop_entity_partition(
-        self,
-        version: int,
-        entity_name: EntityName,
-        partition: Partition,
+        self, version: int, entity_name: EntityName, partition: Partition
     ) -> None:
         pass
 
@@ -100,8 +90,7 @@ class AbstractCheckpointStorage(ABC):
 
     @abstractmethod
     def load_model(
-        self,
-        version: int,
+        self, version: int
     ) -> Tuple[Optional[Dict[str, torch.Tensor]], Optional[bytes]]:
         pass
 
@@ -168,7 +157,9 @@ def save_embeddings(hf: h5py.File, embeddings: FloatTensorType) -> None:
     hf.create_dataset(EMBEDDING_DATASET, data=embeddings.numpy())
 
 
-def load_embeddings(hf: h5py.File, out: Optional[FloatTensorType] = None) -> FloatTensorType:
+def load_embeddings(
+    hf: h5py.File, out: Optional[FloatTensorType] = None
+) -> FloatTensorType:
     dataset: h5py.Dataset = hf[EMBEDDING_DATASET]
     if out is None:
         out = allocate_shared_tensor(dataset.shape, dtype=torch.float)
@@ -178,14 +169,13 @@ def load_embeddings(hf: h5py.File, out: Optional[FloatTensorType] = None) -> Flo
     return out
 
 
-def save_optimizer_state_dict(
-    hf: h5py.File,
-    state_dict: Optional[bytes],
-) -> None:
+def save_optimizer_state_dict(hf: h5py.File, state_dict: Optional[bytes]) -> None:
     if state_dict is None:
         return
-    hf.create_dataset(OPTIMIZER_STATE_DICT_DATASET,
-                      data=np.frombuffer(state_dict, dtype=NP_VOID_DTYPE))
+    hf.create_dataset(
+        OPTIMIZER_STATE_DICT_DATASET,
+        data=np.frombuffer(state_dict, dtype=NP_VOID_DTYPE),
+    )
 
 
 def load_optimizer_state_dict(hf: h5py.File) -> Optional[bytes]:
@@ -194,19 +184,14 @@ def load_optimizer_state_dict(hf: h5py.File) -> Optional[bytes]:
     return hf[OPTIMIZER_STATE_DICT_DATASET][...].tobytes()
 
 
-def save_model_state_dict(
-    hf: h5py.File,
-    state_dict: Dict[str, ModelParameter],
-) -> None:
+def save_model_state_dict(hf: h5py.File, state_dict: Dict[str, ModelParameter]) -> None:
     g = hf.create_group(MODEL_STATE_DICT_GROUP, track_order=True)
     for public_name, param in state_dict.items():
         dataset = g.create_dataset(public_name, data=param.tensor.numpy())
         dataset.attrs[STATE_DICT_KEY_ATTR] = param.private_name
 
 
-def load_model_state_dict(
-    hf: h5py.File,
-) -> Optional[ModuleStateDict]:
+def load_model_state_dict(hf: h5py.File,) -> Optional[ModuleStateDict]:
     if MODEL_STATE_DICT_GROUP not in hf:
         return None
     g = hf[MODEL_STATE_DICT_GROUP]
@@ -257,7 +242,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
 
     def __init__(self, path: str) -> None:
         if path.startswith("file://"):
-            path = path[len("file://"):]
+            path = path[len("file://") :]
         self.path: Path = Path(path).resolve(strict=False)
 
     def get_version_file(self, *, path: Optional[Path] = None) -> Path:
@@ -368,10 +353,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         return embs, optim_state
 
     def drop_entity_partition(
-        self,
-        version: int,
-        entity_name: EntityName,
-        partition: Partition,
+        self, version: int, entity_name: EntityName, partition: Partition
     ) -> None:
         path = self.get_entity_partition_file(version, entity_name, partition)
         if path.exists():
@@ -396,8 +378,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         logger.debug(f"Done saving to {path}")
 
     def load_model(
-        self,
-        version: int,
+        self, version: int
     ) -> Tuple[Optional[Dict[str, torch.Tensor]], Optional[bytes]]:
         path = self.get_model_file(version)
         logger.debug(f"Loading from {path}")
@@ -456,13 +437,13 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
     ) -> None:
         src_path = self.get_entity_partition_file(version, entity_name, partition)
         dst_path = self.get_entity_partition_file(
-            version, entity_name, partition, path=self.get_snapshot_path(epoch_idx))
+            version, entity_name, partition, path=self.get_snapshot_path(epoch_idx)
+        )
         dst_path.symlink_to(src_path)
 
     def copy_model_to_snapshot(self, version: int, epoch_idx: int) -> None:
         src_path = self.get_model_file(version)
-        dst_path = self.get_model_file(
-            version, path=self.get_snapshot_path(epoch_idx))
+        dst_path = self.get_model_file(version, path=self.get_snapshot_path(epoch_idx))
         dst_path.symlink_to(src_path)
 
     def copy_version_to_snapshot(self, version: int, epoch_idx: int) -> None:

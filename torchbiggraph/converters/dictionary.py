@@ -11,13 +11,7 @@ from typing import Dict, List, Tuple
 
 
 class Dictionary:
-
-    def __init__(
-        self,
-        ix_to_word: List[str],
-        *,
-        num_parts: int = 1,
-    ) -> None:
+    def __init__(self, ix_to_word: List[str], *, num_parts: int = 1) -> None:
         self.ix_to_word: List[str] = ix_to_word
         self.word_to_ix: Dict[str, int] = {w: i for i, w in enumerate(ix_to_word)}
         self.num_parts = num_parts
@@ -51,4 +45,4 @@ class Dictionary:
     def get_part_list(self, part: int) -> List[str]:
         if not 0 <= part < self.num_parts:
             raise ValueError(f"{part} not in [0, {self.num_parts})")
-        return self.ix_to_word[self.part_start(part):self.part_end(part)]
+        return self.ix_to_word[self.part_start(part) : self.part_end(part)]

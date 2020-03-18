@@ -11,26 +11,15 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
-import torch.multiprocessing
 import torch.distributed as td
-
+import torch.multiprocessing
 from torchbiggraph.checkpoint_storage import (
-    AbstractCheckpointStorage,
     CHECKPOINT_STORAGES,
+    AbstractCheckpointStorage,
     ModelParameter,
 )
 from torchbiggraph.config import ConfigSchema
@@ -52,7 +41,6 @@ logger = logging.getLogger("torchbiggraph")
 
 
 class OneWayMapping:
-
     def __init__(self, src: str, dst: str, fields: List[str]) -> None:
         self.src = re.compile(src.format(**{f: r"(?P<%s>[^./]+)" % f for f in fields}))
         self.dst = dst.format(**{f: r"\g<%s>" % f for f in fields})
@@ -65,19 +53,24 @@ class OneWayMapping:
 
 
 class TwoWayMapping:
-
     def __init__(self, private: str, public: str, fields: List[str]) -> None:
-        self.private_to_public = OneWayMapping(private.replace(".", r"\."), public, fields)
+        self.private_to_public = OneWayMapping(
+            private.replace(".", r"\."), public, fields
+        )
         self.public_to_private = OneWayMapping(public, private, fields)
 
 
 MODEL_STATE_DICT_MAPPINGS = [
-    TwoWayMapping(private="{side}_operators.{idx}.{param}",
-                  public="relations/{idx}/operator/{side}/{param}",
-                  fields=["idx", "side", "param"]),
-    TwoWayMapping(private="global_embs.emb_{type}",
-                  public="entities/{type}/global_embedding",
-                  fields=["type"]),
+    TwoWayMapping(
+        private="{side}_operators.{idx}.{param}",
+        public="relations/{idx}/operator/{side}/{param}",
+        fields=["idx", "side", "param"],
+    ),
+    TwoWayMapping(
+        private="global_embs.emb_{type}",
+        public="entities/{type}/global_embedding",
+        fields=["type"],
+    ),
 ]
 
 
@@ -107,8 +100,10 @@ def model_state_dict_private_to_public(
     public_state_dict: Dict[str, ModelParameter] = {}
     for private_name, tensor in private_state_dict.items():
         if not isinstance(tensor, torch.Tensor):
-            raise RuntimeError("Isn't the state dict supposed to be "
-                               "a shallow key-to-tensor mapping?!")
+            raise RuntimeError(
+                "Isn't the state dict supposed to be "
+                "a shallow key-to-tensor mapping?!"
+            )
         for mapping in MODEL_STATE_DICT_MAPPINGS:
             try:
                 public_name = mapping.private_to_public.map(private_name)
@@ -118,7 +113,8 @@ def model_state_dict_private_to_public(
                 break
         else:
             raise RuntimeError(
-                f"Couldn't find a match for state dict key: {private_name}")
+                f"Couldn't find a match for state dict key: {private_name}"
+            )
         public_state_dict[public_name] = ModelParameter(private_name, tensor)
     return public_state_dict
 
@@ -143,11 +139,13 @@ class PartitionClient:
     def __init__(
         self,
         server_ranks: List[Rank],
-        groups: Optional[List['td.ProcessGroup']] = None,
+        groups: Optional[List["td.ProcessGroup"]] = None,
         log_stats: bool = False,
     ) -> None:
         self.groups = groups
-        self._clients = [ParameterClient(rank, groups, log_stats) for rank in server_ranks]
+        self._clients = [
+            ParameterClient(rank, groups, log_stats) for rank in server_ranks
+        ]
 
     def store(
         self,
@@ -164,10 +162,7 @@ class PartitionClient:
             client.store(key + "__optim", optim_state_tensor)
 
     def get(
-        self,
-        entity: EntityName,
-        part: Partition,
-        out: Optional[FloatTensorType] = None,
+        self, entity: EntityName, part: Partition, out: Optional[FloatTensorType] = None
     ) -> Tuple[FloatTensorType, Optional[bytes]]:
         client = self._clients[part % len(self._clients)]
         key = "%s_%s" % (entity, part)
@@ -189,14 +184,12 @@ class PartitionClient:
 
 
 class MetadataProvider(ABC):
-
     @abstractmethod
     def get_checkpoint_metadata(self) -> Dict[str, Any]:
         pass
 
 
 class ConfigMetadataProvider(MetadataProvider):
-
     def __init__(self, config: ConfigSchema) -> None:
         self.json_config_dict = json.dumps(config.to_dict(), indent=4)
 
@@ -224,7 +217,6 @@ def deserialize_optim_state(
 
 
 class CheckpointManager:
-
     def __init__(
         self,
         url: str,
@@ -282,7 +274,8 @@ class CheckpointManager:
             self.partition_client.store(entity, part, embs, serialized_optim_state)
         else:
             self.storage.save_entity_partition(
-                version, entity, part, embs, serialized_optim_state, metadata)
+                version, entity, part, embs, serialized_optim_state, metadata
+            )
 
     def read(
         self,
@@ -301,8 +294,9 @@ class CheckpointManager:
         if (entity, part) in self.dirty and self.partition_client is not None:
             embs, serialized_optim_state = self.partition_client.get(entity, part, out)
         else:
-            embs, serialized_optim_state = \
-                self.storage.load_entity_partition(version, entity, part, out)
+            embs, serialized_optim_state = self.storage.load_entity_partition(
+                version, entity, part, out
+            )
         optim_state = deserialize_optim_state(serialized_optim_state)
         return embs, optim_state
 
@@ -323,15 +317,15 @@ class CheckpointManager:
             return None, None
 
     def write_model(
-        self,
-        state_dict: ModuleStateDict,
-        optim_state: Optional[OptimizerStateDict],
+        self, state_dict: ModuleStateDict, optim_state: Optional[OptimizerStateDict]
     ) -> None:
         version = self._version(True)
         metadata = self.collect_metadata()
         public_state_dict = model_state_dict_private_to_public(state_dict)
         serialized_optim_state = serialize_optim_state(optim_state)
-        self.storage.save_model(version, public_state_dict, serialized_optim_state, metadata)
+        self.storage.save_model(
+            version, public_state_dict, serialized_optim_state, metadata
+        )
 
     def read_model(
         self,
@@ -358,17 +352,18 @@ class CheckpointManager:
         config_json = self.storage.load_config()
         return ConfigSchema.from_dict(json.loads(config_json))
 
-    def append_stats(
-        self,
-        stats: List[Dict[str, Union[int, SerializedStats]]],
-    ) -> None:
+    def append_stats(self, stats: List[Dict[str, Union[int, SerializedStats]]]) -> None:
         self.storage.append_stats([json.dumps(s) for s in stats])
 
-    def read_stats(self) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
+    def read_stats(
+        self
+    ) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
         for line in self.storage.load_stats():
             yield json.loads(line)
 
-    def maybe_read_stats(self) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
+    def maybe_read_stats(
+        self
+    ) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
         try:
             yield from self.read_stats()
         except CouldNotLoadData:
@@ -395,7 +390,13 @@ class CheckpointManager:
                     logger.debug(f"Done getting {entity} {part}")
                     logger.debug(f"Saving {entity} {part} v{new_version}")
                     self.storage.save_entity_partition(
-                        new_version, entity, part, embs, serialized_optim_state, metadata)
+                        new_version,
+                        entity,
+                        part,
+                        embs,
+                        serialized_optim_state,
+                        metadata,
+                    )
                     logger.debug(f"Done saving {entity} {part} v{new_version}")
 
     def switch_to_new_version(self) -> None:
@@ -434,7 +435,8 @@ class CheckpointManager:
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
                 self.storage.copy_entity_partition_to_snapshot(
-                    version, entity, part, epoch_idx)
+                    version, entity, part, epoch_idx
+                )
         if self.rank == 0:
             self.storage.copy_model_to_snapshot(version, epoch_idx)
             self.storage.copy_version_to_snapshot(version, epoch_idx)

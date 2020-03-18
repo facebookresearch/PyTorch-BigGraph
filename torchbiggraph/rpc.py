@@ -1,17 +1,17 @@
+#!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from __future__ import absolute_import, division, print_function, unicode_literals
-
-import torch
 import io
-import torch.distributed as td
-import numpy as np
-import traceback
 import sys
+import traceback
+
+import numpy as np
+import torch
+import torch.distributed as td
 
 
 # FIXME: is it efficient to torch.save into a buf? It's going to have to copy
@@ -156,8 +156,9 @@ class Client(object):
 
     def __getattr__(self, name):
         if name not in dir(self.server_class):
-            raise AttributeError("%s has no attribute %s" %
-                                 (self.server_class.__name__, name))
+            raise AttributeError(
+                "%s has no attribute %s" % (self.server_class.__name__, name)
+            )
         func = getattr(self.server_class, name)
         if not isinstance(func, type(lambda: 1)):  # FIXME
             raise TypeError("%s object is not callable" % (type(func)))

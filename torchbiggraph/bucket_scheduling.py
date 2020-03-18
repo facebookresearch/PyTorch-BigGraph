@@ -27,6 +27,7 @@ logger = logging.getLogger("torchbiggraph")
 ###   Bucket scheduling interface.
 ###
 
+
 class BucketStats(NamedTuple):
     lhs_partition: int
     rhs_partition: int
@@ -38,7 +39,6 @@ class BucketStats(NamedTuple):
 
 
 class AbstractBucketScheduler(ABC):
-
     @abstractmethod
     def new_pass(self, is_first: bool) -> None:
         pass
@@ -68,29 +68,28 @@ class AbstractBucketScheduler(ABC):
 ###   Implementation for single-machine mode.
 ###
 
+
 def create_ordered_buckets(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    order: BucketOrder,
-    *,
-    generator: random.Random,
+    nparts_lhs: int, nparts_rhs: int, order: BucketOrder, *, generator: random.Random
 ) -> List[Bucket]:
     if order is BucketOrder.RANDOM:
         return create_buckets_ordered_randomly(
-            nparts_lhs, nparts_rhs, generator=generator)
+            nparts_lhs, nparts_rhs, generator=generator
+        )
     elif order is BucketOrder.AFFINITY:
         return create_buckets_ordered_by_affinity(
-            nparts_lhs, nparts_rhs, generator=generator)
+            nparts_lhs, nparts_rhs, generator=generator
+        )
     elif order is BucketOrder.INSIDE_OUT or order is BucketOrder.OUTSIDE_IN:
         return create_buckets_ordered_by_layer(
-            nparts_lhs, nparts_rhs, order, generator=generator)
+            nparts_lhs, nparts_rhs, order, generator=generator
+        )
     else:
         raise NotImplementedError("Unknown bucket order: %s" % order)
 
 
 def create_buckets_ordered_lexicographically(
-    nparts_lhs: int,
-    nparts_rhs: int,
+    nparts_lhs: int, nparts_rhs: int
 ) -> List[Bucket]:
     """Return buckets in increasing LHS and, for the same LHS, in increasing RHS
 
@@ -104,10 +103,7 @@ def create_buckets_ordered_lexicographically(
 
 
 def create_buckets_ordered_randomly(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    *,
-    generator: random.Random,
+    nparts_lhs: int, nparts_rhs: int, *, generator: random.Random
 ) -> List[Bucket]:
     """Return all buckets, randomly permuted.
 
@@ -120,10 +116,7 @@ def create_buckets_ordered_randomly(
 
 
 def create_buckets_ordered_by_affinity(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    *,
-    generator: random.Random,
+    nparts_lhs: int, nparts_rhs: int, *, generator: random.Random
 ) -> List[Bucket]:
     """Try having consecutive buckets share as many partitions as possible.
 
@@ -158,8 +151,9 @@ def create_buckets_ordered_by_affinity(
     # end. Each bucket appears in several of them. They are updated lazily,
     # which means they may contain buckets that have already been outputted.
     all_buckets: List[Bucket] = []
-    buckets_per_partition: List[List[Bucket]] = \
-        [[] for _ in range(max(nparts_lhs, nparts_rhs))]
+    buckets_per_partition: List[List[Bucket]] = [
+        [] for _ in range(max(nparts_lhs, nparts_rhs))
+    ]
 
     for lhs in range(nparts_lhs):
         for rhs in range(nparts_rhs):
@@ -189,8 +183,7 @@ def create_buckets_ordered_by_affinity(
         same_as_rhs = buckets_per_partition[b.rhs]
         while len(same_as_lhs) > 0 or len(same_as_rhs) > 0:
             chosen, = generator.choices(
-                [same_as_lhs, same_as_rhs],
-                weights=[len(same_as_lhs), len(same_as_rhs)],
+                [same_as_lhs, same_as_rhs], weights=[len(same_as_lhs), len(same_as_rhs)]
             )
             next_b = chosen.pop()
             if next_b in remaining:
@@ -208,11 +201,7 @@ def create_buckets_ordered_by_affinity(
 
 
 def create_layer_of_buckets(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    layer_idx: int,
-    *,
-    generator: random.Random,
+    nparts_lhs: int, nparts_rhs: int, layer_idx: int, *, generator: random.Random
 ) -> List[Bucket]:
     """Return the layer of #LHS x #RHS matrix of the given index
 
@@ -237,11 +226,7 @@ def create_layer_of_buckets(
 
 
 def create_buckets_ordered_by_layer(
-    nparts_lhs: int,
-    nparts_rhs: int,
-    order: BucketOrder,
-    *,
-    generator: random.Random,
+    nparts_lhs: int, nparts_rhs: int, order: BucketOrder, *, generator: random.Random
 ) -> List[Bucket]:
     """Output buckets in concentric L-shaped layers (e.g., first row + column)
 
@@ -270,8 +255,7 @@ def create_buckets_ordered_by_layer(
      2 | L0  L1  L2  L2
 
     """
-    if order is not BucketOrder.INSIDE_OUT \
-            and order is not BucketOrder.OUTSIDE_IN:
+    if order is not BucketOrder.INSIDE_OUT and order is not BucketOrder.OUTSIDE_IN:
         raise ValueError("Unknown order: %s" % order)
 
     layers = [
@@ -284,7 +268,6 @@ def create_buckets_ordered_by_layer(
 
 
 class SingleMachineBucketScheduler(AbstractBucketScheduler):
-
     def __init__(self, nparts_lhs: int, nparts_rhs: int, order: BucketOrder) -> None:
         self.nparts_lhs = nparts_lhs
         self.nparts_rhs = nparts_rhs
@@ -338,8 +321,8 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
 ###   Implementation for distributed training mode.
 ###
 
-class LockServer(Server, Startable):
 
+class LockServer(Server, Startable):
     def __init__(
         self,
         num_clients: int,
@@ -363,15 +346,18 @@ class LockServer(Server, Startable):
         # effectively equivalent to ensure good mixing. So we replace the counts
         # by the average of all the counts of a certain entity, as they all
         # follow the same distribution.
-        self.average_entity_counts: Dict[str, int] = \
-            {entity: round(mean(counts)) for entity, counts in entity_counts.items()}
+        self.average_entity_counts: Dict[str, int] = {
+            entity: round(mean(counts)) for entity, counts in entity_counts.items()
+        }
         self.init_tree = init_tree
 
         self.active: Dict[Bucket, Rank] = {}
         self.done: Set[Bucket] = set()
         self.dirty: Set[Tuple[EntityName, Partition]] = set()
         self.stats: List[BucketStats] = []
-        self.initialized_entities_partitions: Optional[Set[Tuple[EntityName, Partition]]] = None
+        self.initialized_entities_partitions: Optional[
+            Set[Tuple[EntityName, Partition]]
+        ] = None
 
     def new_pass(self, is_first: bool = False) -> None:
         """Start a new epoch of training."""
@@ -410,19 +396,16 @@ class LockServer(Server, Startable):
         # ensure that the embedding spaces of different partitions are aligned.
         # As here we don't have access to relation types we use an approximation
         # which should work well in all but the most pathological scenarios.
-        return (
-            all(
-                (entity, bucket.lhs) in self.initialized_entities_partitions
-                for entity in self.entities_lhs)
-            or all(
-                (entity, bucket.rhs) in self.initialized_entities_partitions
-                for entity in self.entities_rhs)
+        return all(
+            (entity, bucket.lhs) in self.initialized_entities_partitions
+            for entity in self.entities_lhs
+        ) or all(
+            (entity, bucket.rhs) in self.initialized_entities_partitions
+            for entity in self.entities_rhs
         )
 
     def _pick_bucket(
-        self,
-        buckets: List[Bucket],
-        maybe_old_bucket: Optional[Bucket],
+        self, buckets: List[Bucket], maybe_old_bucket: Optional[Bucket]
     ) -> Bucket:
         # We return a bucket (the lexicographically smallest one) among those
         # that minimize the I/O cost of loading them (from scratch) or switching
@@ -446,21 +429,28 @@ class LockServer(Server, Startable):
         old_entities_parts: Set[Tuple[EntityName, Partition]] = set()
         if maybe_old_bucket is not None:
             old_entities_parts.update(
-                (entity, maybe_old_bucket.lhs) for entity in self.entities_lhs)
+                (entity, maybe_old_bucket.lhs) for entity in self.entities_lhs
+            )
             old_entities_parts.update(
-                (entity, maybe_old_bucket.rhs) for entity in self.entities_rhs)
+                (entity, maybe_old_bucket.rhs) for entity in self.entities_rhs
+            )
 
         buckets_by_cost: Dict[int, List[Bucket]] = defaultdict(list)
         for bucket in buckets:
             new_entities_parts: Set[Tuple[EntityName, Partition]] = set()
             new_entities_parts.update(
-                (entity, bucket.lhs) for entity in self.entities_lhs)
+                (entity, bucket.lhs) for entity in self.entities_lhs
+            )
             new_entities_parts.update(
-                (entity, bucket.rhs) for entity in self.entities_rhs)
+                (entity, bucket.rhs) for entity in self.entities_rhs
+            )
 
             cost = sum(
                 self.average_entity_counts[entity]
-                for entity, _ in new_entities_parts.symmetric_difference(old_entities_parts))
+                for entity, _ in new_entities_parts.symmetric_difference(
+                    old_entities_parts
+                )
+            )
 
             buckets_by_cost[cost].append(bucket)
 
@@ -476,9 +466,7 @@ class LockServer(Server, Startable):
         return cheapest_buckets[0]
 
     def acquire_bucket(
-        self,
-        rank: Rank,
-        maybe_old_bucket: Optional[Bucket] = None,
+        self, rank: Rank, maybe_old_bucket: Optional[Bucket] = None
     ) -> Tuple[Optional[Bucket], int]:
         """
         Finds a (lhs, rhs) partition pair that has not already been acquired
@@ -500,9 +488,11 @@ class LockServer(Server, Startable):
         locked_entities_parts: Dict[Tuple[EntityName, Partition], Rank] = {}
         for bucket, other_rank in self.active.items():
             locked_entities_parts.update(
-                ((entity, bucket.lhs), other_rank) for entity in self.entities_lhs)
+                ((entity, bucket.lhs), other_rank) for entity in self.entities_lhs
+            )
             locked_entities_parts.update(
-                ((entity, bucket.rhs), other_rank) for entity in self.entities_rhs)
+                ((entity, bucket.rhs), other_rank) for entity in self.entities_rhs
+            )
 
         acquirable_lhs_parts: List[Partition] = []
         for part in range(self.nparts_lhs):
@@ -530,10 +520,14 @@ class LockServer(Server, Startable):
         self.done.add(new_bucket)
         if self.initialized_entities_partitions is not None:
             self.initialized_entities_partitions.update(
-                (entity, new_bucket.lhs) for entity in self.entities_lhs)
+                (entity, new_bucket.lhs) for entity in self.entities_lhs
+            )
             self.initialized_entities_partitions.update(
-                (entity, new_bucket.rhs) for entity in self.entities_rhs)
-        logger.info(f"Bucket {new_bucket} acquired by trainer {rank}: active= {self.active}")
+                (entity, new_bucket.rhs) for entity in self.entities_rhs
+            )
+        logger.info(
+            f"Bucket {new_bucket} acquired by trainer {rank}: active= {self.active}"
+        )
         return new_bucket, remaining
 
     def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
@@ -563,13 +557,11 @@ class LockServer(Server, Startable):
 
 
 class LockClient(Client):
-
     def __init__(self, server_rank: Rank) -> None:
         super().__init__(LockServer, server_rank)
 
 
 class DistributedBucketScheduler(AbstractBucketScheduler):
-
     def __init__(self, server_rank: Rank, client_rank: Rank):
         self.client = LockClient(server_rank)
         self.rank = client_rank
@@ -582,7 +574,9 @@ class DistributedBucketScheduler(AbstractBucketScheduler):
         self.old_b = None
 
     def acquire_bucket(self) -> Tuple[Optional[Bucket], int]:
-        bucket, remaining = self.client.acquire_bucket(self.rank, maybe_old_bucket=self.old_b)
+        bucket, remaining = self.client.acquire_bucket(
+            self.rank, maybe_old_bucket=self.old_b
+        )
         if bucket is not None:
             self.old_b = bucket
         return bucket, remaining

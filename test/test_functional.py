@@ -20,20 +20,15 @@ from unittest import TestCase, main
 import attr
 import h5py
 import numpy as np
-
-from torchbiggraph.config import (
-    ConfigSchema,
-    EntitySchema,
-    RelationSchema,
-)
+from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
 from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.stats import SerializedStats
 from torchbiggraph.train import train
 from torchbiggraph.util import (
+    SubprocessInitializer,
     call_one_after_the_other,
     setup_logging,
-    SubprocessInitializer,
 )
 
 
@@ -58,9 +53,7 @@ def broadcast_nums(nums: Iterable[int]) -> int:
 
 
 def generate_dataset(
-    config: ConfigSchema,
-    num_entities: int,
-    fractions: List[float],
+    config: ConfigSchema, num_entities: int, fractions: List[float]
 ) -> Dataset:
     """Create a randomly-generated dataset compatible with the given config.
 
@@ -78,37 +71,55 @@ def generate_dataset(
     for entity_name, entity in config.entities.items():
         embeddings[entity_name] = np.split(
             np.random.randn(num_entities, config.dimension),
-            np.cumsum(np.random.multinomial(
-                num_entities, [1 / entity.num_partitions] * entity.num_partitions,
-            )[:-1]),
+            np.cumsum(
+                np.random.multinomial(
+                    num_entities, [1 / entity.num_partitions] * entity.num_partitions
+                )[:-1]
+            ),
         )
         for partition, embedding in enumerate(embeddings[entity_name]):
-            with open(os.path.join(
-                entity_path.name, "entity_count_%s_%d.txt" % (entity_name, partition)
-            ), "xt") as tf:
+            with open(
+                os.path.join(
+                    entity_path.name,
+                    "entity_count_%s_%d.txt" % (entity_name, partition),
+                ),
+                "xt",
+            ) as tf:
                 tf.write("%d" % len(embedding))
 
     any_lhs_featurized = any(
-        config.entities[relation.lhs].featurized for relation in config.relations)
+        config.entities[relation.lhs].featurized for relation in config.relations
+    )
     any_rhs_featurized = any(
-        config.entities[relation.rhs].featurized for relation in config.relations)
-    num_lhs_partitions = \
-        broadcast_nums(len(embeddings[relation.lhs]) for relation in config.relations)
-    num_rhs_partitions = \
-        broadcast_nums(len(embeddings[relation.rhs]) for relation in config.relations)
+        config.entities[relation.rhs].featurized for relation in config.relations
+    )
+    num_lhs_partitions = broadcast_nums(
+        len(embeddings[relation.lhs]) for relation in config.relations
+    )
+    num_rhs_partitions = broadcast_nums(
+        len(embeddings[relation.rhs]) for relation in config.relations
+    )
 
     for lhs_partition in range(num_lhs_partitions):
         for rhs_partition in range(num_rhs_partitions):
-            dtype = [("lhs", np.int64), ("lhs_feat", np.bool_),
-                     ("rhs", np.int64), ("rhs_feat", np.bool_),
-                     ("rel", np.int64)]
+            dtype = [
+                ("lhs", np.int64),
+                ("lhs_feat", np.bool_),
+                ("rhs", np.int64),
+                ("rhs_feat", np.bool_),
+                ("rel", np.int64),
+            ]
             edges = np.empty((0,), dtype=dtype)
             for rel_idx, relation in enumerate(config.relations):
                 lhs_partitioned = config.entities[relation.lhs].num_partitions > 1
                 rhs_partitioned = config.entities[relation.rhs].num_partitions > 1
-                lhs_embs = embeddings[relation.lhs][lhs_partition if lhs_partitioned else 0]
-                rhs_embs = embeddings[relation.rhs][rhs_partition if rhs_partitioned else 0]
-                scores = np.einsum('ld,rd->lr', lhs_embs, rhs_embs)
+                lhs_embs = embeddings[relation.lhs][
+                    lhs_partition if lhs_partitioned else 0
+                ]
+                rhs_embs = embeddings[relation.rhs][
+                    rhs_partition if rhs_partitioned else 0
+                ]
+                scores = np.einsum("ld,rd->lr", lhs_embs, rhs_embs)
                 num_these_edges = np.count_nonzero(scores > 0)
                 these_edges = np.empty(num_these_edges, dtype=dtype)
                 these_edges["lhs"], these_edges["rhs"] = np.nonzero(scores > 0)
@@ -120,23 +131,32 @@ def generate_dataset(
             start_idx = 0
             for fraction, path in zip(fractions, relation_paths):
                 end_idx = start_idx + int(fraction * len(edges))
-                with h5py.File(os.path.join(
-                    path.name, "edges_%d_%d.h5" % (lhs_partition, rhs_partition)
-                ), "x") as hf:
+                with h5py.File(
+                    os.path.join(
+                        path.name, "edges_%d_%d.h5" % (lhs_partition, rhs_partition)
+                    ),
+                    "x",
+                ) as hf:
                     hf.attrs["format_version"] = 1
                     these_edges = edges[start_idx:end_idx]
                     if any_lhs_featurized:
                         hf["lhsd_data"] = these_edges["lhs"][these_edges["lhs_feat"]]
-                        hf["lhsd_offsets"] = np.concatenate((
-                            np.array([0], dtype=np.int64),
-                            np.cumsum(these_edges["lhs_feat"], dtype=np.int64)))
+                        hf["lhsd_offsets"] = np.concatenate(
+                            (
+                                np.array([0], dtype=np.int64),
+                                np.cumsum(these_edges["lhs_feat"], dtype=np.int64),
+                            )
+                        )
                         # Poison the non-featurized data.
                         these_edges["lhs"][these_edges["lhs_feat"]] = -1
                     if any_rhs_featurized:
                         hf["rhsd_data"] = these_edges["rhs"][these_edges["rhs_feat"]]
-                        hf["rhsd_offsets"] = np.concatenate((
-                            np.array([0], dtype=np.int64),
-                            np.cumsum(these_edges["rhs_feat"], dtype=np.int64)))
+                        hf["rhsd_offsets"] = np.concatenate(
+                            (
+                                np.array([0], dtype=np.int64),
+                                np.cumsum(these_edges["rhs_feat"], dtype=np.int64),
+                            )
+                        )
                         # Poison the non-featurized data.
                         these_edges["rhs"][these_edges["rhs_feat"]] = -1
                     hf["lhs"] = these_edges["lhs"]
@@ -147,34 +167,35 @@ def generate_dataset(
     return Dataset(entity_path, relation_paths)
 
 
-def init_embeddings(
-    target: str,
-    config: ConfigSchema,
-    *,
-    version: int = 0,
-):
+def init_embeddings(target: str, config: ConfigSchema, *, version: int = 0):
     with open(os.path.join(target, "checkpoint_version.txt"), "xt") as tf:
         tf.write("%d" % version)
     for entity_name, entity in config.entities.items():
         for partition in range(entity.num_partitions):
-            with open(os.path.join(
-                config.entity_path,
-                "entity_count_%s_%d.txt" % (entity_name, partition),
-            ), "rt") as tf:
+            with open(
+                os.path.join(
+                    config.entity_path,
+                    "entity_count_%s_%d.txt" % (entity_name, partition),
+                ),
+                "rt",
+            ) as tf:
                 entity_count = int(tf.read().strip())
-            with h5py.File(os.path.join(
-                target,
-                "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
-            ), "x") as hf:
+            with h5py.File(
+                os.path.join(
+                    target,
+                    "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
+                ),
+                "x",
+            ) as hf:
                 hf.attrs["format_version"] = 1
-                hf.create_dataset("embeddings",
-                                  data=np.random.randn(entity_count, config.dimension))
+                hf.create_dataset(
+                    "embeddings", data=np.random.randn(entity_count, config.dimension)
+                )
     with h5py.File(os.path.join(target, "model.v%d.h5" % version), "x") as hf:
         hf.attrs["format_version"] = 1
 
 
 class TestFunctional(TestCase):
-
     def setUp(self) -> None:
         self.subprocess_init = SubprocessInitializer()
         self.subprocess_init.register(setup_logging, 1)
@@ -191,12 +212,21 @@ class TestFunctional(TestCase):
         self.assertEqual(hf.attrs["format_version"], 1)
         self.assertEqual(json.loads(hf.attrs["config/json"]), config.to_dict())
         self.assertCountEqual(
-            [key.partition("/")[-1]
-             for key in hf.attrs.keys()
-             if key.startswith("iteration/")],
-            ["num_epochs", "epoch_idx",
-             "num_edge_paths", "edge_path_idx", "edge_path",
-             "num_edge_chunks", "edge_chunk_idx"])
+            [
+                key.partition("/")[-1]
+                for key in hf.attrs.keys()
+                if key.startswith("iteration/")
+            ],
+            [
+                "num_epochs",
+                "epoch_idx",
+                "num_edge_paths",
+                "edge_path_idx",
+                "edge_path",
+                "num_edge_chunks",
+                "edge_chunk_idx",
+            ],
+        )
 
     def assertIsModelParameter(self, dataset: h5py.Dataset) -> None:
         # In fact it could also be a group...
@@ -215,10 +245,7 @@ class TestFunctional(TestCase):
         self.assertEqual(len(dataset.shape), 1)
 
     def assertIsEmbeddings(
-        self,
-        dataset: h5py.Dataset,
-        entity_count: int,
-        dimension: int,
+        self, dataset: h5py.Dataset, entity_count: int, dimension: int
     ) -> None:
         self.assertIsInstance(dataset, h5py.Dataset)
         self.assertEqual(dataset.dtype, np.float32)
@@ -226,12 +253,20 @@ class TestFunctional(TestCase):
         self.assertTrue(np.all(np.isfinite(dataset[...])))
         self.assertTrue(np.all(np.linalg.norm(dataset[...], axis=-1) != 0))
 
-    def assertIsStatsDict(self, stats: Mapping[str, Union[int, SerializedStats]]) -> None:
+    def assertIsStatsDict(
+        self, stats: Mapping[str, Union[int, SerializedStats]]
+    ) -> None:
         self.assertIsInstance(stats, dict)
         self.assertIn("index", stats)
         for k, v in stats.items():
-            if k in ("epoch_idx", "edge_path_idx", "edge_chunk_idx",
-                     "lhs_partition", "rhs_partition", "index"):
+            if k in (
+                "epoch_idx",
+                "edge_path_idx",
+                "edge_chunk_idx",
+                "lhs_partition",
+                "rhs_partition",
+                "index",
+            ):
                 self.assertIsInstance(v, int)
             elif k in ("stats", "eval_stats_before", "eval_stats_after"):
                 self.assertIsInstance(v, dict)
@@ -244,43 +279,53 @@ class TestFunctional(TestCase):
                 self.fail(f"Unknown stats key: {k}")
 
     def assertCheckpointWritten(self, config: ConfigSchema, *, version: int) -> None:
-        with open(os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt") as tf:
+        with open(
+            os.path.join(config.checkpoint_path, "checkpoint_version.txt"), "rt"
+        ) as tf:
             self.assertEqual(version, int(tf.read().strip()))
 
         with open(os.path.join(config.checkpoint_path, "config.json"), "rt") as tf:
             self.assertEqual(json.load(tf), config.to_dict())
 
-        with h5py.File(os.path.join(
-            config.checkpoint_path, "model.v%d.h5" % version
-        ), "r") as hf:
+        with h5py.File(
+            os.path.join(config.checkpoint_path, "model.v%d.h5" % version), "r"
+        ) as hf:
             self.assertHasMetadata(hf, config)
             self.assertIsModelParameters(hf["model"])
             self.assertIsOptimStateDict(hf["optimizer/state_dict"])
 
-        with open(os.path.join(config.checkpoint_path, "training_stats.json"), "rt") as tf:
+        with open(
+            os.path.join(config.checkpoint_path, "training_stats.json"), "rt"
+        ) as tf:
             for line in tf:
                 self.assertIsStatsDict(json.loads(line))
 
         for entity_name, entity in config.entities.items():
             for partition in range(entity.num_partitions):
-                with open(os.path.join(
-                    config.entity_path,
-                    "entity_count_%s_%d.txt" % (entity_name, partition),
-                ), "rt") as tf:
+                with open(
+                    os.path.join(
+                        config.entity_path,
+                        "entity_count_%s_%d.txt" % (entity_name, partition),
+                    ),
+                    "rt",
+                ) as tf:
                     entity_count = int(tf.read().strip())
-                with h5py.File(os.path.join(
-                    config.checkpoint_path,
-                    "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
-                ), "r") as hf:
+                with h5py.File(
+                    os.path.join(
+                        config.checkpoint_path,
+                        "embeddings_%s_%d.v%d.h5" % (entity_name, partition, version),
+                    ),
+                    "r",
+                ) as hf:
                     self.assertHasMetadata(hf, config)
                     self.assertIsEmbeddings(
-                        hf["embeddings"], entity_count, config.dimension)
+                        hf["embeddings"], entity_count, config.dimension
+                    )
                     self.assertIsOptimStateDict(hf["optimizer/state_dict"])
 
     def test_default(self):
         entity_name = "e"
-        relation_config = RelationSchema(
-            name="r", lhs=entity_name, rhs=entity_name)
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
@@ -290,9 +335,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4, 0.2]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
@@ -312,8 +355,7 @@ class TestFunctional(TestCase):
 
     def test_resume_from_checkpoint(self):
         entity_name = "e"
-        relation_config = RelationSchema(
-            name="r", lhs=entity_name, rhs=entity_name)
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
@@ -325,9 +367,7 @@ class TestFunctional(TestCase):
             num_edge_chunks=2,
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4, 0.4]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.4])
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
@@ -339,13 +379,13 @@ class TestFunctional(TestCase):
         train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=8)
         # Check we did resume the run, not start the whole thing anew.
-        self.assertFalse(os.path.exists(
-            os.path.join(train_config.checkpoint_path, "model.v6.h5")))
+        self.assertFalse(
+            os.path.exists(os.path.join(train_config.checkpoint_path, "model.v6.h5"))
+        )
 
     def test_with_initial_value(self):
         entity_name = "e"
-        relation_config = RelationSchema(
-            name="r", lhs=entity_name, rhs=entity_name)
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
@@ -355,9 +395,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4])
         self.addCleanup(dataset.cleanup)
         init_dir = TemporaryDirectory()
         self.addCleanup(init_dir.cleanup)
@@ -386,9 +424,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4, 0.2]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
@@ -421,9 +457,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4, 0.2]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
@@ -461,9 +495,7 @@ class TestFunctional(TestCase):
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4])
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
@@ -476,7 +508,9 @@ class TestFunctional(TestCase):
             target=partial(
                 call_one_after_the_other,
                 self.subprocess_init,
-                partial(train, train_config, rank=0, subprocess_init=self.subprocess_init),
+                partial(
+                    train, train_config, rank=0, subprocess_init=self.subprocess_init
+                ),
             ),
         )
         trainer1 = mp.get_context("spawn").Process(
@@ -484,7 +518,9 @@ class TestFunctional(TestCase):
             target=partial(
                 call_one_after_the_other,
                 self.subprocess_init,
-                partial(train, train_config, rank=1, subprocess_init=self.subprocess_init),
+                partial(
+                    train, train_config, rank=1, subprocess_init=self.subprocess_init
+                ),
             ),
         )
         # FIXME In Python 3.7 use kill here.
@@ -507,8 +543,7 @@ class TestFunctional(TestCase):
         sync_path = TemporaryDirectory()
         self.addCleanup(sync_path.cleanup)
         entity_name = "e"
-        relation_config = RelationSchema(
-            name="r", lhs=entity_name, rhs=entity_name)
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
@@ -521,9 +556,7 @@ class TestFunctional(TestCase):
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
             workers=2,
         )
-        dataset = generate_dataset(
-            base_config, num_entities=100, fractions=[0.4]
-        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4])
         self.addCleanup(dataset.cleanup)
         train_config = attr.evolve(
             base_config,
@@ -536,7 +569,9 @@ class TestFunctional(TestCase):
             target=partial(
                 call_one_after_the_other,
                 self.subprocess_init,
-                partial(train, train_config, rank=0, subprocess_init=self.subprocess_init),
+                partial(
+                    train, train_config, rank=0, subprocess_init=self.subprocess_init
+                ),
             ),
         )
         trainer1 = mp.get_context("spawn").Process(
@@ -544,7 +579,9 @@ class TestFunctional(TestCase):
             target=partial(
                 call_one_after_the_other,
                 self.subprocess_init,
-                partial(train, train_config, rank=1, subprocess_init=self.subprocess_init),
+                partial(
+                    train, train_config, rank=1, subprocess_init=self.subprocess_init
+                ),
             ),
         )
         partition_server0 = mp.get_context("spawn").Process(
@@ -593,8 +630,12 @@ class TestFunctional(TestCase):
                 done[1] = True
         partition_server0.join()
         partition_server1.join()
-        logger.info(f"Partition server 0 died with exit code {partition_server0.exitcode}")
-        logger.info(f"Partition server 0 died with exit code {partition_server1.exitcode}")
+        logger.info(
+            f"Partition server 0 died with exit code {partition_server0.exitcode}"
+        )
+        logger.info(
+            f"Partition server 0 died with exit code {partition_server1.exitcode}"
+        )
         self.assertCheckpointWritten(train_config, version=1)
 
     def test_dynamic_relations(self):
@@ -618,13 +659,11 @@ class TestFunctional(TestCase):
             relations=[relation_config] * 10,
             dynamic_relations=False,  # Must be off if more than 1 relation.
         )
-        dataset = generate_dataset(
-            gen_config, num_entities=100, fractions=[0.04, 0.02]
-        )
+        dataset = generate_dataset(gen_config, num_entities=100, fractions=[0.04, 0.02])
         self.addCleanup(dataset.cleanup)
-        with open(os.path.join(
-            dataset.entity_path.name, "dynamic_rel_count.txt"
-        ), "xt") as f:
+        with open(
+            os.path.join(dataset.entity_path.name, "dynamic_rel_count.txt"), "xt"
+        ) as f:
             f.write("%d" % len(gen_config.relations))
         train_config = attr.evolve(
             base_config,
@@ -643,5 +682,5 @@ class TestFunctional(TestCase):
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

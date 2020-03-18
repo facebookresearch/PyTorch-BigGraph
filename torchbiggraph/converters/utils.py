@@ -24,8 +24,10 @@ def extract_gzip(gzip_path: Path, remove_finished: bool = False) -> str:
     fpath = gzip_path.with_suffix("")
 
     if fpath.exists():
-        print("Found a file that indicates that the input data "
-              "has already been extracted, not doing it again.")
+        print(
+            "Found a file that indicates that the input data "
+            "has already been extracted, not doing it again."
+        )
         print(f"This file is: {fpath}")
         return fpath
 
@@ -76,8 +78,9 @@ def download_url(url: str, root: Path, filename: Optional[str] = None) -> str:
         try:
             print(f"Downloading {url} to {fpath}")
             urlretrieve(
-                url, str(fpath),
-                reporthook=gen_bar_updater(tqdm(unit='B', unit_scale=True))
+                url,
+                str(fpath),
+                reporthook=gen_bar_updater(tqdm(unit="B", unit_scale=True)),
             )
         except OSError:
             print(f"Failed to download from url: {url}")

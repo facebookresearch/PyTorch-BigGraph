@@ -33,8 +33,10 @@ class FilteredRankingEvaluator(RankingEvaluator):
     def __init__(self, config: ConfigSchema, filter_paths: List[str]):
         super().__init__()
         if len(config.relations) != 1 or len(config.entities) != 1:
-            raise RuntimeError("Filtered ranking evaluation should only be used "
-                               "with dynamic relations and one entity type.")
+            raise RuntimeError(
+                "Filtered ranking evaluation should only be used "
+                "with dynamic relations and one entity type."
+            )
         if not config.relations[0].all_negs:
             raise RuntimeError("Filtered Eval can only be done with all negatives.")
 
@@ -64,11 +66,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
 
             logger.info(f"Done building links map from path {path}")
 
-    def eval(
-        self,
-        scores: Scores,
-        batch_edges: EdgeList,
-    ) -> Stats:
+    def eval(self, scores: Scores, batch_edges: EdgeList) -> Stats:
         for idx in range(len(batch_edges)):
             # Assume non-featurized.
             cur_lhs = int(batch_edges.lhs.to_tensor()[idx])
@@ -88,4 +86,4 @@ class FilteredRankingEvaluator(RankingEvaluator):
             scores.lhs_neg[idx][lhs_edges_filtered] = -1e9
             scores.rhs_neg[idx][rhs_edges_filtered] = -1e9
 
-        return super().eval(scores, batch_edges)
+        return super().eval(scores, batch_edges)  # noqa

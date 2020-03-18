@@ -11,21 +11,20 @@ from pathlib import Path
 
 import attr
 import pkg_resources
-
+from torchbiggraph.config import ConfigFileLoader, add_to_sys_path
+from torchbiggraph.converters.importers import TSVEdgelistReader, convert_input_data
 from torchbiggraph.converters.utils import download_url, extract_tar
-from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
-from torchbiggraph.converters.importers import convert_input_data, TSVEdgelistReader
 from torchbiggraph.eval import do_eval
 from torchbiggraph.filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.train import train
 from torchbiggraph.util import (
+    SubprocessInitializer,
     set_logging_verbosity,
     setup_logging,
-    SubprocessInitializer,
 )
 
 
-FB15K_URL = 'https://dl.fbaipublicfiles.com/starspace/fb15k.tgz'
+FB15K_URL = "https://dl.fbaipublicfiles.com/starspace/fb15k.tgz"
 FILENAMES = [
     "FB15k/freebase_mtr100_mte100-train.txt",
     "FB15k/freebase_mtr100_mte100-valid.txt",
@@ -34,27 +33,32 @@ FILENAMES = [
 
 # Figure out the path where the sample config was installed by the package manager.
 # This can be overridden with --config.
-DEFAULT_CONFIG = pkg_resources.resource_filename("torchbiggraph.examples",
-                                                 "configs/fb15k_config.py")
+DEFAULT_CONFIG = pkg_resources.resource_filename(
+    "torchbiggraph.examples", "configs/fb15k_config.py"
+)
 
 
 def main():
     setup_logging()
-    parser = argparse.ArgumentParser(description='Example on FB15k')
-    parser.add_argument('--config', default=DEFAULT_CONFIG,
-                        help='Path to config file')
-    parser.add_argument('-p', '--param', action='append', nargs='*')
-    parser.add_argument('--data_dir', type=Path, default='data',
-                        help='where to save processed data')
-    parser.add_argument('--no-filtered', dest='filtered', action='store_false',
-                        help='Run unfiltered eval')
+    parser = argparse.ArgumentParser(description="Example on FB15k")
+    parser.add_argument("--config", default=DEFAULT_CONFIG, help="Path to config file")
+    parser.add_argument("-p", "--param", action="append", nargs="*")
+    parser.add_argument(
+        "--data_dir", type=Path, default="data", help="where to save processed data"
+    )
+    parser.add_argument(
+        "--no-filtered",
+        dest="filtered",
+        action="store_false",
+        help="Run unfiltered eval",
+    )
     args = parser.parse_args()
 
     # download data
     data_dir = args.data_dir
     fpath = download_url(FB15K_URL, data_dir)
     extract_tar(fpath)
-    print('Downloaded and extracted file.')
+    print("Downloaded and extracted file.")
 
     loader = ConfigFileLoader()
     config = loader.load_config(args.config, args.param)
@@ -80,7 +84,8 @@ def main():
 
     relations = [attr.evolve(r, all_negs=True) for r in config.relations]
     eval_config = attr.evolve(
-        config, edge_paths=[output_test_path], relations=relations, num_uniform_negs=0)
+        config, edge_paths=[output_test_path], relations=relations, num_uniform_negs=0
+    )
     if args.filtered:
         filter_paths = [output_test_path, output_valid_path, output_train_path]
         do_eval(

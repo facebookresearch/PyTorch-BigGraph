@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 from typing import Callable, Iterable, List, Optional
 
 import torch
-
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.model import MultiRelationEmbedder
 from torchbiggraph.stats import Stats
@@ -34,16 +33,14 @@ def group_by_relation_type(edges: EdgeList) -> List[EdgeList]:
     for start, end in zip([0] + cutpoints, cutpoints + [len(edges)]):
         rel_type = sorted_rel[start]
         edges_for_rel_type = edges[order[start:end]]
-        result.append(EdgeList(edges_for_rel_type.lhs,
-                               edges_for_rel_type.rhs,
-                               rel_type))
+        result.append(
+            EdgeList(edges_for_rel_type.lhs, edges_for_rel_type.rhs, rel_type)
+        )
     return result
 
 
 def batch_edges_mix_relation_types(
-    edges: EdgeList,
-    *,
-    batch_size: int,
+    edges: EdgeList, *, batch_size: int
 ) -> Iterable[EdgeList]:
     """Split the edges in batches that can contain multiple relation types
 
@@ -51,13 +48,11 @@ def batch_edges_mix_relation_types(
     except possibly the last one.
     """
     for offset in range(0, len(edges), batch_size):
-        yield edges[offset:offset + batch_size]
+        yield edges[offset : offset + batch_size]
 
 
 def batch_edges_group_by_relation_type(
-    edges: EdgeList,
-    *,
-    batch_size: int,
+    edges: EdgeList, *, batch_size: int
 ) -> Iterable[EdgeList]:
     """Split the edges in batches that each contain a single relation type
 
@@ -66,13 +61,14 @@ def batch_edges_group_by_relation_type(
     """
     edge_groups = group_by_relation_type(edges)
     num_edges_left_per_group = torch.tensor(
-        [len(edges) for edges in edge_groups], dtype=torch.long)
+        [len(edges) for edges in edge_groups], dtype=torch.long
+    )
 
     while num_edges_left_per_group.sum() > 0:
         idx = int(torch.multinomial(num_edges_left_per_group.float(), 1))
         edge_group = edge_groups[idx]
         offset = len(edge_group) - int(num_edges_left_per_group[idx])
-        sub_edges = edge_group[offset:offset + batch_size]
+        sub_edges = edge_group[offset : offset + batch_size]
         yield sub_edges
         num_edges_left_per_group[idx] -= len(sub_edges)
 
@@ -124,11 +120,8 @@ def process_in_batches(
 
 
 class AbstractBatchProcessor(ABC):
-
     @abstractmethod
     def process_one_batch(
-        self,
-        model: MultiRelationEmbedder,
-        batch_edges: EdgeList,
+        self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
         pass

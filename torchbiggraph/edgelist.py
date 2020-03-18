@@ -9,18 +9,16 @@
 from typing import Any, Sequence, Union
 
 import torch
-
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.types import LongTensorType
 
 
 class EdgeList:
-
     @classmethod
     def empty(cls) -> "EdgeList":
-        return cls(EntityList.empty(),
-                   EntityList.empty(),
-                   torch.empty((0,), dtype=torch.long))
+        return cls(
+            EntityList.empty(), EntityList.empty(), torch.empty((0,), dtype=torch.long)
+        )
 
     @classmethod
     def cat(cls, edge_lists: Sequence["EdgeList"]) -> "EdgeList":
@@ -34,31 +32,29 @@ class EdgeList:
         cat_rel = torch.cat([el.rel.expand((len(el),)) for el in edge_lists])
         return EdgeList(cat_lhs, cat_rhs, cat_rel)
 
-    def __init__(
-        self,
-        lhs: EntityList,
-        rhs: EntityList,
-        rel: LongTensorType,
-    ) -> None:
+    def __init__(self, lhs: EntityList, rhs: EntityList, rel: LongTensorType) -> None:
         if not isinstance(lhs, EntityList) or not isinstance(rhs, EntityList):
             raise TypeError(
                 "Expected left- and right-hand side to be entity lists, got "
-                "%s and %s instead" % (type(lhs), type(rhs)))
+                "%s and %s instead" % (type(lhs), type(rhs))
+            )
         if not isinstance(rel, (torch.LongTensor, torch.cuda.LongTensor)):
-            raise TypeError(
-                "Expected relation to be a long tensor, got %s" % type(rel))
+            raise TypeError("Expected relation to be a long tensor, got %s" % type(rel))
         if len(lhs) != len(rhs):
             raise ValueError(
                 "The left- and right-hand side entity lists have different "
-                "lengths: %d != %d" % (len(lhs), len(rhs)))
+                "lengths: %d != %d" % (len(lhs), len(rhs))
+            )
         if rel.dim() > 1:
             raise ValueError(
                 "The relation can be either a scalar or a 1-dimensional "
-                "tensor, got a %d-dimensional tensor" % rel.dim())
+                "tensor, got a %d-dimensional tensor" % rel.dim()
+            )
         if rel.dim() == 1 and rel.shape[0] != len(lhs):
             raise ValueError(
                 "The relation has a different length than the entity lists: "
-                "%d != %d" % (rel.shape[0], len(lhs)))
+                "%d != %d" % (rel.shape[0], len(lhs))
+            )
         self.lhs = lhs
         self.rhs = rhs
         self.rel = rel
@@ -85,9 +81,11 @@ class EdgeList:
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, EdgeList):
             return NotImplemented
-        return (self.lhs == other.lhs
-                and self.rhs == other.rhs
-                and torch.equal(self.rel, other.rel))
+        return (
+            self.lhs == other.lhs
+            and self.rhs == other.rhs
+            and torch.equal(self.rel, other.rel)
+        )
 
     def __str__(self) -> str:
         return repr(self)
@@ -96,14 +94,20 @@ class EdgeList:
         return "EdgeList(%r, %r, %r)" % (self.lhs, self.rhs, self.rel)
 
     def __getitem__(self, index: Union[int, slice, LongTensorType]) -> "EdgeList":
-        if not isinstance(index, (int, slice, (torch.LongTensor, torch.cuda.LongTensor))):
+        if not isinstance(
+            index, (int, slice, (torch.LongTensor, torch.cuda.LongTensor))
+        ):
             raise TypeError(
-                "Index can only be int, slice or long tensor, got %s"
-                % type(index))
-        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)) and index.dim() != 1:
+                "Index can only be int, slice or long tensor, got %s" % type(index)
+            )
+        if (
+            isinstance(index, (torch.LongTensor, torch.cuda.LongTensor))
+            and index.dim() != 1
+        ):
             raise ValueError(
                 "Long tensor index must be 1-dimensional, got %d-dimensional"
-                % (index.dim(),))
+                % (index.dim(),)
+            )
         sub_lhs = self.lhs[index]
         sub_rhs = self.rhs[index]
         if self.has_scalar_relation_type():

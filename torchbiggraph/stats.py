@@ -55,8 +55,7 @@ class Stats:
         if self.count == 0:
             return self
         return type(self)(
-            count=self.count,
-            **{k: v / self.count for k, v in self.metrics.items()},
+            count=self.count, **{k: v / self.count for k, v in self.metrics.items()}
         )
 
     def __str__(self) -> str:
@@ -66,9 +65,11 @@ class Stats:
         )
 
     def __eq__(self, other: "Stats") -> bool:
-        return (isinstance(other, Stats)
-                and self.count == other.count
-                and self.metrics == other.metrics)
+        return (
+            isinstance(other, Stats)
+            and self.count == other.count
+            and self.metrics == other.metrics
+        )
 
     def to_dict(self) -> SerializedStats:
         return {"count": self.count, "metrics": self.metrics}

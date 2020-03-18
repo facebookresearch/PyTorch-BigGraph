@@ -10,19 +10,19 @@ from typing import Sequence
 from unittest import TestCase, main
 
 import torch
-
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.tensorlist import TensorList
 
 
 def tensor_list_from_lists(lists: Sequence[Sequence[int]]) -> TensorList:
-    offsets = torch.tensor([0] + [len(l) for l in lists], dtype=torch.long).cumsum(dim=0)
+    offsets = torch.tensor([0] + [len(l) for l in lists], dtype=torch.long).cumsum(
+        dim=0
+    )
     data = torch.cat([torch.tensor(l, dtype=torch.long) for l in lists], dim=0)
     return TensorList(offsets, data)
 
 
 class TestEntityList(TestCase):
-
     def test_empty(self):
         self.assertEqual(
             EntityList.empty(),
@@ -32,7 +32,9 @@ class TestEntityList(TestCase):
     def test_from_tensor(self):
         self.assertEqual(
             EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
-            EntityList(torch.tensor([3, 4], dtype=torch.long), TensorList.empty(num_tensors=2)),
+            EntityList(
+                torch.tensor([3, 4], dtype=torch.long), TensorList.empty(num_tensors=2)
+            ),
         )
 
     def test_from_tensor_list(self):
@@ -50,10 +52,12 @@ class TestEntityList(TestCase):
         tensor_list_2 = tensor_list_from_lists([[1, 2, 0], []])
         tensor_list_sum = tensor_list_from_lists([[3, 4], [0], [1, 2, 0], []])
         self.assertEqual(
-            EntityList.cat([
-                EntityList(tensor_1, tensor_list_1),
-                EntityList(tensor_2, tensor_list_2),
-            ]),
+            EntityList.cat(
+                [
+                    EntityList(tensor_1, tensor_list_1),
+                    EntityList(tensor_2, tensor_list_2),
+                ]
+            ),
             EntityList(tensor_sum, tensor_list_sum),
         )
 
@@ -72,7 +76,7 @@ class TestEntityList(TestCase):
                     tensor_list_from_lists([[], []]),
                 ).to_tensor(),
                 torch.tensor([2, 3], dtype=torch.long),
-            ),
+            )
         )
 
     def test_to_tensor_list(self):
@@ -107,10 +111,12 @@ class TestEntityList(TestCase):
 
     def test_len(self):
         self.assertEqual(
-            len(EntityList(
-                torch.tensor([3, 4], dtype=torch.long),
-                tensor_list_from_lists([[], [2, 1, 0]]),
-            )),
+            len(
+                EntityList(
+                    torch.tensor([3, 4], dtype=torch.long),
+                    tensor_list_from_lists([[], [2, 1, 0]]),
+                )
+            ),
             2,
         )
 
@@ -121,8 +127,7 @@ class TestEntityList(TestCase):
                 tensor_list_from_lists([[2, 1], [0], [], [3, 4, 5]]),
             )[-3],
             EntityList(
-                torch.tensor([4], dtype=torch.long),
-                tensor_list_from_lists([[0]]),
+                torch.tensor([4], dtype=torch.long), tensor_list_from_lists([[0]])
             ),
         )
 
@@ -151,5 +156,5 @@ class TestEntityList(TestCase):
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

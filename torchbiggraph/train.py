@@ -10,7 +10,6 @@ import argparse
 import logging
 import math
 import time
-from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import partial
 from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple
@@ -18,14 +17,8 @@ from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set
 import torch
 import torch.distributed as td
 from torch.optim import Adagrad, Optimizer
-
-from torchbiggraph.batching import (
-    AbstractBatchProcessor,
-    call,
-    process_in_batches,
-)
+from torchbiggraph.batching import AbstractBatchProcessor, call, process_in_batches
 from torchbiggraph.bucket_scheduling import (
-    AbstractBucketScheduler,
     BucketStats,
     DistributedBucketScheduler,
     LockServer,
@@ -38,25 +31,17 @@ from torchbiggraph.checkpoint_manager import (
     PartitionClient,
 )
 from torchbiggraph.config import (
-    add_to_sys_path,
     ConfigFileLoader,
     ConfigSchema,
     RelationSchema,
+    add_to_sys_path,
 )
-from torchbiggraph.distributed import (
-    ProcessRanks,
-    init_process_group,
-    start_server,
-)
+from torchbiggraph.distributed import ProcessRanks, init_process_group, start_server
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.graph_storages import EDGE_STORAGES, ENTITY_STORAGES
-from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
-from torchbiggraph.model import (
-    MultiRelationEmbedder,
-    make_model,
-    override_model,
-)
+from torchbiggraph.losses import LOSS_FUNCTIONS, AbstractLossFunction
+from torchbiggraph.model import MultiRelationEmbedder, make_model, override_model
 from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
 from torchbiggraph.row_adagrad import RowAdagrad
 from torchbiggraph.stats import Stats
@@ -68,12 +53,12 @@ from torchbiggraph.types import (
     OptimizerStateDict,
     Partition,
     Rank,
-    Side,
 )
 from torchbiggraph.util import (
     BucketLogger,
     DummyOptimizer,
     EmbeddingHolder,
+    SubprocessInitializer,
     allocate_shared_tensor,
     create_pool,
     fast_approx_rand,
@@ -84,10 +69,8 @@ from torchbiggraph.util import (
     set_logging_verbosity,
     setup_logging,
     split_almost_equally,
-    SubprocessInitializer,
     tag_logs_with_process_name,
 )
-
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -120,9 +103,7 @@ class Trainer(AbstractBatchProcessor):
         self.relations = relations
 
     def process_one_batch(
-        self,
-        model: MultiRelationEmbedder,
-        batch_edges: EdgeList,
+        self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
         model.zero_grad()
 
@@ -130,16 +111,19 @@ class Trainer(AbstractBatchProcessor):
 
         lhs_loss = self.loss_fn(scores.lhs_pos, scores.lhs_neg)
         rhs_loss = self.loss_fn(scores.rhs_pos, scores.rhs_neg)
-        relation = self.relations[batch_edges.get_relation_type_as_scalar()
-                                  if batch_edges.has_scalar_relation_type()
-                                  else 0]
+        relation = self.relations[
+            batch_edges.get_relation_type_as_scalar()
+            if batch_edges.has_scalar_relation_type()
+            else 0
+        ]
         loss = relation.weight * (lhs_loss + rhs_loss)
 
         stats = Stats(
             loss=float(loss),
             violators_lhs=int((scores.lhs_neg > scores.lhs_pos.unsqueeze(1)).sum()),
             violators_rhs=int((scores.rhs_neg > scores.rhs_pos.unsqueeze(1)).sum()),
-            count=len(batch_edges))
+            count=len(batch_edges),
+        )
 
         loss.backward()
         self.model_optimizer.step(closure=None)
@@ -152,24 +136,21 @@ class Trainer(AbstractBatchProcessor):
 
 
 class TrainingRankingEvaluator(RankingEvaluator):
-
     def __init__(
-        self,
-        override_num_batch_negs: int,
-        override_num_uniform_negs: int,
+        self, override_num_batch_negs: int, override_num_uniform_negs: int
     ) -> None:
         super().__init__()
         self.override_num_batch_negs = override_num_batch_negs
         self.override_num_uniform_negs = override_num_uniform_negs
 
     def process_one_batch(
-        self,
-        model: MultiRelationEmbedder,
-        batch_edges: EdgeList,
+        self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
-        with override_model(model,
-                            num_batch_negs=self.override_num_batch_negs,
-                            num_uniform_negs=self.override_num_uniform_negs):
+        with override_model(
+            model,
+            num_batch_negs=self.override_num_batch_negs,
+            num_uniform_negs=self.override_num_uniform_negs,
+        ):
             return super().process_one_batch(model, batch_edges)
 
 
@@ -177,7 +158,6 @@ RANK_ZERO = Rank(0)
 
 
 class IterationManager(MetadataProvider):
-
     def __init__(
         self,
         num_epochs: int,
@@ -237,8 +217,7 @@ class IterationManager(MetadataProvider):
 
 
 def should_preserve_old_checkpoint(
-    iteration_manager: IterationManager,
-    interval: Optional[int],
+    iteration_manager: IterationManager, interval: Optional[int]
 ) -> bool:
     """Whether the checkpoint consumed by the current iteration should be kept
 
@@ -272,15 +251,13 @@ def get_num_edge_chunks(config: ConfigSchema) -> int:
     for edge_path in config.edge_paths:
         edge_storage = EDGE_STORAGES.make_instance(edge_path)
         max_edges_per_bucket = max(
-            max_edges_per_bucket,
-            edge_storage.get_number_of_edges(0, 0))
+            max_edges_per_bucket, edge_storage.get_number_of_edges(0, 0)
+        )
     return max(1, math.ceil(max_edges_per_bucket / config.max_edges_per_chunk))
 
 
 def make_optimizer(
-    config: ConfigSchema,
-    params: Iterable[torch.nn.Parameter],
-    is_emb: bool,
+    config: ConfigSchema, params: Iterable[torch.nn.Parameter], is_emb: bool
 ) -> Optimizer:
     params = list(params)
     if len(params) == 0:
@@ -298,8 +275,7 @@ def make_optimizer(
 
 
 class TrainingCoordinator:
-
-    def __init__(
+    def __init__(  # noqa
         self,
         config: ConfigSchema,
         model: Optional[MultiRelationEmbedder] = None,
@@ -315,6 +291,7 @@ class TrainingCoordinator:
         self.config = config
         if config.verbose > 0:
             import pprint
+
             pprint.PrettyPrinter().pprint(config.to_dict())
 
         logger.info("Loading entity counts...")
@@ -330,38 +307,54 @@ class TrainingCoordinator:
 
         logger.debug(
             f"nparts {holder.nparts_lhs} {holder.nparts_rhs} "
-            f"types {holder.lhs_partitioned_types} {holder.rhs_partitioned_types}")
+            f"types {holder.lhs_partitioned_types} {holder.rhs_partitioned_types}"
+        )
 
         # We know ahead of time that we wil need 1-2 storages for each embedding type,
         # as well as the max size of this storage (num_entities x D).
         # We allocate these storages n advance in `embedding_storage_freelist`.
         # When we need storage for an entity type, we pop it from this free list,
         # and then add it back when we 'delete' the embedding table.
-        embedding_storage_freelist: Dict[EntityName, Set[torch.FloatStorage]] = defaultdict(set)
+        embedding_storage_freelist: Dict[
+            EntityName, Set[torch.FloatStorage]
+        ] = defaultdict(set)
         for entity_type, counts in entity_counts.items():
             max_count = max(counts)
             num_sides = (
                 (1 if entity_type in holder.lhs_partitioned_types else 0)
                 + (1 if entity_type in holder.rhs_partitioned_types else 0)
-                + (1 if entity_type in (holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types) else 0)
+                + (
+                    1
+                    if entity_type
+                    in (holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types)
+                    else 0
+                )
             )
             for _ in range(num_sides):
                 embedding_storage_freelist[entity_type].add(
-                    allocate_shared_tensor((max_count, config.dimension), dtype=torch.float).storage())
+                    allocate_shared_tensor(
+                        (max_count, config.dimension), dtype=torch.float
+                    ).storage()
+                )
 
         # create the handlers, threads, etc. for distributed training
         if config.num_machines > 1 or config.num_partition_servers > 0:
             if not 0 <= rank < config.num_machines:
                 raise RuntimeError("Invalid rank for trainer")
             if not td.is_available():
-                raise RuntimeError("The installed PyTorch version doesn't provide "
-                                "distributed training capabilities.")
+                raise RuntimeError(
+                    "The installed PyTorch version doesn't provide "
+                    "distributed training capabilities."
+                )
             ranks = ProcessRanks.from_num_invocations(
-                config.num_machines, config.num_partition_servers)
+                config.num_machines, config.num_partition_servers
+            )
 
             num_ps_groups = config.num_groups_for_partition_server
             groups: List[List[int]] = [ranks.trainers]  # barrier group
-            groups += [ranks.trainers + ranks.partition_servers] * num_ps_groups  # ps groups
+            groups += [
+                ranks.trainers + ranks.partition_servers
+            ] * num_ps_groups  # ps groups
             group_idxs_for_partition_servers = range(1, len(groups))
 
             if rank == RANK_ZERO:
@@ -385,8 +378,7 @@ class TrainingCoordinator:
                 )
 
             self.bucket_scheduler = DistributedBucketScheduler(
-                server_rank=ranks.lock_server,
-                client_rank=ranks.trainers[rank],
+                server_rank=ranks.lock_server, client_rank=ranks.trainers[rank]
             )
 
             logger.info("Setup param server...")
@@ -476,8 +468,11 @@ class TrainingCoordinator:
         num_edge_chunks = get_num_edge_chunks(config)
 
         self.iteration_manager = IterationManager(
-            config.num_epochs, config.edge_paths, num_edge_chunks,
-            iteration_idx=checkpoint_manager.checkpoint_version)
+            config.num_epochs,
+            config.edge_paths,
+            num_edge_chunks,
+            iteration_idx=checkpoint_manager.checkpoint_version,
+        )
         checkpoint_manager.register_metadata_provider(self.iteration_manager)
 
         logger.info("Initializing global model...")
@@ -528,7 +523,9 @@ class TrainingCoordinator:
                     continue
                 shared_parameters.add(id(param))
                 key = f"model.{name}"
-                logger.info(f"Adding {key} ({param.numel()} params) to parameter server")
+                logger.info(
+                    f"Adding {key} ({param.numel()} params) to parameter server"
+                )
                 parameter_sharer.set_param(key, param.data)
             for entity, embs in holder.unpartitioned_embeddings.items():
                 key = f"entity.{entity}"
@@ -573,7 +570,8 @@ class TrainingCoordinator:
             logger.info(
                 f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
                 f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
-                f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}")
+                f"edge chunk {edge_chunk_idx + 1} / {iteration_manager.num_edge_chunks}"
+            )
             edge_storage = EDGE_STORAGES.make_instance(iteration_manager.edge_path)
             logger.info(f"Edge path: {iteration_manager.edge_path}")
 
@@ -598,7 +596,9 @@ class TrainingCoordinator:
                         # if you couldn't get a new pair, release the lock
                         # to prevent a deadlock!
                         tic = time.perf_counter()
-                        release_bytes = self._swap_partitioned_embeddings(old_b, None, old_stats)
+                        release_bytes = self._swap_partitioned_embeddings(
+                            old_b, None, old_stats
+                        )
                         release_time = time.perf_counter() - tic
                         logger.info(
                             f"Swapping old embeddings to release lock. io: {release_time:.2f} s for {release_bytes:,} bytes "
@@ -615,8 +615,9 @@ class TrainingCoordinator:
                 io_bytes = self._swap_partitioned_embeddings(old_b, cur_b, old_stats)
                 self.model.set_all_embeddings(holder, cur_b)
 
-                current_index = \
-                    (iteration_manager.iteration_idx + 1) * total_buckets - remaining
+                current_index = (
+                    iteration_manager.iteration_idx + 1
+                ) * total_buckets - remaining
 
                 bucket_logger.debug("Loading edges")
                 edges = edge_storage.load_chunk_of_edges(
@@ -624,7 +625,7 @@ class TrainingCoordinator:
                     cur_b.rhs,
                     edge_chunk_idx,
                     iteration_manager.num_edge_chunks,
-                    shared=True
+                    shared=True,
                 )
                 num_edges = len(edges)
 
@@ -658,10 +659,11 @@ class TrainingCoordinator:
                     g.manual_seed(
                         hash((edge_path_idx, edge_chunk_idx, cur_b.lhs, cur_b.rhs))
                     )
-                    eval_edge_idxs = torch.randint(num_edges, (num_eval_edges,), dtype=torch.long, generator=g)
+                    eval_edge_idxs = torch.randint(
+                        num_edges, (num_eval_edges,), dtype=torch.long, generator=g
+                    )
                 else:
                     eval_edge_idxs = None
-
 
                 # HOGWILD evaluation before training
                 eval_stats_before = self._coordinate_eval(edges, eval_edge_idxs)
@@ -689,7 +691,8 @@ class TrainingCoordinator:
                     f"( {num_train_edges / train_time / 1e6:.2g} M/sec ); "
                     f"Eval 2*{num_eval_edges} edges in {eval_time:.2f} s "
                     f"( {2 * num_eval_edges / eval_time / 1e6:.2g} M/sec ); "
-                    f"io: {io_time:.2f} s for {io_bytes:,} bytes ( {io_bytes / io_time / 1e6:.2f} MB/sec )")
+                    f"io: {io_time:.2f} s for {io_bytes:,} bytes ( {io_bytes / io_time / 1e6:.2f} MB/sec )"
+                )
                 bucket_logger.info(f"{stats}")
 
                 self.model.clear_all_embeddings()
@@ -732,11 +735,9 @@ class TrainingCoordinator:
 
         logger.info("Exiting")
 
-
     ###########################################################################
     # private functions
     ###########################################################################
-
 
     def _barrier(self) -> None:
         if self.barrier_group is not None:
@@ -751,18 +752,20 @@ class TrainingCoordinator:
         force_dirty: bool = False,
     ) -> Tuple[torch.nn.Parameter, Adagrad]:
         if strict:
-            embs, optim_state = self.checkpoint_manager.read(entity, part,
-                                                             out=out,
-                                                             force_dirty=force_dirty)
+            embs, optim_state = self.checkpoint_manager.read(
+                entity, part, out=out, force_dirty=force_dirty
+            )
         else:
             # Strict is only false during the first iteration, because in that
             # case the checkpoint may not contain any data (unless a previous
             # run was resumed) so we fall back on initial values.
-            embs, optim_state = self.checkpoint_manager.maybe_read(entity, part,
-                                                                   out=out,
-                                                                   force_dirty=force_dirty)
+            embs, optim_state = self.checkpoint_manager.maybe_read(
+                entity, part, out=out, force_dirty=force_dirty
+            )
             if embs is None and self.loadpath_manager is not None:
-                embs, optim_state = self.loadpath_manager.maybe_read(entity, part, out=out)
+                embs, optim_state = self.loadpath_manager.maybe_read(
+                    entity, part, out=out
+                )
             if embs is None:
                 embs = out
                 fast_approx_rand(embs)
@@ -804,8 +807,11 @@ class TrainingCoordinator:
                 embs = holder.partitioned_embeddings.pop((entity, part))
                 optimizer = self.trainer.partitioned_optimizers.pop((entity, part))
                 self.checkpoint_manager.write(
-                    entity, part,
-                    embs.detach(), OptimizerStateDict(optimizer.state_dict()))
+                    entity,
+                    part,
+                    embs.detach(),
+                    OptimizerStateDict(optimizer.state_dict()),
+                )
                 self.embedding_storage_freelist[entity].add(embs.storage())
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
                 # these variables are holding large objects; let them be freed
@@ -823,7 +829,8 @@ class TrainingCoordinator:
                 s = self.embedding_storage_freelist[entity].pop()
                 embs = torch.FloatTensor(s).view(-1, self.config.dimension)[:count]
                 embs, optimizer = self._load_embeddings(
-                    entity, part, out=embs, strict=self.strict, force_dirty=force_dirty)
+                    entity, part, out=embs, strict=self.strict, force_dirty=force_dirty
+                )
                 holder.partitioned_embeddings[entity, part] = embs
                 self.trainer.partitioned_optimizers[entity, part] = optimizer
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
@@ -844,55 +851,58 @@ class TrainingCoordinator:
         else:
             edge_perm = torch.randperm(len(edges))
 
-        future_all_stats = self.pool.map_async(call, [
-            partial(
-                process_in_batches,
-                batch_size=self.config.batch_size,
-                model=self.model,
-                batch_processor=self.trainer,
-                edges=edges,
-                indices=edge_perm[s],
-                # FIXME should we only delay if iteration_idx == 0?
-                delay=self.config.hogwild_delay if epoch_idx == 0 and self.rank > 0 else 0,
-            )
-            for rank, s in enumerate(split_almost_equally(
-                edge_perm.size(0),
-                num_parts=self.num_workers
-            ))
-        ])
+        future_all_stats = self.pool.map_async(
+            call,
+            [
+                partial(
+                    process_in_batches,
+                    batch_size=self.config.batch_size,
+                    model=self.model,
+                    batch_processor=self.trainer,
+                    edges=edges,
+                    indices=edge_perm[s],
+                    # FIXME should we only delay if iteration_idx == 0?
+                    delay=self.config.hogwild_delay
+                    if epoch_idx == 0 and self.rank > 0
+                    else 0,
+                )
+                for rank, s in enumerate(
+                    split_almost_equally(edge_perm.size(0), num_parts=self.num_workers)
+                )
+            ],
+        )
         all_stats = get_async_result(future_all_stats, self.pool)
         return Stats.sum(all_stats).average()
 
     def _coordinate_eval(self, edges, eval_edge_idxs) -> Optional[Stats]:
         eval_batch_size = round_up_to_nearest_multiple(
-            self.config.batch_size,
-            self.config.eval_num_batch_negs
+            self.config.batch_size, self.config.eval_num_batch_negs
         )
         if eval_edge_idxs is not None:
             self.bucket_logger.debug("Waiting for workers to perform evaluation")
-            future_all_eval_stats = self.pool.map_async(call, [
-                partial(
-                    process_in_batches,
-                    batch_size=eval_batch_size,
-                    model=self.model,
-                    batch_processor=self.evaluator,
-                    edges=edges,
-                    indices=eval_edge_idxs[s],
-                )
-                for s in split_almost_equally(eval_edge_idxs.size(0),
-                                              num_parts=self.num_workers)
-            ])
-            all_eval_stats = \
-                get_async_result(future_all_eval_stats, self.pool)
+            future_all_eval_stats = self.pool.map_async(
+                call,
+                [
+                    partial(
+                        process_in_batches,
+                        batch_size=eval_batch_size,
+                        model=self.model,
+                        batch_processor=self.evaluator,
+                        edges=edges,
+                        indices=eval_edge_idxs[s],
+                    )
+                    for s in split_almost_equally(
+                        eval_edge_idxs.size(0), num_parts=self.num_workers
+                    )
+                ],
+            )
+            all_eval_stats = get_async_result(future_all_eval_stats, self.pool)
             return Stats.sum(all_eval_stats).average()
         else:
             return None
 
     def _maybe_write_checkpoint(
-        self,
-        epoch_idx: int,
-        edge_path_idx: int,
-        edge_chunk_idx: int,
+        self, epoch_idx: int, edge_path_idx: int, edge_chunk_idx: int
     ) -> None:
         config = self.config
 
@@ -902,28 +912,37 @@ class TrainingCoordinator:
         # These two happen in two successive iterations of the main loop: the
         # one just before and the one just after the epoch boundary.
         preserve_old_checkpoint = should_preserve_old_checkpoint(
-            self.iteration_manager, config.checkpoint_preservation_interval)
+            self.iteration_manager, config.checkpoint_preservation_interval
+        )
         preserve_new_checkpoint = should_preserve_old_checkpoint(
-            self.iteration_manager + 1, config.checkpoint_preservation_interval)
+            self.iteration_manager + 1, config.checkpoint_preservation_interval
+        )
 
         # Write metadata: for multiple machines, write from rank-0
         logger.info(
             f"Finished epoch {epoch_idx + 1} / {self.iteration_manager.num_epochs}, "
             f"edge path {edge_path_idx + 1} / {self.iteration_manager.num_edge_paths}, "
-            f"edge chunk {edge_chunk_idx + 1} / {self.iteration_manager.num_edge_chunks}")
+            f"edge chunk {edge_chunk_idx + 1} / "
+            f"{self.iteration_manager.num_edge_chunks}"
+        )
         if self.rank == 0:
             for entity, econfig in config.entities.items():
                 if econfig.num_partitions == 1:
                     embs = self.holder.unpartitioned_embeddings[entity]
                     optimizer = self.trainer.unpartitioned_optimizers[entity]
                     self.checkpoint_manager.write(
-                        entity, Partition(0),
-                        embs.detach(), OptimizerStateDict(optimizer.state_dict()))
+                        entity,
+                        Partition(0),
+                        embs.detach(),
+                        OptimizerStateDict(optimizer.state_dict()),
+                    )
 
             logger.info("Writing the metadata")
             state_dict: ModuleStateDict = ModuleStateDict(self.model.state_dict())
             self.checkpoint_manager.write_model(
-                state_dict, OptimizerStateDict(self.trainer.model_optimizer.state_dict()))
+                state_dict,
+                OptimizerStateDict(self.trainer.model_optimizer.state_dict()),
+            )
 
             logger.info("Writing the training stats")
             all_stats_dicts: List[Dict[...]] = []
@@ -946,19 +965,21 @@ class TrainingCoordinator:
 
         logger.info("Writing the checkpoint")
         self.checkpoint_manager.write_new_version(
-            config,
-            self.entity_counts,
-            self.embedding_storage_freelist
+            config, self.entity_counts, self.embedding_storage_freelist
         )
 
-        dist_logger.info("Waiting for other workers to write their parts of the checkpoint")
+        dist_logger.info(
+            "Waiting for other workers to write their parts of the checkpoint"
+        )
         self._barrier()
         dist_logger.info("All parts of the checkpoint have been written")
 
         logger.info("Switching to the new checkpoint version")
         self.checkpoint_manager.switch_to_new_version()
 
-        dist_logger.info("Waiting for other workers to switch to the new checkpoint version")
+        dist_logger.info(
+            "Waiting for other workers to switch to the new checkpoint version"
+        )
         self._barrier()
         dist_logger.info("All workers have switched to the new checkpoint version")
 
@@ -983,12 +1004,7 @@ def train(
 
     # Create and run the generator until exhaustion.
     coordinator = TrainingCoordinator(
-        config,
-        model,
-        trainer,
-        evaluator,
-        rank,
-        subprocess_init,
+        config, model, trainer, evaluator, rank, subprocess_init
     )
 
     for _ in coordinator.train_and_report_stats():
@@ -998,16 +1014,17 @@ def train(
 
 def main():
     setup_logging()
-    config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
+    config_help = "\n\nConfig parameters:\n\n" + "\n".join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
         # Needed to preserve line wraps in epilog.
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('config', help="Path to config file")
-    parser.add_argument('-p', '--param', action='append', nargs='*')
-    parser.add_argument('--rank', type=int, default=0,
-                        help="For multi-machine, this machine's rank")
+    parser.add_argument("config", help="Path to config file")
+    parser.add_argument("-p", "--param", action="append", nargs="*")
+    parser.add_argument(
+        "--rank", type=int, default=0, help="For multi-machine, this machine's rank"
+    )
     opt = parser.parse_args()
 
     loader = ConfigFileLoader()
@@ -1020,5 +1037,5 @@ def main():
     train(config, rank=Rank(opt.rank), subprocess_init=subprocess_init)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

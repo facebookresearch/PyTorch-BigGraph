@@ -13,8 +13,7 @@ from datetime import timedelta
 from typing import Callable, List, NamedTuple, Optional
 
 import torch.distributed as td
-import torch.multiprocessing
-
+import torch.multiprocessing  # noqa monkeypatches
 from torchbiggraph.types import Rank
 from torchbiggraph.util import tag_logs_with_process_name
 
@@ -40,10 +39,8 @@ class ProcessRanks(NamedTuple):
 
     @classmethod
     def from_num_invocations(
-        cls,
-        num_machines: int,
-        num_partition_servers: int,
-    ) -> 'ProcessRanks':
+        cls, num_machines: int, num_partition_servers: int
+    ) -> "ProcessRanks":
         world_size = 0
 
         def add_group(group_size: int) -> List[Rank]:
@@ -63,8 +60,13 @@ class ProcessRanks(NamedTuple):
             partition_servers = add_group(num_partition_servers)
 
         return cls(
-            world_size, trainers, parameter_servers,
-            parameter_clients, lock_server, partition_servers)
+            world_size,
+            trainers,
+            parameter_servers,
+            parameter_clients,
+            lock_server,
+            partition_servers,
+        )
 
 
 def init_process_group(
@@ -73,7 +75,7 @@ def init_process_group(
     rank: Rank,
     groups: List[List[Rank]],
     backend: str = "gloo",
-) -> List['td.ProcessGroup']:
+) -> List["td.ProcessGroup"]:
     # With the THD backend there were no timeouts so high variance in
     # execution time between trainers was not a problem. With the new c10d
     # implementation we do have to take timeouts into account. To simulate
@@ -82,11 +84,13 @@ def init_process_group(
     logger.info("init_process_group start")
     if init_method is None:
         raise RuntimeError("distributed_init_method must be set when num_machines > 1")
-    td.init_process_group(backend,
-                          init_method=init_method,
-                          world_size=world_size,
-                          rank=rank,
-                          timeout=timeout)
+    td.init_process_group(
+        backend,
+        init_method=init_method,
+        world_size=world_size,
+        rank=rank,
+        timeout=timeout,
+    )
     logger.info("init_process_group creating groups")
     group_objs = []
     for group in groups:
@@ -96,9 +100,8 @@ def init_process_group(
 
 
 class Startable(ABC):
-
     @abstractmethod
-    def start(self, groups: List['td.ProcessGroup']) -> None:
+    def start(self, groups: List["td.ProcessGroup"]) -> None:
         pass
 
 
@@ -115,10 +118,7 @@ def _server_init(
     if subprocess_init is not None:
         subprocess_init()
     groups = init_process_group(
-        init_method=init_method,
-        world_size=world_size,
-        rank=server_rank,
-        groups=groups,
+        init_method=init_method, world_size=world_size, rank=server_rank, groups=groups
     )
     server.start(groups)
 

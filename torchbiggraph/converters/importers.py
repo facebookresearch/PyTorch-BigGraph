@@ -6,29 +6,25 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-from abc import ABC, abstractmethod
 import random
+from abc import ABC, abstractmethod
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any, Counter, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Counter, Dict, Iterable, List, Optional, Tuple
 
 import torch
-
-from torchbiggraph.config import (
-    EntitySchema,
-    RelationSchema,
-)
+from torchbiggraph.config import EntitySchema, RelationSchema
 from torchbiggraph.converters.dictionary import Dictionary
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
+    EDGE_STORAGES,
+    ENTITY_STORAGES,
+    RELATION_TYPE_STORAGES,
     AbstractEdgeAppender,
     AbstractEdgeStorage,
     AbstractEntityStorage,
     AbstractRelationTypeStorage,
-    EDGE_STORAGES,
-    ENTITY_STORAGES,
-    RELATION_TYPE_STORAGES,
 )
 
 
@@ -40,12 +36,7 @@ class EdgelistReader(ABC):
 
 
 class TSVEdgelistReader(EdgelistReader):
-    def __init__(
-        self,
-        lhs_col: int,
-        rhs_col: int,
-        rel_col: int,
-    ):
+    def __init__(self, lhs_col: int, rhs_col: int, rel_col: int):
         self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
 
     def read(self, path: Path):
@@ -64,12 +55,7 @@ class TSVEdgelistReader(EdgelistReader):
 
 
 class ParquetEdgelistReader(EdgelistReader):
-    def __init__(
-        self,
-        lhs_col: str,
-        rhs_col: str,
-        rel_col: Optional[str],
-    ):
+    def __init__(self, lhs_col: str, rhs_col: str, rel_col: Optional[str]):
         """Reads edgelists from a Parquet file.
 
         col arguments can either be the column name or the offset of the col.
@@ -80,8 +66,10 @@ class ParquetEdgelistReader(EdgelistReader):
         try:
             import parquet
         except ImportError as e:
-            raise ImportError(f"{e}. HINT: You can install Parquet by running "
-                              "'pip install parquet'")
+            raise ImportError(
+                f"{e}. HINT: You can install Parquet by running "
+                "'pip install parquet'"
+            )
 
         with path.open("rt") as tf:
             columns = [self.lhs_col, self.rhs_col]
@@ -113,9 +101,13 @@ def collect_relation_types(
 
         print(f"- Found {len(counter)} relation types")
         if relation_type_min_count > 0:
-            print(f"- Removing the ones with fewer than {relation_type_min_count} occurrences...")
-            counter = Counter({k: c for k, c in counter.items()
-                               if c >= relation_type_min_count})
+            print(
+                "- Removing the ones with fewer than "
+                f"{relation_type_min_count} occurrences..."
+            )
+            counter = Counter(
+                {k: c for k, c in counter.items() if c >= relation_type_min_count}
+            )
             print(f"- Left with {len(counter)} relation types")
         print("- Shuffling them...")
         names = list(counter.keys())
@@ -161,15 +153,19 @@ def collect_entities_by_type(
         print(f"Entity type {entity_name}:")
         print(f"- Found {len(counter)} entities")
         if entity_min_count > 0:
-            print(f"- Removing the ones with fewer than {entity_min_count} occurrences...")
-            counter = Counter({k: c for k, c in counter.items()
-                               if c >= entity_min_count})
+            print(
+                f"- Removing the ones with fewer than {entity_min_count} occurrences..."
+            )
+            counter = Counter(
+                {k: c for k, c in counter.items() if c >= entity_min_count}
+            )
             print(f"- Left with {len(counter)} entities")
         print("- Shuffling them...")
         names = list(counter.keys())
         random.shuffle(names)
         entities_by_type[entity_name] = Dictionary(
-            names, num_parts=entity_configs[entity_name].num_partitions)
+            names, num_parts=entity_configs[entity_name].num_partitions
+        )
 
     return entities_by_type
 
@@ -187,8 +183,9 @@ def generate_entity_path_files(
 
     for entity_name, entities in entities_by_type.items():
         for part in range(entities.num_parts):
-            print(f"- Writing count of entity type {entity_name} "
-                  f"and partition {part}")
+            print(
+                f"- Writing count of entity type {entity_name} " f"and partition {part}"
+            )
             entity_storage.save_count(entity_name, part, entities.part_size(part))
             entity_storage.save_names(entity_name, part, entities.get_part_list(part))
 
@@ -208,14 +205,18 @@ def generate_edge_path_files(
     dynamic_relations: bool,
     edgelist_reader: EdgelistReader,
 ) -> None:
-    print(f"Preparing edge path {edge_path_out}, "
-          f"out of the edges found in {edge_file_in}")
+    print(
+        f"Preparing edge path {edge_path_out}, "
+        f"out of the edges found in {edge_file_in}"
+    )
     edge_storage.prepare()
 
-    num_lhs_parts = max(entities_by_type[rconfig.lhs].num_parts
-                        for rconfig in relation_configs)
-    num_rhs_parts = max(entities_by_type[rconfig.rhs].num_parts
-                        for rconfig in relation_configs)
+    num_lhs_parts = max(
+        entities_by_type[rconfig.lhs].num_parts for rconfig in relation_configs
+    )
+    num_rhs_parts = max(
+        entities_by_type[rconfig.rhs].num_parts for rconfig in relation_configs
+    )
 
     print(f"- Edges will be partitioned in {num_lhs_parts} x {num_rhs_parts} buckets.")
 
@@ -244,10 +245,12 @@ def generate_edge_path_files(
                 rhs_type = relation_configs[rel_id].rhs
 
             try:
-                lhs_part, lhs_offset = \
-                    entities_by_type[lhs_type].get_partition(lhs_word)
-                rhs_part, rhs_offset = \
-                    entities_by_type[rhs_type].get_partition(rhs_word)
+                lhs_part, lhs_offset = entities_by_type[lhs_type].get_partition(
+                    lhs_word
+                )
+                rhs_part, rhs_offset = entities_by_type[rhs_type].get_partition(
+                    rhs_word
+                )
             except KeyError:
                 # Ignore edges whose entities are not known.
                 skipped += 1
@@ -255,12 +258,19 @@ def generate_edge_path_files(
 
             if (lhs_part, rhs_part) not in appenders:
                 appenders[lhs_part, rhs_part] = appender_stack.enter_context(
-                    edge_storage.save_edges_by_appending(lhs_part, rhs_part))
-            appenders[lhs_part, rhs_part].append_edges(EdgeList(
-                EntityList.from_tensor(torch.tensor([lhs_offset], dtype=torch.long)),
-                EntityList.from_tensor(torch.tensor([rhs_offset], dtype=torch.long)),
-                torch.tensor([rel_id], dtype=torch.long),
-            ))
+                    edge_storage.save_edges_by_appending(lhs_part, rhs_part)
+                )
+            appenders[lhs_part, rhs_part].append_edges(
+                EdgeList(
+                    EntityList.from_tensor(
+                        torch.tensor([lhs_offset], dtype=torch.long)
+                    ),
+                    EntityList.from_tensor(
+                        torch.tensor([rhs_offset], dtype=torch.long)
+                    ),
+                    torch.tensor([rel_id], dtype=torch.long),
+                )
+            )
 
             processed = processed + 1
             if processed % 100000 == 0:
@@ -268,9 +278,11 @@ def generate_edge_path_files(
 
     print(f"- Processed {processed} edges in total")
     if skipped > 0:
-        print(f"- Skipped {skipped} edges because their relation type or "
-              f"entities were unknown (either not given in the config or "
-              f"filtered out as too rare).")
+        print(
+            f"- Skipped {skipped} edges because their relation type or "
+            f"entities were unknown (either not given in the config or "
+            f"filtered out as too rare)."
+        )
 
 
 def convert_input_data(
@@ -287,7 +299,8 @@ def convert_input_data(
     if len(edge_paths_in) != len(edge_paths_out):
         raise ValueError(
             f"The edge paths passed as inputs ({edge_paths_in}) don't match "
-            f"the ones specified as outputs ({edge_paths_out})")
+            f"the ones specified as outputs ({edge_paths_out})"
+        )
 
     entity_storage = ENTITY_STORAGES.make_instance(entity_path)
     relation_type_storage = RELATION_TYPE_STORAGES.make_instance(entity_path)
@@ -297,20 +310,25 @@ def convert_input_data(
     some_files_exists.extend(
         entity_storage.has_count(entity_name, partition)
         for entity_name, entity_config in entity_configs.items()
-        for partition in range(entity_config.num_partitions))
+        for partition in range(entity_config.num_partitions)
+    )
     some_files_exists.extend(
         entity_storage.has_names(entity_name, partition)
         for entity_name, entity_config in entity_configs.items()
-        for partition in range(entity_config.num_partitions))
+        for partition in range(entity_config.num_partitions)
+    )
     if dynamic_relations:
         some_files_exists.append(relation_type_storage.has_count())
         some_files_exists.append(relation_type_storage.has_names())
     some_files_exists.extend(
-        edge_storage.has_edges(0, 0) for edge_storage in edge_storages)
+        edge_storage.has_edges(0, 0) for edge_storage in edge_storages
+    )
 
     if all(some_files_exists):
-        print("Found some files that indicate that the input data "
-              "has already been preprocessed, not doing it again.")
+        print(
+            "Found some files that indicate that the input data "
+            "has already been preprocessed, not doing it again."
+        )
         all_paths = ", ".join(str(p) for p in [entity_path] + edge_paths_out)
         print(f"These files are in: {all_paths}")
         return
@@ -341,8 +359,9 @@ def convert_input_data(
         dynamic_relations,
     )
 
-    for edge_path_in, edge_path_out, edge_storage \
-            in zip(edge_paths_in, edge_paths_out, edge_storages):
+    for edge_path_in, edge_path_out, edge_storage in zip(
+        edge_paths_in, edge_paths_out, edge_storages
+    ):
         generate_edge_path_files(
             edge_path_in,
             edge_path_out,

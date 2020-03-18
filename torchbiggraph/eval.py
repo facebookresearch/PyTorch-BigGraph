@@ -10,27 +10,21 @@ import argparse
 import logging
 import time
 from functools import partial
-from typing import Callable, Dict, Generator, List, Optional, Tuple
+from typing import Callable, Generator, List, Optional, Tuple
 
 import torch
-
-from torchbiggraph.batching import (
-    AbstractBatchProcessor,
-    call,
-    process_in_batches,
-)
-from torchbiggraph.bucket_scheduling import (
-    create_buckets_ordered_lexicographically
-)
+from torchbiggraph.batching import AbstractBatchProcessor, call, process_in_batches
+from torchbiggraph.bucket_scheduling import create_buckets_ordered_lexicographically
 from torchbiggraph.checkpoint_manager import CheckpointManager
-from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
+from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
 from torchbiggraph.stats import Stats, average_of_sums
-from torchbiggraph.types import Bucket, EntityName, Partition, Side
+from torchbiggraph.types import Bucket, EntityName, Partition
 from torchbiggraph.util import (
     EmbeddingHolder,
+    SubprocessInitializer,
     compute_randomized_auc,
     create_pool,
     get_async_result,
@@ -38,7 +32,6 @@ from torchbiggraph.util import (
     set_logging_verbosity,
     setup_logging,
     split_almost_equally,
-    SubprocessInitializer,
     tag_logs_with_process_name,
 )
 
@@ -47,21 +40,14 @@ logger = logging.getLogger("torchbiggraph")
 
 
 class RankingEvaluator(AbstractBatchProcessor):
-
     def process_one_batch(
-        self,
-        model: MultiRelationEmbedder,
-        batch_edges: EdgeList,
+        self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
         with torch.no_grad():
             scores = model(batch_edges)
         return self.eval(scores, batch_edges)
 
-    def eval(
-        self,
-        scores: Scores,
-        batch_edges: EdgeList,
-    ) -> Stats:
+    def eval(self, scores: Scores, batch_edges: EdgeList) -> Stats:
         batch_size = len(batch_edges)
 
         ranks = []
@@ -86,7 +72,8 @@ class RankingEvaluator(AbstractBatchProcessor):
             r50=average_of_sums(*(rank.le(50) for rank in ranks)),
             # At the end the AUC will be averaged over count.
             auc=batch_size * sum(aucs) / len(aucs),
-            count=batch_size)
+            count=batch_size,
+        )
 
 
 def do_eval_and_report_stats(
@@ -105,6 +92,7 @@ def do_eval_and_report_stats(
 
     if config.verbose > 0:
         import pprint
+
         pprint.PrettyPrinter().pprint(config.to_dict())
 
     checkpoint_manager = CheckpointManager(config.checkpoint_path)
@@ -118,9 +106,7 @@ def do_eval_and_report_stats(
 
     num_workers = get_num_workers(config.workers)
     pool = create_pool(
-        num_workers,
-        subprocess_name="EvalWorker",
-        subprocess_init=subprocess_init,
+        num_workers, subprocess_name="EvalWorker", subprocess_init=subprocess_init
     )
 
     if model is None:
@@ -141,19 +127,23 @@ def do_eval_and_report_stats(
     for edge_path_idx, edge_path in enumerate(config.edge_paths):
         logger.info(
             f"Starting edge path {edge_path_idx + 1} / {len(config.edge_paths)} "
-            f"({edge_path})")
+            f"({edge_path})"
+        )
         edge_storage = EDGE_STORAGES.make_instance(edge_path)
 
         all_edge_path_stats = []
         # FIXME This order assumes higher affinity on the left-hand side, as it's
         # the one changing more slowly. Make this adaptive to the actual affinity.
-        for bucket in create_buckets_ordered_lexicographically(holder.nparts_lhs, holder.nparts_rhs):
+        for bucket in create_buckets_ordered_lexicographically(
+            holder.nparts_lhs, holder.nparts_rhs
+        ):
             tic = time.perf_counter()
             # logger.info(f"{bucket}: Loading entities")
 
             old_parts = set(holder.partitioned_embeddings.keys())
-            new_parts = {(e, bucket.lhs) for e in holder.lhs_partitioned_types} \
-                        | {(e, bucket.rhs) for e in holder.rhs_partitioned_types}
+            new_parts = {(e, bucket.lhs) for e in holder.lhs_partitioned_types} | {
+                (e, bucket.rhs) for e in holder.rhs_partitioned_types
+            }
             for entity, part in old_parts - new_parts:
                 del holder.partitioned_embeddings[entity, part]
             for entity, part in new_parts - old_parts:
@@ -169,31 +159,35 @@ def do_eval_and_report_stats(
             load_time = time.perf_counter() - tic
             tic = time.perf_counter()
             # logger.info(f"{bucket}: Launching and waiting for workers")
-            future_all_bucket_stats = pool.map_async(call, [
-                partial(
-                    process_in_batches,
-                    batch_size=config.batch_size,
-                    model=model,
-                    batch_processor=evaluator,
-                    edges=edges[s],
-                )
-                for s in split_almost_equally(num_edges, num_parts=num_workers)
-            ])
-            all_bucket_stats = \
-                get_async_result(future_all_bucket_stats, pool)
+            future_all_bucket_stats = pool.map_async(
+                call,
+                [
+                    partial(
+                        process_in_batches,
+                        batch_size=config.batch_size,
+                        model=model,
+                        batch_processor=evaluator,
+                        edges=edges[s],
+                    )
+                    for s in split_almost_equally(num_edges, num_parts=num_workers)
+                ],
+            )
+            all_bucket_stats = get_async_result(future_all_bucket_stats, pool)
 
             compute_time = time.perf_counter() - tic
             logger.info(
                 f"{bucket}: Processed {num_edges} edges in {compute_time:.2g} s "
                 f"({num_edges / compute_time / 1e6:.2g}M/sec); "
-                f"load time: {load_time:.2g} s")
+                f"load time: {load_time:.2g} s"
+            )
 
             total_bucket_stats = Stats.sum(all_bucket_stats)
             all_edge_path_stats.append(total_bucket_stats)
             mean_bucket_stats = total_bucket_stats.average()
             logger.info(
                 f"Stats for edge path {edge_path_idx + 1} / {len(config.edge_paths)}, "
-                f"bucket {bucket}: {mean_bucket_stats}")
+                f"bucket {bucket}: {mean_bucket_stats}"
+            )
 
             model.clear_all_embeddings()
 
@@ -205,7 +199,8 @@ def do_eval_and_report_stats(
         logger.info("")
         logger.info(
             f"Stats for edge path {edge_path_idx + 1} / {len(config.edge_paths)}: "
-            f"{mean_edge_path_stats}")
+            f"{mean_edge_path_stats}"
+        )
         logger.info("")
 
         yield edge_path_idx, None, mean_edge_path_stats
@@ -234,14 +229,14 @@ def do_eval(
 
 def main():
     setup_logging()
-    config_help = '\n\nConfig parameters:\n\n' + '\n'.join(ConfigSchema.help())
+    config_help = "\n\nConfig parameters:\n\n" + "\n".join(ConfigSchema.help())
     parser = argparse.ArgumentParser(
         epilog=config_help,
         # Needed to preserve line wraps in epilog.
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('config', help="Path to config file")
-    parser.add_argument('-p', '--param', action='append', nargs='*')
+    parser.add_argument("config", help="Path to config file")
+    parser.add_argument("-p", "--param", action="append", nargs="*")
     opt = parser.parse_args()
 
     loader = ConfigFileLoader()
@@ -254,5 +249,5 @@ def main():
     do_eval(config, subprocess_init=subprocess_init)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

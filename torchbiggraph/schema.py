@@ -14,6 +14,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Sized, Type, TypeVar, Un
 
 import attr
 
+
 # This decorator must be applied to all classes that are intended to be used as
 # schemas. It parses the class-level attributes defined as attr.ibs and produces
 # __init__, __eq__, __hash__, __str__ and other magic methods for them.
@@ -48,7 +49,6 @@ def mixed_case_to_lowercase(key: str) -> str:
 
 
 class DeepTypeError(TypeError):
-
     def __init__(self, message):
         self.message = message
         self.path = ""
@@ -63,14 +63,13 @@ class DeepTypeError(TypeError):
         self.path = "[%r]%s" % (key, self.path)
 
     def __str__(self):
-        path = self.path.lstrip('.')
+        path = self.path.lstrip(".")
         if not path:
             return self.message
         return "%s: %s" % (path, self.message)
 
 
 class Mapper(ABC):
-
     @abstractmethod
     def map_bool(self, data: Any) -> bool:
         pass
@@ -119,8 +118,9 @@ class Mapper(ABC):
         for key, value in data.items():
             # We don't distinguish between errors on keys and on values.
             try:
-                result[self.map_with_type(key, key_type)] = \
-                    self.map_with_type(value, value_type)
+                result[self.map_with_type(key, key_type)] = self.map_with_type(
+                    value, value_type
+                )
             except DeepTypeError as err:
                 err.prepend_key(key)
                 raise err
@@ -130,11 +130,7 @@ class Mapper(ABC):
     def map_schema(self, data: Any, type_: Type["Schema"]) -> Any:
         pass
 
-    def map_with_type(
-        self,
-        data: Any,
-        type_: Type,
-    ) -> Any:
+    def map_with_type(self, data: Any, type_: Type) -> Any:
         # Needs to come first as in this case type_ is an instance, not a class.
         try:
             base_type = unpack_optional(type_)
@@ -164,7 +160,6 @@ class Mapper(ABC):
 
 
 class Loader(Mapper):
-
     @staticmethod
     def map_bool(data: Any) -> bool:
         if not isinstance(data, bool):
@@ -221,7 +216,6 @@ class Loader(Mapper):
 
 
 class Dumper(Mapper):
-
     @staticmethod
     def map_bool(data: Any) -> bool:
         if not isinstance(data, bool):
@@ -278,14 +272,16 @@ class Schema:
         else:
             return "?%s" % cls.represent_type(base_type)
         if isclass(type_) and issubclass(type_, Enum):
-            return "(%s)" % '|'.join(member.name.lower() for member in type_)
+            return "(%s)" % "|".join(member.name.lower() for member in type_)
         if has_origin(type_, list):
             element_type, = type_.__args__
             return "[%s]" % cls.represent_type(element_type)
         if has_origin(type_, dict):
             key_type, value_type = type_.__args__
-            return "{%s: %s}" % (cls.represent_type(key_type),
-                                 cls.represent_type(value_type))
+            return "{%s: %s}" % (
+                cls.represent_type(key_type),
+                cls.represent_type(value_type),
+            )
         if isclass(type_) and issubclass(type_, Schema):
             return "%s" % type_.NAME
         return type_.__name__
@@ -304,7 +300,7 @@ class Schema:
         for field in attr.fields(cls):
             type_ = field.type
             lines.append("  %s (%s)" % (field.name, cls.represent_type(type_)))
-            help = field.metadata.get('help', None)
+            help = field.metadata.get("help", None)
             if help is not None:
                 lines.append("\t%s" % help)
             try:

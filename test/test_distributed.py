@@ -12,7 +12,6 @@ from torchbiggraph.distributed import ProcessRanks
 
 
 class TestProcessRanks(TestCase):
-
     def test_implicit_partition_servers(self):
         ranks = ProcessRanks.from_num_invocations(3, -1)
         self.assertEqual(ranks.trainers, [0, 1, 2])
@@ -38,5 +37,5 @@ class TestProcessRanks(TestCase):
         self.assertEqual(ranks.partition_servers, [16, 17, 18])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

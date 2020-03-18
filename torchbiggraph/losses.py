@@ -7,12 +7,10 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Type
 
 import torch
 from torch import nn as nn
 from torch.nn import functional as F
-
 from torchbiggraph.model import match_shape
 from torchbiggraph.plugin import PluginRegistry
 from torchbiggraph.types import FloatTensorType
@@ -34,9 +32,7 @@ class AbstractLossFunction(nn.Module, ABC):
 
     @abstractmethod
     def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
+        self, pos_scores: FloatTensorType, neg_scores: FloatTensorType
     ) -> FloatTensorType:
         pass
 
@@ -46,25 +42,20 @@ LOSS_FUNCTIONS = PluginRegistry[AbstractLossFunction]()
 
 @LOSS_FUNCTIONS.register_as("logistic")
 class LogisticLossFunction(AbstractLossFunction):
-
     def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
+        self, pos_scores: FloatTensorType, neg_scores: FloatTensorType
     ) -> FloatTensorType:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
         neg_weight = 1 / num_neg if num_neg > 0 else 0
 
         pos_loss = F.binary_cross_entropy_with_logits(
-            pos_scores,
-            pos_scores.new_ones(()).expand(num_pos),
-            reduction='sum',
+            pos_scores, pos_scores.new_ones(()).expand(num_pos), reduction="sum"
         )
         neg_loss = F.binary_cross_entropy_with_logits(
             neg_scores,
             neg_scores.new_zeros(()).expand(num_pos, num_neg),
-            reduction='sum',
+            reduction="sum",
         )
         loss = pos_loss + neg_weight * neg_loss
 
@@ -73,15 +64,12 @@ class LogisticLossFunction(AbstractLossFunction):
 
 @LOSS_FUNCTIONS.register_as("ranking")
 class RankingLossFunction(AbstractLossFunction):
-
     def __init__(self, margin):
         super().__init__()
         self.margin = margin
 
     def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
+        self, pos_scores: FloatTensorType, neg_scores: FloatTensorType
     ) -> FloatTensorType:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
@@ -95,7 +83,7 @@ class RankingLossFunction(AbstractLossFunction):
             pos_scores.unsqueeze(1),
             target=pos_scores.new_full((1, 1), -1, dtype=torch.float),
             margin=self.margin,
-            reduction='sum',
+            reduction="sum",
         )
 
         return loss
@@ -103,11 +91,8 @@ class RankingLossFunction(AbstractLossFunction):
 
 @LOSS_FUNCTIONS.register_as("softmax")
 class SoftmaxLossFunction(AbstractLossFunction):
-
     def forward(
-        self,
-        pos_scores: FloatTensorType,
-        neg_scores: FloatTensorType,
+        self, pos_scores: FloatTensorType, neg_scores: FloatTensorType
     ) -> FloatTensorType:
         num_pos = match_shape(pos_scores, -1)
         num_neg = match_shape(neg_scores, num_pos, -1)
@@ -117,13 +102,13 @@ class SoftmaxLossFunction(AbstractLossFunction):
         if num_pos == 0 or num_neg == 0:
             return torch.zeros((), device=pos_scores.device, requires_grad=True)
 
-        scores = torch.cat([
-            pos_scores.unsqueeze(1), neg_scores.logsumexp(dim=1, keepdim=True)
-        ], dim=1)
+        scores = torch.cat(
+            [pos_scores.unsqueeze(1), neg_scores.logsumexp(dim=1, keepdim=True)], dim=1
+        )
         loss = F.cross_entropy(
             scores,
             pos_scores.new_zeros((), dtype=torch.long).expand(num_pos),
-            reduction='sum',
+            reduction="sum",
         )
 
         return loss
