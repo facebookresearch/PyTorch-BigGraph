@@ -459,21 +459,21 @@ def _client_thread_loop(
         params = {}
         clients = [GradientParameterClient(server_rank)
                    for server_rank in all_server_ranks]
-        log_time, log_rounds, log_bytes = time.time(), 0, 0
+        log_time, log_rounds, log_bytes = time.perf_counter(), 0, 0
 
         # thread loop:
         # 1. check for a command from the main process
         # 2. update (push and pull) each parameter in my list of parameters
         # 3. if we're going to fast, sleep for a while
         while True:
-            tic = time.time()
+            tic = time.perf_counter()
             bytes_transferred = 0
             try:
                 data = q.get(timeout=0.01)
                 cmd, args = data
                 if cmd == "params":
                     params[args[0]] = args[1]
-                    log_time, log_rounds, log_bytes = time.time(), 0, 0
+                    log_time, log_rounds, log_bytes = time.perf_counter(), 0, 0
                 elif cmd == "join":
                     for client in clients:
                         client.join()
@@ -494,15 +494,15 @@ def _client_thread_loop(
 
             log_bytes += bytes_transferred
             log_rounds += 1
-            log_delta = time.time() - log_time
+            log_delta = time.perf_counter() - log_time
             if params and log_delta > 60:
                 logger.info(
                     f"Parameter client synced {log_rounds} rounds {log_bytes / 1e9:g} "
                     f"GB in {log_delta:g} s ({log_delta / log_rounds:g} s/round, "
                     f"{log_bytes / log_delta / 1e9:g} GB/s)")
-                log_time, log_rounds, log_bytes = time.time(), 0, 0
+                log_time, log_rounds, log_bytes = time.perf_counter(), 0, 0
 
-            comm_time = time.time() - tic
+            comm_time = time.perf_counter() - tic
             sleep_time = max(bytes_transferred / max_bandwidth - comm_time,
                              min_sleep_time)
             time.sleep(sleep_time)

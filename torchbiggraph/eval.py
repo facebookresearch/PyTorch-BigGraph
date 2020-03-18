@@ -148,7 +148,7 @@ def do_eval_and_report_stats(
         # FIXME This order assumes higher affinity on the left-hand side, as it's
         # the one changing more slowly. Make this adaptive to the actual affinity.
         for bucket in create_buckets_ordered_lexicographically(holder.nparts_lhs, holder.nparts_rhs):
-            tic = time.time()
+            tic = time.perf_counter()
             # logger.info(f"{bucket}: Loading entities")
 
             old_parts = set(holder.partitioned_embeddings.keys())
@@ -166,8 +166,8 @@ def do_eval_and_report_stats(
             edges = edge_storage.load_edges(bucket.lhs, bucket.rhs)
             num_edges = len(edges)
 
-            load_time = time.time() - tic
-            tic = time.time()
+            load_time = time.perf_counter() - tic
+            tic = time.perf_counter()
             # logger.info(f"{bucket}: Launching and waiting for workers")
             future_all_bucket_stats = pool.map_async(call, [
                 partial(
@@ -182,7 +182,7 @@ def do_eval_and_report_stats(
             all_bucket_stats = \
                 get_async_result(future_all_bucket_stats, pool)
 
-            compute_time = time.time() - tic
+            compute_time = time.perf_counter() - tic
             logger.info(
                 f"{bucket}: Processed {num_edges} edges in {compute_time:.2g} s "
                 f"({num_edges / compute_time / 1e6:.2g}M/sec); "

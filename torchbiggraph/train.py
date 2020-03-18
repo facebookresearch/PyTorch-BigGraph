@@ -590,8 +590,6 @@ class TrainingCoordinator:
             while remaining > 0:
                 old_b: Optional[Bucket] = cur_b
                 old_stats: Optional[BucketStats] = cur_stats
-                io_time = 0.
-                io_bytes = 0
                 cur_b, remaining = self.bucket_scheduler.acquire_bucket()
                 logger.info(f"still in queue: {remaining}")
                 if cur_b is None:
@@ -599,18 +597,22 @@ class TrainingCoordinator:
                     if old_b is not None:
                         # if you couldn't get a new pair, release the lock
                         # to prevent a deadlock!
-                        tic = time.time()
-                        io_bytes += self._swap_partitioned_embeddings(old_b, None, old_stats)
-                        io_time += time.time() - tic
+                        tic = time.perf_counter()
+                        release_bytes = self._swap_partitioned_embeddings(old_b, None, old_stats)
+                        release_time = time.perf_counter() - tic
+                        logger.info(
+                            f"Swapping old embeddings to release lock. io: {release_time:.2f} s for {release_bytes:,} bytes "
+                            f"( {release_bytes / release_time / 1e6:.2f} MB/sec )"
+                        )
                     time.sleep(1)  # don't hammer td
                     continue
 
-                tic = time.time()
+                tic = time.perf_counter()
                 self.cur_b = cur_b
                 bucket_logger = BucketLogger(logger, bucket=cur_b)
                 self.bucket_logger = bucket_logger
 
-                io_bytes += self._swap_partitioned_embeddings(old_b, cur_b, old_stats)
+                io_bytes = self._swap_partitioned_embeddings(old_b, cur_b, old_stats)
                 self.model.set_all_embeddings(holder, cur_b)
 
                 current_index = \
@@ -630,8 +632,8 @@ class TrainingCoordinator:
                 io_bytes += edges.lhs.tensor.numel() * edges.lhs.tensor.element_size()
                 io_bytes += edges.rhs.tensor.numel() * edges.rhs.tensor.element_size()
                 io_bytes += edges.rel.numel() * edges.rel.element_size()
-                io_time += time.time() - tic
-                tic = time.time()
+                io_time = time.perf_counter() - tic
+                tic = time.perf_counter()
                 bucket_logger.debug("Shuffling edges")
                 # Fix a seed to get the same permutation every time; have it
                 # depend on all and only what affects the set of edges.
@@ -650,6 +652,7 @@ class TrainingCoordinator:
                 #   uniformly sampled so it's still an unbiased estimator
                 #   of the out-of-sample statistics
                 num_eval_edges = int(num_edges * config.eval_fraction)
+                num_train_edges = num_edges - num_eval_edges
                 if num_eval_edges > 0:
                     g = torch.Generator()
                     g.manual_seed(
@@ -659,29 +662,34 @@ class TrainingCoordinator:
                 else:
                     eval_edge_idxs = None
 
-                logger.info(f"Shuffled edges in {time.time() - tic} seconds")
 
                 # HOGWILD evaluation before training
                 eval_stats_before = self._coordinate_eval(edges, eval_edge_idxs)
                 if eval_stats_before is not None:
                     bucket_logger.info(f"Stats before training: {eval_stats_before}")
+                eval_time = time.perf_counter() - tic
+                tic = time.perf_counter()
 
                 # HOGWILD training
                 bucket_logger.debug("Waiting for workers to perform training")
                 stats = self._coordinate_train(edges, eval_edge_idxs, epoch_idx)
+                train_time = time.perf_counter() - tic
+                tic = time.perf_counter()
 
                 # HOGWILD evaluation after training
                 eval_stats_after = self._coordinate_eval(edges, eval_edge_idxs)
                 if eval_stats_after is not None:
                     bucket_logger.info(f"Stats before training: {eval_stats_after}")
 
-                compute_time = time.time() - tic
+                eval_time += time.perf_counter() - tic
 
                 bucket_logger.info(
                     f"bucket {total_buckets - remaining} / {total_buckets} : "
-                    f"Processed {num_edges} edges in {compute_time:.2f} s "
-                    f"( {num_edges / compute_time / 1e6:.2g} M/sec ); "
-                    f"io: {io_time:.2f} s ( {io_bytes / io_time / 1e6:.2f} MB/sec )")
+                    f"Trained {num_train_edges} edges in {train_time:.2f} s "
+                    f"( {num_train_edges / train_time / 1e6:.2g} M/sec ); "
+                    f"Eval 2*{num_eval_edges} edges in {eval_time:.2f} s "
+                    f"( {2 * num_eval_edges / eval_time / 1e6:.2g} M/sec ); "
+                    f"io: {io_time:.2f} s for {io_bytes:,} bytes ( {io_bytes / io_time / 1e6:.2f} MB/sec )")
                 bucket_logger.info(f"{stats}")
 
                 self.model.clear_all_embeddings()
