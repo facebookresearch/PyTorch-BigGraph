@@ -26,6 +26,7 @@ from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
 from torchbiggraph.stats import SerializedStats
 from torchbiggraph.types import (
+    SINGLE_TRAINER,
     ByteTensorType,
     EntityName,
     FloatTensorType,
@@ -79,7 +80,7 @@ def model_state_dict_public_to_private(
 ) -> Optional[ModuleStateDict]:
     if public_state_dict is None:
         return None
-    private_state_dict: ModuleStateDict = {}
+    private_state_dict = {}
     for public_name, tensor in public_state_dict.items():
         for mapping in MODEL_STATE_DICT_MAPPINGS:
             try:
@@ -220,7 +221,7 @@ class CheckpointManager:
     def __init__(
         self,
         url: str,
-        rank: Rank = 0,
+        rank: Rank = SINGLE_TRAINER,
         num_machines: int = 1,
         partition_client: Optional[PartitionClient] = None,
         subprocess_name: Optional[str] = None,
@@ -385,7 +386,7 @@ class CheckpointManager:
                     s = next(iter(embedding_storage_freelist[entity]))
                     out = torch.FloatTensor(s).view(-1, config.dimension)[:count]
                     embs, serialized_optim_state = self.partition_client.get(
-                        EntityName(entity), Partition(part), out=out
+                        entity, part, out=out
                     )
                     logger.debug(f"Done getting {entity} {part}")
                     logger.debug(f"Saving {entity} {part} v{new_version}")

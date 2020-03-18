@@ -40,7 +40,7 @@ class PluginRegistry(Generic[T]):
             raise NotImplementedError(f"Unknown name {name} (known names: {all_names})")
 
 
-class URLPluginRegistry(PluginRegistry[T]):
+class URLPluginRegistry(PluginRegistry[T], Generic[T]):
     def make_instance(self, url: str) -> T:
         scheme = urlparse(url).scheme
         try:

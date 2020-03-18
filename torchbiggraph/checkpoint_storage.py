@@ -195,7 +195,7 @@ def load_model_state_dict(hf: h5py.File,) -> Optional[ModuleStateDict]:
     if MODEL_STATE_DICT_GROUP not in hf:
         return None
     g = hf[MODEL_STATE_DICT_GROUP]
-    state_dict = ModuleStateDict({})
+    state_dict = {}
 
     def process_dataset(public_name, dataset) -> None:
         if not isinstance(dataset, h5py.Dataset):
@@ -313,7 +313,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         version: int,
         entity_name: EntityName,
         partition: Partition,
-        embs: FloatTensorType,
+        embeddings: FloatTensorType,
         optim_state: Optional[bytes],
         metadata: Dict[str, Any],
     ) -> None:
@@ -323,7 +323,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
             hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
             for k, v in metadata.items():
                 hf.attrs[k] = v
-            save_embeddings(hf, embs)
+            save_embeddings(hf, embeddings)
             save_optimizer_state_dict(hf, optim_state)
             hf.flush()
         logger.debug(f"Done saving to {path}")

@@ -95,9 +95,7 @@ def create_buckets_ordered_lexicographically(
 
     """
     buckets = [
-        Bucket(Partition(lhs), Partition(rhs))
-        for lhs in range(nparts_lhs)
-        for rhs in range(nparts_rhs)
+        Bucket(lhs, rhs) for lhs in range(nparts_lhs) for rhs in range(nparts_rhs)
     ]
     return buckets
 
@@ -157,7 +155,7 @@ def create_buckets_ordered_by_affinity(
 
     for lhs in range(nparts_lhs):
         for rhs in range(nparts_rhs):
-            b = Bucket(Partition(lhs), Partition(rhs))
+            b = Bucket(lhs, rhs)
             remaining.add(b)
             all_buckets.append(b)
             buckets_per_partition[lhs].append(b)
@@ -210,15 +208,13 @@ def create_layer_of_buckets(
     than that, the order is random.
 
     """
-    layer_p = Partition(layer_idx)
-    pairs = [[Bucket(layer_p, layer_p)]]
+    pairs = [[Bucket(layer_idx, layer_idx)]]
     for idx in range(layer_idx + 1, max(nparts_lhs, nparts_rhs)):
-        p = Partition(idx)
         pair = []
-        if p < nparts_lhs:
-            pair.append(Bucket(p, layer_p))
-        if p < nparts_rhs:
-            pair.append(Bucket(layer_p, p))
+        if idx < nparts_lhs:
+            pair.append(Bucket(idx, layer_idx))
+        if idx < nparts_rhs:
+            pair.append(Bucket(layer_idx, idx))
         generator.shuffle(pair)
         pairs.append(pair)
     generator.shuffle(pairs)

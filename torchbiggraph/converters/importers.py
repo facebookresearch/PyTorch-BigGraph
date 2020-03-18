@@ -26,6 +26,7 @@ from torchbiggraph.graph_storages import (
     AbstractEntityStorage,
     AbstractRelationTypeStorage,
 )
+from torchbiggraph.types import UNPARTITIONED
 
 
 class EdgelistReader(ABC):
@@ -42,8 +43,8 @@ class TSVEdgelistReader(EdgelistReader):
     def read(self, path: Path):
         with path.open("rt") as tf:
             for line_num, line in enumerate(tf, start=1):
+                words = line.split()
                 try:
-                    words = line.split()
                     lhs_word = words[self.lhs_col]
                     rhs_word = words[self.rhs_col]
                     rel_word = words[self.rel_col] if self.rel_col is not None else None
@@ -321,7 +322,8 @@ def convert_input_data(
         some_files_exists.append(relation_type_storage.has_count())
         some_files_exists.append(relation_type_storage.has_names())
     some_files_exists.extend(
-        edge_storage.has_edges(0, 0) for edge_storage in edge_storages
+        edge_storage.has_edges(UNPARTITIONED, UNPARTITIONED)
+        for edge_storage in edge_storages
     )
 
     if all(some_files_exists):
@@ -376,7 +378,7 @@ def convert_input_data(
 
 def parse_config_partial(
     config_dict: Any,
-) -> Tuple[Dict[str, EntitySchema], List[RelationSchema], str, bool]:
+) -> Tuple[Dict[str, EntitySchema], List[RelationSchema], str, List[str], bool]:
     entities_config = config_dict.get("entities")
     relations_config = config_dict.get("relations")
     entity_path = config_dict.get("entity_path")
@@ -397,8 +399,8 @@ def parse_config_partial(
     if not isinstance(dynamic_relations, bool):
         raise TypeError("Config dynamic_relations is not of type bool")
 
-    entities = {}
-    relations = []
+    entities: Dict[str, EntitySchema] = {}
+    relations: List[RelationSchema] = []
     for entity, entity_config in entities_config.items():
         entities[entity] = EntitySchema.from_dict(entity_config)
     for relation in relations_config:

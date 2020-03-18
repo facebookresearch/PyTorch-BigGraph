@@ -8,7 +8,7 @@
 
 from collections import defaultdict
 from statistics import mean
-from typing import Dict, Iterable, Type, Union
+from typing import Dict, Iterable, Type, Union, cast
 
 from torchbiggraph.types import FloatTensorType
 
@@ -80,4 +80,6 @@ class Stats:
             raise ValueError(
                 f"Expect keys ['count', 'metrics'] from input but get {list(d.keys())}."
             )
-        return Stats(count=d["count"], **d["metrics"])
+        return Stats(
+            count=cast(int, d["count"]), **cast(Dict[str, float], d["metrics"])
+        )

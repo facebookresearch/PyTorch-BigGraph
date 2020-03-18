@@ -21,7 +21,7 @@ from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
 from torchbiggraph.stats import Stats, average_of_sums
-from torchbiggraph.types import Bucket, EntityName, Partition
+from torchbiggraph.types import UNPARTITIONED, Bucket, EntityName, Partition
 from torchbiggraph.util import (
     EmbeddingHolder,
     SubprocessInitializer,
@@ -120,7 +120,7 @@ def do_eval_and_report_stats(
     model.eval()
 
     for entity in holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types:
-        embs = load_embeddings(entity, Partition(0))
+        embs = load_embeddings(entity, UNPARTITIONED)
         holder.unpartitioned_embeddings[entity] = embs
 
     all_stats: List[Stats] = []

@@ -14,7 +14,19 @@ import os.path
 import sys
 from collections import defaultdict
 from functools import partial
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Set,
+    Tuple,
+    TypeVar,
+)
 
 import torch
 import torch.multiprocessing
@@ -62,7 +74,9 @@ class BucketLogger(logging.LoggerAdapter):
     def __init__(self, logger_: logging.Logger, bucket: Bucket) -> None:
         super().__init__(logger_, extra={"bucket": bucket})
 
-    def process(self, msg: str, kwargs: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    def process(
+        self, msg: str, kwargs: MutableMapping[str, Any]
+    ) -> Tuple[str, MutableMapping[str, Any]]:
         bucket: Bucket = self.extra["bucket"]
         msg = f"{bucket}: {msg}"
         return msg, kwargs
@@ -162,13 +176,13 @@ class DummyOptimizer(Optimizer):
         # This weird dance makes Optimizer accept an empty parameter list.
         super().__init__([{"params": []}], {})
 
-    def step(self, closure: None = None) -> None:
+    def step(self, closure: Optional[Callable[[], torch.Tensor]] = None) -> None:
         pass
 
     def state_dict(self) -> Dict[str, Any]:
         return {}
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+    def load_state_dict(self, state_dict: Mapping[str, Any]) -> None:
         pass
 
     def share_memory(self) -> None:

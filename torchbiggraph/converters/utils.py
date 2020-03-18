@@ -17,7 +17,7 @@ from urllib.request import urlretrieve
 from tqdm import tqdm
 
 
-def extract_gzip(gzip_path: Path, remove_finished: bool = False) -> str:
+def extract_gzip(gzip_path: Path, remove_finished: bool = False) -> Path:
     print(f"Extracting {gzip_path}")
     if gzip_path.suffix != ".gz":
         raise RuntimeError("Not a gzipped file")
@@ -55,7 +55,7 @@ def gen_bar_updater(pbar: tqdm) -> Callable[[int, int, int], None]:
     return bar_update
 
 
-def download_url(url: str, root: Path, filename: Optional[str] = None) -> str:
+def download_url(url: str, root: Path, filename: Optional[str] = None) -> Path:
     """Download a file from a url and place it in root.
     Args:
         url (str): URL to download file from

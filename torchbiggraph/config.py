@@ -503,10 +503,7 @@ class ConfigSchema(Schema):
 
 # TODO make this a non-inplace operation
 def override_config_dict(config_dict: Any, overrides: Optional[List[List[str]]]) -> Any:
-    if overrides is None:
-        overrides = []
-    overrides = chain.from_iterable(overrides)
-    for override in overrides:
+    for override in chain.from_iterable(overrides or ()):
         try:
             key, _, value = override.rpartition("=")
             path = key.split(".")

@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
-from typing import ContextManager, Dict, List, Optional, Type
+from typing import ContextManager, Dict, Iterator, List, Optional, Type
 
 import h5py
 import numpy as np
@@ -22,6 +22,7 @@ from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.tensorlist import TensorList
+from torchbiggraph.types import Partition
 from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor, div_roundup
 
 
@@ -38,27 +39,29 @@ class AbstractEntityStorage(ABC):
         pass
 
     @abstractmethod
-    def has_count(self, entity_name: str, partition: int) -> bool:
+    def has_count(self, entity_name: str, partition: Partition) -> bool:
         pass
 
     @abstractmethod
-    def save_count(self, entity_name: str, partition: int, count: int) -> None:
+    def save_count(self, entity_name: str, partition: Partition, count: int) -> None:
         pass
 
     @abstractmethod
-    def load_count(self, entity_name: str, partition: int) -> int:
+    def load_count(self, entity_name: str, partition: Partition) -> int:
         pass
 
     @abstractmethod
-    def has_names(self, entity_name: str, partition: int) -> bool:
+    def has_names(self, entity_name: str, partition: Partition) -> bool:
         pass
 
     @abstractmethod
-    def save_names(self, entity_name: str, partition: int, names: List[str]) -> None:
+    def save_names(
+        self, entity_name: str, partition: Partition, names: List[str]
+    ) -> None:
         pass
 
     @abstractmethod
-    def load_names(self, entity_name: str, partition: int) -> List[str]:
+    def load_names(self, entity_name: str, partition: Partition) -> List[str]:
         pass
 
 
@@ -72,7 +75,7 @@ class AbstractRelationTypeStorage(ABC):
         pass
 
     @abstractmethod
-    def has_count(self) -> None:
+    def has_count(self) -> bool:
         pass
 
     @abstractmethod
@@ -98,7 +101,7 @@ class AbstractRelationTypeStorage(ABC):
 
 class AbstractEdgeAppender(ABC):
     @abstractmethod
-    def append_edges(self, edges: EdgeList) -> None:
+    def append_edges(self, edgelist: EdgeList) -> None:
         pass
 
 
@@ -112,29 +115,29 @@ class AbstractEdgeStorage(ABC):
         pass
 
     @abstractmethod
-    def has_edges(self, lhs_p: int, rhs_p: int) -> bool:
+    def has_edges(self, lhs_p: Partition, rhs_p: Partition) -> bool:
         pass
 
-    def load_edges(self, lhs_p: int, rhs_p: int) -> EdgeList:
+    def load_edges(self, lhs_p: Partition, rhs_p: Partition) -> EdgeList:
         return self.load_chunk_of_edges(lhs_p, rhs_p, chunk_idx=0, num_chunks=1)
 
     @abstractmethod
-    def get_number_of_edges(self, lhs_p: int, rhs_p: int) -> int:
+    def get_number_of_edges(self, lhs_p: Partition, rhs_p: Partition) -> int:
         pass
 
     @abstractmethod
     def load_chunk_of_edges(
-        self, lhs_p: int, rhs_p: int, chunk_idx: int, num_chunks: int
+        self, lhs_p: Partition, rhs_p: Partition, chunk_idx: int, num_chunks: int
     ) -> EdgeList:
         pass
 
-    def save_edges(self, lhs_p: int, rhs_p: int, edges: EdgeList) -> None:
+    def save_edges(self, lhs_p: Partition, rhs_p: Partition, edges: EdgeList) -> None:
         with self.save_edges_by_appending(lhs_p, rhs_p) as appender:
             appender.append_edges(edges)
 
     @abstractmethod
     def save_edges_by_appending(
-        self, lhs_p: int, rhs_p: int
+        self, lhs_p: Partition, rhs_p: Partition
     ) -> ContextManager[AbstractEdgeAppender]:
         pass
 
@@ -178,31 +181,33 @@ class FileEntityStorage(AbstractEntityStorage):
             path = path[len("file://") :]
         self.path = Path(path).resolve(strict=False)
 
-    def get_count_file(self, entity_name: str, partition: int) -> Path:
+    def get_count_file(self, entity_name: str, partition: Partition) -> Path:
         return self.path / f"entity_count_{entity_name}_{partition}.txt"
 
-    def get_names_file(self, entity_name: str, partition: int) -> Path:
+    def get_names_file(self, entity_name: str, partition: Partition) -> Path:
         return self.path / f"entity_names_{entity_name}_{partition}.json"
 
     def prepare(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
 
-    def has_count(self, entity_name: str, partition: int) -> bool:
+    def has_count(self, entity_name: str, partition: Partition) -> bool:
         return self.get_count_file(entity_name, partition).is_file()
 
-    def save_count(self, entity_name: str, partition: int, count: int) -> None:
+    def save_count(self, entity_name: str, partition: Partition, count: int) -> None:
         save_count(self.get_count_file(entity_name, partition), count)
 
-    def load_count(self, entity_name: str, partition: int) -> int:
+    def load_count(self, entity_name: str, partition: Partition) -> int:
         return load_count(self.get_count_file(entity_name, partition))
 
-    def has_names(self, entity_name: str, partition: int) -> bool:
+    def has_names(self, entity_name: str, partition: Partition) -> bool:
         return self.get_names_file(entity_name, partition).is_file()
 
-    def save_names(self, entity_name: str, partition: int, names: List[str]) -> None:
+    def save_names(
+        self, entity_name: str, partition: Partition, names: List[str]
+    ) -> None:
         save_names(self.get_names_file(entity_name, partition), names)
 
-    def load_names(self, entity_name: str, partition: int) -> List[str]:
+    def load_names(self, entity_name: str, partition: Partition) -> List[str]:
         return load_names(self.get_names_file(entity_name, partition))
 
 
@@ -223,7 +228,7 @@ class FileRelationTypeStorage(AbstractRelationTypeStorage):
     def prepare(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
 
-    def has_count(self) -> None:
+    def has_count(self) -> bool:
         return self.get_count_file().is_file()
 
     def save_count(self, count: int) -> None:
@@ -372,16 +377,16 @@ class FileEdgeStorage(AbstractEdgeStorage):
             path = path[len("file://") :]
         self.path = Path(path).resolve(strict=False)
 
-    def get_edges_file(self, lhs_p: int, rhs_p: int) -> Path:
+    def get_edges_file(self, lhs_p: Partition, rhs_p: Partition) -> Path:
         return self.path / f"edges_{lhs_p}_{rhs_p}.h5"
 
     def prepare(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
 
-    def has_edges(self, lhs_p: int, rhs_p: int) -> bool:
+    def has_edges(self, lhs_p: Partition, rhs_p: Partition) -> bool:
         return self.get_edges_file(lhs_p, rhs_p).is_file()
 
-    def get_number_of_edges(self, lhs_p: int, rhs_p: int) -> int:
+    def get_number_of_edges(self, lhs_p: Partition, rhs_p: Partition) -> int:
         file_path = self.get_edges_file(lhs_p, rhs_p)
         try:
             with h5py.File(file_path, "r") as hf:
@@ -397,8 +402,8 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
     def load_chunk_of_edges(
         self,
-        lhs_p: int,
-        rhs_p: int,
+        lhs_p: Partition,
+        rhs_p: Partition,
         chunk_idx: int = 0,
         num_chunks: int = 1,
         shared: bool = False,
@@ -466,8 +471,8 @@ class FileEdgeStorage(AbstractEdgeStorage):
 
     @contextmanager
     def save_edges_by_appending(
-        self, lhs_p: int, rhs_p: int
-    ) -> ContextManager[AbstractEdgeAppender]:
+        self, lhs_p: Partition, rhs_p: Partition
+    ) -> Iterator[AbstractEdgeAppender]:
         file_path = self.get_edges_file(lhs_p, rhs_p)
         tmp_file_path = file_path.parent / f"{file_path.stem}.tmp{file_path.suffix}"
         if tmp_file_path.is_file():

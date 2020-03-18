@@ -270,10 +270,13 @@ class TestFunctional(TestCase):
                 self.assertIsInstance(v, int)
             elif k in ("stats", "eval_stats_before", "eval_stats_after"):
                 self.assertIsInstance(v, dict)
+                assert isinstance(v, dict)
                 self.assertCountEqual(v.keys(), ["count", "metrics"])
                 self.assertIsInstance(v["count"], int)
-                self.assertIsInstance(v["metrics"], dict)
-                for m in v["metrics"].values():
+                metrics = v["metrics"]
+                self.assertIsInstance(metrics, dict)
+                assert isinstance(metrics, dict)
+                for m in metrics.values():
                     self.assertIsInstance(m, float)
             else:
                 self.fail(f"Unknown stats key: {k}")

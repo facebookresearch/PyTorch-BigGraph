@@ -14,7 +14,7 @@ import torch.distributed as td
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
 from torchbiggraph.distributed import ProcessRanks, init_process_group
 from torchbiggraph.parameter_sharing import ParameterServer
-from torchbiggraph.types import Rank
+from torchbiggraph.types import SINGLE_TRAINER, Rank
 from torchbiggraph.util import (
     SubprocessInitializer,
     set_logging_verbosity,
@@ -31,12 +31,9 @@ logger = logging.getLogger("torchbiggraph")
 # num_partition_servers > 1.
 
 
-RANK_ZERO = Rank(0)
-
-
 def run_partition_server(
     config: ConfigSchema,
-    rank: Rank = RANK_ZERO,
+    rank: Rank = SINGLE_TRAINER,
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
     tag_logs_with_process_name(f"PartS-{rank}")
@@ -86,7 +83,10 @@ def main():
     parser.add_argument("config", help="Path to config file")
     parser.add_argument("-p", "--param", action="append", nargs="*")
     parser.add_argument(
-        "--rank", type=int, default=0, help="For multi-machine, this machine's rank"
+        "--rank",
+        type=int,
+        default=SINGLE_TRAINER,
+        help="For multi-machine, this machine's rank",
     )
     opt = parser.parse_args()
 

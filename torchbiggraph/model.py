@@ -935,7 +935,7 @@ class MultiRelationEmbedder(nn.Module):
             )
 
         elif type_ is Negatives.ALL:
-            pos_input = pos_input.to_tensor()
+            pos_input_ten = pos_input.to_tensor()
             neg_embs = self.adjust_embs(
                 module.get_all_entities().expand(num_chunks, -1, dim),
                 rel,
@@ -964,10 +964,12 @@ class MultiRelationEmbedder(nn.Module):
                         num_chunks - 1, dtype=torch.long, device=pos_embs.device
                     ).unsqueeze(1),
                     chunk_indices.unsqueeze(0),
-                    pos_input[:-last_chunk_size].view(num_chunks - 1, chunk_size),
+                    pos_input_ten[:-last_chunk_size].view(num_chunks - 1, chunk_size),
                 )
             )
-            ignore_mask.append((-1, last_chunk_indices, pos_input[-last_chunk_size:]))
+            ignore_mask.append(
+                (-1, last_chunk_indices, pos_input_ten[-last_chunk_size:])
+            )
 
         else:
             raise NotImplementedError("Unknown negative type %s" % type_)

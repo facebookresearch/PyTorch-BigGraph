@@ -46,11 +46,12 @@ from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
 from torchbiggraph.row_adagrad import RowAdagrad
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import (
+    SINGLE_TRAINER,
+    UNPARTITIONED,
     Bucket,
     EntityName,
     FloatTensorType,
     ModuleStateDict,
-    OptimizerStateDict,
     Partition,
     Rank,
 )
@@ -154,9 +155,6 @@ class TrainingRankingEvaluator(RankingEvaluator):
             return super().process_one_batch(model, batch_edges)
 
 
-RANK_ZERO = Rank(0)
-
-
 class IterationManager(MetadataProvider):
     def __init__(
         self,
@@ -251,7 +249,8 @@ def get_num_edge_chunks(config: ConfigSchema) -> int:
     for edge_path in config.edge_paths:
         edge_storage = EDGE_STORAGES.make_instance(edge_path)
         max_edges_per_bucket = max(
-            max_edges_per_bucket, edge_storage.get_number_of_edges(0, 0)
+            max_edges_per_bucket,
+            edge_storage.get_number_of_edges(UNPARTITIONED, UNPARTITIONED),
         )
     return max(1, math.ceil(max_edges_per_bucket / config.max_edges_per_chunk))
 
@@ -281,7 +280,7 @@ class TrainingCoordinator:
         model: Optional[MultiRelationEmbedder] = None,
         trainer: Optional[AbstractBatchProcessor] = None,
         evaluator: Optional[AbstractBatchProcessor] = None,
-        rank: Rank = RANK_ZERO,
+        rank: Rank = SINGLE_TRAINER,
         subprocess_init: Optional[Callable[[], None]] = None,
     ):
         """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
@@ -357,7 +356,7 @@ class TrainingCoordinator:
             ] * num_ps_groups  # ps groups
             group_idxs_for_partition_servers = range(1, len(groups))
 
-            if rank == RANK_ZERO:
+            if rank == SINGLE_TRAINER:
                 logger.info("Setup lock server...")
                 start_server(
                     LockServer(
@@ -511,7 +510,7 @@ class TrainingCoordinator:
             count = entity_counts[entity][0]
             s = embedding_storage_freelist[entity].pop()
             embs = torch.FloatTensor(s).view(-1, config.dimension)[:count]
-            embs, optimizer = self._load_embeddings(entity, Partition(0), out=embs)
+            embs, optimizer = self._load_embeddings(entity, UNPARTITIONED, out=embs)
             holder.unpartitioned_embeddings[entity] = embs
             trainer.unpartitioned_optimizers[entity] = optimizer
 
@@ -554,7 +553,7 @@ class TrainingCoordinator:
 
         # yield stats from checkpoint, to reconstruct
         # saved part of the learning curve
-        if self.rank == RANK_ZERO:
+        if self.rank == SINGLE_TRAINER:
             for stats_dict in self.checkpoint_manager.maybe_read_stats():
                 index: int = stats_dict["index"]
                 stats: Stats = Stats.from_dict(stats_dict["stats"])
@@ -807,10 +806,7 @@ class TrainingCoordinator:
                 embs = holder.partitioned_embeddings.pop((entity, part))
                 optimizer = self.trainer.partitioned_optimizers.pop((entity, part))
                 self.checkpoint_manager.write(
-                    entity,
-                    part,
-                    embs.detach(),
-                    OptimizerStateDict(optimizer.state_dict()),
+                    entity, part, embs.detach(), optimizer.state_dict()
                 )
                 self.embedding_storage_freelist[entity].add(embs.storage())
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
@@ -931,21 +927,17 @@ class TrainingCoordinator:
                     embs = self.holder.unpartitioned_embeddings[entity]
                     optimizer = self.trainer.unpartitioned_optimizers[entity]
                     self.checkpoint_manager.write(
-                        entity,
-                        Partition(0),
-                        embs.detach(),
-                        OptimizerStateDict(optimizer.state_dict()),
+                        entity, UNPARTITIONED, embs.detach(), optimizer.state_dict()
                     )
 
             logger.info("Writing the metadata")
-            state_dict: ModuleStateDict = ModuleStateDict(self.model.state_dict())
+            state_dict: ModuleStateDict = self.model.state_dict()
             self.checkpoint_manager.write_model(
-                state_dict,
-                OptimizerStateDict(self.trainer.model_optimizer.state_dict()),
+                state_dict, self.trainer.model_optimizer.state_dict()
             )
 
             logger.info("Writing the training stats")
-            all_stats_dicts: List[Dict[...]] = []
+            all_stats_dicts: List[Dict[str, Any]] = []
             for stats in self.bucket_scheduler.get_stats_for_pass():
                 stats_dict = {
                     "epoch_idx": epoch_idx,
@@ -998,7 +990,7 @@ def train(
     model: Optional[MultiRelationEmbedder] = None,
     trainer: Optional[AbstractBatchProcessor] = None,
     evaluator: Optional[AbstractBatchProcessor] = None,
-    rank: Rank = RANK_ZERO,
+    rank: Rank = SINGLE_TRAINER,
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
 
@@ -1023,7 +1015,10 @@ def main():
     parser.add_argument("config", help="Path to config file")
     parser.add_argument("-p", "--param", action="append", nargs="*")
     parser.add_argument(
-        "--rank", type=int, default=0, help="For multi-machine, this machine's rank"
+        "--rank",
+        type=int,
+        default=SINGLE_TRAINER,
+        help="For multi-machine, this machine's rank",
     )
     opt = parser.parse_args()
 
@@ -1034,7 +1029,7 @@ def main():
     subprocess_init.register(setup_logging, config.verbose)
     subprocess_init.register(add_to_sys_path, loader.config_dir.name)
 
-    train(config, rank=Rank(opt.rank), subprocess_init=subprocess_init)
+    train(config, rank=opt.rank, subprocess_init=subprocess_init)
 
 
 if __name__ == "__main__":

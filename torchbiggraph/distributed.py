@@ -45,7 +45,7 @@ class ProcessRanks(NamedTuple):
 
         def add_group(group_size: int) -> List[Rank]:
             nonlocal world_size
-            group = [Rank(world_size + r) for r in range(group_size)]
+            group = [world_size + r for r in range(group_size)]
             world_size += group_size
             return group
 

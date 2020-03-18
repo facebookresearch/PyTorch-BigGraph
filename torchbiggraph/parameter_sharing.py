@@ -11,7 +11,7 @@ import multiprocessing as mp
 import queue
 import time
 import traceback
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 import torch
 import torch.distributed as td
@@ -75,7 +75,7 @@ class ParameterServer(Startable):
     def __init__(
         self,
         num_clients: int,
-        group_idxs: Optional[List[int]] = None,
+        group_idxs: Optional[Sequence[int]] = None,
         log_stats: bool = False,
     ) -> None:
         self.num_clients = num_clients

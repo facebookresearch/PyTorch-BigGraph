@@ -7,7 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 from enum import Enum
-from typing import Any, Dict, NamedTuple, NewType, TypeVar
+from typing import Any, Dict, NamedTuple, TypeVar
 
 import torch
 
@@ -47,8 +47,8 @@ Rank = int
 GPURank = int
 Partition = int
 SubPartition = int
-ModuleStateDict = NewType("ModuleStateDict", Dict[str, torch.Tensor])
-OptimizerStateDict = NewType("OptimizerStateDict", Dict[str, Any])
+ModuleStateDict = Dict[str, torch.Tensor]
+OptimizerStateDict = Dict[str, Any]
 
 
 class Bucket(NamedTuple):
@@ -60,3 +60,9 @@ class Bucket(NamedTuple):
 
     def __str__(self) -> str:
         return "( %d , %d )" % (self.lhs, self.rhs)
+
+
+# Use as partition index for unpartitioned entities, which have a single partition.
+UNPARTITIONED: Partition = 0
+# Use as rank for single-machine training.
+SINGLE_TRAINER: Rank = 0

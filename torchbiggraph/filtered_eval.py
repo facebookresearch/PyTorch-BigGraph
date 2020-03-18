@@ -16,7 +16,7 @@ from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.model import Scores
 from torchbiggraph.stats import Stats
-from torchbiggraph.types import Partition
+from torchbiggraph.types import UNPARTITIONED
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -30,7 +30,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
     comparable to standard benchmarks.
     """
 
-    def __init__(self, config: ConfigSchema, filter_paths: List[str]):
+    def __init__(self, config: ConfigSchema, filter_paths: List[str]) -> None:
         super().__init__()
         if len(config.relations) != 1 or len(config.entities) != 1:
             raise RuntimeError(
@@ -52,7 +52,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
             logger.info(f"Building links map from path {path}")
             e_storage = EDGE_STORAGES.make_instance(path)
             # Assume unpartitioned.
-            edges = e_storage.load_edges(Partition(0), Partition(0))
+            edges = e_storage.load_edges(UNPARTITIONED, UNPARTITIONED)
             for idx in range(len(edges)):
                 # Assume non-featurized.
                 cur_lhs = int(edges.lhs.to_tensor()[idx])
