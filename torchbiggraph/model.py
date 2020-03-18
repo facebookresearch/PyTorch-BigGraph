@@ -554,7 +554,7 @@ class DotComparator(AbstractComparator):
         match_shape(rhs_neg, num_chunks, -1, dim)
 
         # Equivalent to (but faster than) torch.einsum('cid,cid->ci', ...).
-        pos_scores = (lhs_pos * rhs_pos).sum(-1)
+        pos_scores = (lhs_pos.float() * rhs_pos.float()).sum(-1)
         # Equivalent to (but faster than) torch.einsum('cid,cjd->cij', ...).
         lhs_neg_scores = torch.bmm(rhs_pos, lhs_neg.transpose(-1, -2))
         rhs_neg_scores = torch.bmm(lhs_pos, rhs_neg.transpose(-1, -2))
@@ -588,7 +588,7 @@ class CosComparator(AbstractComparator):
         match_shape(rhs_neg, num_chunks, -1, dim)
 
         # Equivalent to (but faster than) torch.einsum('cid,cid->ci', ...).
-        pos_scores = (lhs_pos * rhs_pos).sum(-1)
+        pos_scores = (lhs_pos.float() * rhs_pos.float()).sum(-1)
         # Equivalent to (but faster than) torch.einsum('cid,cjd->cij', ...).
         lhs_neg_scores = torch.bmm(rhs_pos, lhs_neg.transpose(-1, -2))
         rhs_neg_scores = torch.bmm(lhs_pos, rhs_neg.transpose(-1, -2))
@@ -654,7 +654,7 @@ class L2Comparator(AbstractComparator):
         match_shape(rhs_neg, num_chunks, -1, dim)
 
         # Smaller distances are higher scores, so take their negatives.
-        pos_scores = (lhs_pos - rhs_pos).pow_(2).sum(dim=-1).clamp_min_(1e-30).sqrt_().neg()
+        pos_scores = (lhs_pos.float() - rhs_pos.float()).pow_(2).sum(dim=-1).clamp_min_(1e-30).sqrt_().neg()
         lhs_neg_scores = batched_all_pairs_l2_dist(rhs_pos, lhs_neg).neg()
         rhs_neg_scores = batched_all_pairs_l2_dist(lhs_pos, rhs_neg).neg()
 
@@ -683,7 +683,7 @@ class SquaredL2Comparator(AbstractComparator):
         match_shape(rhs_neg, num_chunks, -1, dim)
 
         # Smaller distances are higher scores, so take their negatives.
-        pos_scores = (lhs_pos - rhs_pos).pow_(2).sum(dim=-1).neg()
+        pos_scores = (lhs_pos.float() - rhs_pos.float()).pow_(2).sum(dim=-1).neg()
         lhs_neg_scores = batched_all_pairs_squared_l2_dist(rhs_pos, lhs_neg).neg()
         rhs_neg_scores = batched_all_pairs_squared_l2_dist(lhs_pos, rhs_neg).neg()
 
@@ -789,6 +789,7 @@ class MultiRelationEmbedder(nn.Module):
         global_emb: bool = False,
         max_norm: Optional[float] = None,
         num_dynamic_rels: int = 0,
+        half_precision: bool = False,
     ) -> None:
         super().__init__()
 
@@ -822,6 +823,7 @@ class MultiRelationEmbedder(nn.Module):
             self.global_embs: Optional[nn.ParameterDict] = None
 
         self.max_norm: Optional[float] = max_norm
+        self.half_precision = half_precision
 
     def set_embeddings(self, entity: str, side: Side, weights: nn.Parameter) -> None:
         if self.entities[entity].featurized:
@@ -874,6 +876,8 @@ class MultiRelationEmbedder(nn.Module):
         # 3. Prepare for the comparator.
         embs = self.comparator.prepare(embs)
 
+        if self.half_precision:
+            embs = embs.half()
         return embs
 
     def prepare_negatives(
@@ -1164,6 +1168,10 @@ class MultiRelationEmbedder(nn.Module):
         pos_scores, src_neg_scores, dst_neg_scores = \
             self.comparator(src_pos, dst_pos, src_neg, dst_neg)
 
+        pos_scores = pos_scores.float()
+        src_neg_scores = src_neg_scores.float()
+        dst_neg_scores = dst_neg_scores.float()
+
         # The masks tell us which negative scores (i.e., scores for non-existing
         # edges) must be ignored because they come from pairs we don't actually
         # intend to compare (say, positive pairs or interactions with padding).
@@ -1236,6 +1244,7 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
         global_emb=config.global_emb,
         max_norm=config.max_norm,
         num_dynamic_rels=num_dynamic_rels,
+        half_precision=config.half_precision,
     )
 
 

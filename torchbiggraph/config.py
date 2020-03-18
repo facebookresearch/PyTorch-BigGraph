@@ -389,6 +389,10 @@ class ConfigSchema(Schema):
                           "this to a value around 16 typically increases "
                           "communication bandwidth."},
     )
+    half_precision: bool = attr.ib(
+        default=False,
+        metadata={'help': "Use half-precision training (GPU ONLY)"},
+    )
 
     # Additional global validation.
 
