@@ -631,7 +631,6 @@ class TrainingCoordinator:
                 io_bytes += edges.rel.numel() * edges.rel.element_size()
                 io_time += time.time() - tic
                 tic = time.time()
-
                 bucket_logger.debug("Shuffling edges")
                 # Fix a seed to get the same permutation every time; have it
                 # depend on all and only what affects the set of edges.
@@ -649,6 +648,8 @@ class TrainingCoordinator:
                 else:
                     eval_edge_perm = None
                     edge_perm = torch.randperm(num_edges)
+
+                logger.info(f"Shuffled edges in {time.time() - tic} seconds")
 
                 # HOGWILD evaluation before training
                 eval_stats_before = self._coordinate_eval(edges, eval_edge_perm)
