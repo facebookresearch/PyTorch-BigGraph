@@ -856,7 +856,7 @@ class MultiRelationEmbedder(nn.Module):
         # 3. Prepare for the comparator.
         embs = self.comparator.prepare(embs)
 
-        if self.half_precision:
+        if self.half_precision and embs.is_cuda:
             embs = embs.half()
         return embs
 
