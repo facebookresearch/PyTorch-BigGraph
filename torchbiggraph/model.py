@@ -1221,18 +1221,12 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
     for r in config.relations:
         lhs_operators.append(
             instantiate_operator(
-                r.operator,
-                Side.LHS,
-                num_dynamic_rels,
-                config.entities[r.lhs].dimension or config.dimension,
+                r.operator, Side.LHS, num_dynamic_rels, config.entity_dimension(r.lhs)
             )
         )
         rhs_operators.append(
             instantiate_operator(
-                r.operator,
-                Side.RHS,
-                num_dynamic_rels,
-                config.entities[r.rhs].dimension or config.dimension,
+                r.operator, Side.RHS, num_dynamic_rels, config.entity_dimension(r.rhs)
             )
         )
 

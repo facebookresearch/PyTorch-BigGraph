@@ -189,7 +189,10 @@ def init_embeddings(target: str, config: ConfigSchema, *, version: int = 0):
             ) as hf:
                 hf.attrs["format_version"] = 1
                 hf.create_dataset(
-                    "embeddings", data=np.random.randn(entity_count, config.dimension)
+                    "embeddings",
+                    data=np.random.randn(
+                        entity_count, config.entity_dimension(entity_name)
+                    ),
                 )
     with h5py.File(os.path.join(target, "model.v%d.h5" % version), "x") as hf:
         hf.attrs["format_version"] = 1
@@ -322,7 +325,9 @@ class TestFunctional(TestCase):
                 ) as hf:
                     self.assertHasMetadata(hf, config)
                     self.assertIsEmbeddings(
-                        hf["embeddings"], entity_count, config.dimension
+                        hf["embeddings"],
+                        entity_count,
+                        config.entity_dimension(entity_name),
                     )
                     self.assertIsOptimStateDict(hf["optimizer/state_dict"])
 
@@ -678,6 +683,36 @@ class TestFunctional(TestCase):
             relations=[attr.evolve(relation_config, all_negs=True)],
             entity_path=dataset.entity_path.name,
             edge_paths=[dataset.relation_paths[1].name],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
+        self.assertCheckpointWritten(train_config, version=1)
+        do_eval(eval_config, subprocess_init=self.subprocess_init)
+
+    def test_entity_dimensions(self):
+        entity_name = "e"
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
+        base_config = ConfigSchema(
+            dimension=10,
+            relations=[relation_config],
+            entities={entity_name: EntitySchema(num_partitions=1, dimension=8)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+            workers=2,
+        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        eval_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[1].name],
+            relations=[attr.evolve(relation_config, all_negs=True)],
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0, subprocess_init=self.subprocess_init)

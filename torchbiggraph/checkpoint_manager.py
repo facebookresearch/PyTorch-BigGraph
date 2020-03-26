@@ -380,11 +380,12 @@ class CheckpointManager:
         new_version = self._version(True)
         if self.partition_client is not None:
             for entity, econf in config.entities.items():
+                dimension = config.entity_dimension(entity)
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
                     logger.debug(f"Getting {entity} {part}")
                     count = entity_counts[entity][part]
                     s = next(iter(embedding_storage_freelist[entity]))
-                    out = torch.FloatTensor(s).view(-1, config.dimension)[:count]
+                    out = torch.FloatTensor(s).view(-1, dimension)[:count]
                     embs, serialized_optim_state = self.partition_client.get(
                         entity, part, out=out
                     )

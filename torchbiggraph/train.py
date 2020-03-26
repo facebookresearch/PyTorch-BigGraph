@@ -332,7 +332,8 @@ class TrainingCoordinator:
             for _ in range(num_sides):
                 embedding_storage_freelist[entity_type].add(
                     allocate_shared_tensor(
-                        (max_count, config.dimension), dtype=torch.float
+                        (max_count, config.entity_dimension(entity_type)),
+                        dtype=torch.float,
                     ).storage()
                 )
 
@@ -509,7 +510,8 @@ class TrainingCoordinator:
         for entity in holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types:
             count = entity_counts[entity][0]
             s = embedding_storage_freelist[entity].pop()
-            embs = torch.FloatTensor(s).view(-1, config.dimension)[:count]
+            dimension = config.entity_dimension(entity)
+            embs = torch.FloatTensor(s).view(-1, dimension)[:count]
             embs, optimizer = self._load_embeddings(entity, UNPARTITIONED, out=embs)
             holder.unpartitioned_embeddings[entity] = embs
             trainer.unpartitioned_optimizers[entity] = optimizer
@@ -823,7 +825,8 @@ class TrainingCoordinator:
                 force_dirty = self.bucket_scheduler.check_and_set_dirty(entity, part)
                 count = self.entity_counts[entity][part]
                 s = self.embedding_storage_freelist[entity].pop()
-                embs = torch.FloatTensor(s).view(-1, self.config.dimension)[:count]
+                dimension = self.config.entity_dimension(entity)
+                embs = torch.FloatTensor(s).view(-1, dimension)[:count]
                 embs, optimizer = self._load_embeddings(
                     entity, part, out=embs, strict=self.strict, force_dirty=force_dirty
                 )

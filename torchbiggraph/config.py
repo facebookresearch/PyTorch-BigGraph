@@ -468,7 +468,7 @@ class ConfigSchema(Schema):
 
     # Additional global validation.
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         for rel_id, rel_config in enumerate(self.relations):
             if rel_config.lhs not in self.entities:
                 raise ValueError(
@@ -499,6 +499,10 @@ class ConfigSchema(Schema):
 
         if self.background_io:
             logger.warning("`background_io` is deprecated and will have no effect.")
+
+    def entity_dimension(self, entity_type: str) -> int:
+        """get the dimension for an entity"""
+        return self.entities[entity_type].dimension or self.dimension
 
 
 # TODO make this a non-inplace operation
