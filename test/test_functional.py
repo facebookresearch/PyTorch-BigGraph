@@ -482,7 +482,7 @@ class TestFunctional(TestCase):
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
-    def test_distributed(self):
+    def _test_distributed(self, num_partitions):
         sync_path = TemporaryDirectory()
         self.addCleanup(sync_path.cleanup)
         entity_name = "e"
@@ -495,7 +495,7 @@ class TestFunctional(TestCase):
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
-            entities={entity_name: EntitySchema(num_partitions=4)},
+            entities={entity_name: EntitySchema(num_partitions=num_partitions)},
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
@@ -546,6 +546,12 @@ class TestFunctional(TestCase):
                 self.assertEqual(trainer1.exitcode, 0)
                 done[1] = True
         self.assertCheckpointWritten(train_config, version=1)
+
+    def test_distributed(self):
+        self._test_distributed(num_partitions=4)
+
+    def test_distributed_unpartitioned(self):
+        self._test_distributed(num_partitions=1)
 
     def test_distributed_with_partition_servers(self):
         sync_path = TemporaryDirectory()

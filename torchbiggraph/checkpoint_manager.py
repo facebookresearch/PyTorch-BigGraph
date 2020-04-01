@@ -262,6 +262,7 @@ class CheckpointManager:
         embs: FloatTensorType,
         optim_state: Optional[OptimizerStateDict],
         force_clean: bool = False,
+        unpartitioned: bool = False,
     ) -> None:
         if not force_clean:
             self.dirty.add((entity, part))
@@ -271,7 +272,7 @@ class CheckpointManager:
         metadata = self.collect_metadata()
         serialized_optim_state = serialize_optim_state(optim_state)
 
-        if self.partition_client is not None:
+        if self.partition_client is not None and not unpartitioned:
             self.partition_client.store(entity, part, embs, serialized_optim_state)
         else:
             self.storage.save_entity_partition(
@@ -381,6 +382,12 @@ class CheckpointManager:
         if self.partition_client is not None:
             for entity, econf in config.entities.items():
                 dimension = config.entity_dimension(entity)
+
+                if econf.num_partitions == 1:
+                    # unpartitioned entities are not stored on the partition
+                    # server; they are checkpointed separately in train.py
+                    continue
+
                 for part in range(self.rank, econf.num_partitions, self.num_machines):
                     logger.debug(f"Getting {entity} {part}")
                     count = entity_counts[entity][part]

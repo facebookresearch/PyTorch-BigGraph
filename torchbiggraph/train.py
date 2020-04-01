@@ -927,10 +927,15 @@ class TrainingCoordinator:
         if self.rank == 0:
             for entity, econfig in config.entities.items():
                 if econfig.num_partitions == 1:
+                    logger.info(f"Writing {entity} embeddings")
                     embs = self.holder.unpartitioned_embeddings[entity]
                     optimizer = self.trainer.unpartitioned_optimizers[entity]
                     self.checkpoint_manager.write(
-                        entity, UNPARTITIONED, embs.detach(), optimizer.state_dict()
+                        entity,
+                        UNPARTITIONED,
+                        embs.detach(),
+                        optimizer.state_dict(),
+                        unpartitioned=True,
                     )
 
             logger.info("Writing the metadata")
