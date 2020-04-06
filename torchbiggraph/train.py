@@ -676,13 +676,15 @@ class TrainingCoordinator:
                 # HOGWILD training
                 bucket_logger.debug("Waiting for workers to perform training")
                 stats = self._coordinate_train(edges, eval_edge_idxs, epoch_idx)
+                if stats is not None:
+                    bucket_logger.info(f"Training stats: {stats}")
                 train_time = time.perf_counter() - tic
                 tic = time.perf_counter()
 
                 # HOGWILD evaluation after training
                 eval_stats_after = self._coordinate_eval(edges, eval_edge_idxs)
                 if eval_stats_after is not None:
-                    bucket_logger.info(f"Stats before training: {eval_stats_after}")
+                    bucket_logger.info(f"Stats after training: {eval_stats_after}")
 
                 eval_time += time.perf_counter() - tic
 
