@@ -372,6 +372,7 @@ class TrainingCoordinator:
                         entities_rhs=holder.rhs_partitioned_types,
                         entity_counts=entity_counts,
                         init_tree=config.distributed_tree_init_order,
+                        stats_handler=stats_handler,
                     ),
                     process_name="LockServer",
                     init_method=config.distributed_init_method,
@@ -441,7 +442,7 @@ class TrainingCoordinator:
         else:
             self.barrier_group = None
             self.bucket_scheduler = SingleMachineBucketScheduler(
-                holder.nparts_lhs, holder.nparts_rhs, config.bucket_order
+                holder.nparts_lhs, holder.nparts_rhs, config.bucket_order, stats_handler
             )
             parameter_sharer = None
             partition_client = None
@@ -704,10 +705,6 @@ class TrainingCoordinator:
                 bucket_logger.info(f"{stats}")
 
                 self.model.clear_all_embeddings()
-
-                self.stats_handler.on_stats(
-                    current_index, eval_stats_before, stats, eval_stats_after
-                )
 
                 cur_stats = BucketStats(
                     lhs_partition=cur_b.lhs,

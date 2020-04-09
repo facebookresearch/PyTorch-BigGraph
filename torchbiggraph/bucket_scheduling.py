@@ -16,7 +16,7 @@ from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 from torchbiggraph.config import BucketOrder
 from torchbiggraph.distributed import Startable
 from torchbiggraph.rpc import Client, Server
-from torchbiggraph.stats import Stats
+from torchbiggraph.stats import Stats, StatsHandler
 from torchbiggraph.types import Bucket, EntityName, Partition, Rank, Side
 
 
@@ -264,10 +264,17 @@ def create_buckets_ordered_by_layer(
 
 
 class SingleMachineBucketScheduler(AbstractBucketScheduler):
-    def __init__(self, nparts_lhs: int, nparts_rhs: int, order: BucketOrder) -> None:
+    def __init__(
+        self,
+        nparts_lhs: int,
+        nparts_rhs: int,
+        order: BucketOrder,
+        stats_handler: StatsHandler,
+    ) -> None:
         self.nparts_lhs = nparts_lhs
         self.nparts_rhs = nparts_rhs
         self.order = order
+        self.stats_handler = stats_handler
 
         self.buckets: List[Bucket] = []
         self.stats: List[BucketStats] = []
@@ -299,6 +306,9 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
         if stats.lhs_partition != bucket.lhs or stats.rhs_partition != bucket.rhs:
             raise ValueError(f"Bucket and stats don't match: {bucket}, {stats}")
         self.stats.append(stats)
+        self.stats_handler.on_stats(
+            stats.index, stats.eval_before, stats.train, stats.eval_after
+        )
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
         return False
@@ -328,6 +338,7 @@ class LockServer(Server, Startable):
         entities_rhs: Set[EntityName],
         entity_counts: Dict[str, List[int]],
         init_tree: bool,
+        stats_handler: StatsHandler,
     ) -> None:
         super().__init__(num_clients)
         self.nparts_lhs: int = nparts_lhs
@@ -346,6 +357,7 @@ class LockServer(Server, Startable):
             entity: round(mean(counts)) for entity, counts in entity_counts.items()
         }
         self.init_tree = init_tree
+        self.stats_handler = stats_handler
 
         self.active: Dict[Bucket, Rank] = {}
         self.done: Set[Bucket] = set()
@@ -534,6 +546,9 @@ class LockServer(Server, Startable):
             raise ValueError(f"Bucket and stats don't match: {bucket}, {stats}")
         self.active.pop(bucket)
         self.stats.append(stats)
+        self.stats_handler.on_stats(
+            stats.index, stats.eval_before, stats.train, stats.eval_after
+        )
         logger.info(f"Bucket {bucket} released: active= {self.active}")
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
