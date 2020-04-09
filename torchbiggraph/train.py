@@ -12,7 +12,7 @@ import math
 import time
 from collections import defaultdict
 from functools import partial
-from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import torch
 import torch.distributed as td
@@ -44,7 +44,7 @@ from torchbiggraph.losses import LOSS_FUNCTIONS, AbstractLossFunction
 from torchbiggraph.model import MultiRelationEmbedder, make_model, override_model
 from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
 from torchbiggraph.row_adagrad import RowAdagrad
-from torchbiggraph.stats import Stats
+from torchbiggraph.stats import Stats, StatsHandler
 from torchbiggraph.types import (
     SINGLE_TRAINER,
     UNPARTITIONED,
@@ -273,6 +273,9 @@ def make_optimizer(
     return optimizer
 
 
+NOOP_STATS_HANDLER = StatsHandler()
+
+
 class TrainingCoordinator:
     def __init__(  # noqa
         self,
@@ -282,6 +285,7 @@ class TrainingCoordinator:
         evaluator: Optional[AbstractBatchProcessor] = None,
         rank: Rank = SINGLE_TRAINER,
         subprocess_init: Optional[Callable[[], None]] = None,
+        stats_handler: StatsHandler = NOOP_STATS_HANDLER,
     ):
         """Each epoch/pass, for each partition pair, loads in embeddings and edgelist
         from disk, runs HOGWILD training on them, and writes partitions back to disk.
@@ -540,12 +544,11 @@ class TrainingCoordinator:
         self.rank = rank
         self.entity_counts = entity_counts
         self.embedding_storage_freelist = embedding_storage_freelist
+        self.stats_handler = stats_handler
 
         self.strict = False
 
-    def train_and_report_stats(
-        self
-    ) -> Generator[Tuple[int, Optional[Stats], Stats, Optional[Stats]], None, None]:
+    def train(self) -> None:
 
         holder = self.holder
         config = self.config
@@ -565,7 +568,9 @@ class TrainingCoordinator:
                 eval_stats_after: Optional[Stats] = None
                 if "eval_stats_after" in stats_dict:
                     eval_stats_after = Stats.from_dict(stats_dict["eval_stats_after"])
-                yield (index, eval_stats_before, stats, eval_stats_after)
+                self.stats_handler.on_stats(
+                    index, eval_stats_before, stats, eval_stats_after
+                )
 
         for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
             logger.info(
@@ -700,7 +705,9 @@ class TrainingCoordinator:
 
                 self.model.clear_all_embeddings()
 
-                yield current_index, eval_stats_before, stats, eval_stats_after
+                self.stats_handler.on_stats(
+                    current_index, eval_stats_before, stats, eval_stats_after
+                )
 
                 cur_stats = BucketStats(
                     lhs_partition=cur_b.lhs,
@@ -1003,14 +1010,10 @@ def train(
     rank: Rank = SINGLE_TRAINER,
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
-
-    # Create and run the generator until exhaustion.
     coordinator = TrainingCoordinator(
         config, model, trainer, evaluator, rank, subprocess_init
     )
-
-    for _ in coordinator.train_and_report_stats():
-        pass
+    coordinator.train()
     coordinator.close()
 
 

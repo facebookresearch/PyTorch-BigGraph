@@ -8,7 +8,7 @@
 
 from collections import defaultdict
 from statistics import mean
-from typing import Dict, Iterable, Type, Union, cast
+from typing import Dict, Iterable, Optional, Type, Union, cast
 
 from torchbiggraph.types import FloatTensorType
 
@@ -83,3 +83,14 @@ class Stats:
         return Stats(
             count=cast(int, d["count"]), **cast(Dict[str, float], d["metrics"])
         )
+
+
+class StatsHandler:
+    def on_stats(
+        self,
+        index: int,
+        eval_stats_before: Optional[Stats],
+        train_stats: Stats,
+        eval_stats_after: Optional[Stats],
+    ) -> None:
+        pass
