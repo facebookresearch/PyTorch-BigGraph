@@ -4,7 +4,7 @@
 
 PyTorch-BigGraph (PBG) is a distributed system for learning graph embeddings for large graphs, particularly big web interaction graphs with up to billions of entities and trillions of edges.
 
-PBG was introduced in the [PyTorch-BigGraph: A Large-scale Graph Embedding Framework](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) paper, presented at the [SysML conference](https://www.sysml.cc/) in 2019.
+PBG was introduced in the [PyTorch-BigGraph: A Large-scale Graph Embedding Framework](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) paper, presented at the [SysML conference](https://mlsys.org/) in 2019.
 
 PBG trains on an input graph by ingesting its list of edges, each identified by its source and target entities and, possibly, a relation type. It outputs a feature vector (embedding) for each entity, trying to place adjacent entities close to each other in the vector space, while pushing unconnected entities apart. Therefore, entities that have a similar distribution of neighbors will end up being nearby.
 
@@ -42,7 +42,7 @@ pip install .
 
 ## Getting started
 
-The results of [the paper](https://www.sysml.cc/doc/2019/71.pdf) can easily be reproduced by running the following command (which executes [this script](torchbiggraph/examples/fb15k.py)):
+The results of [the paper](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) can easily be reproduced by running the following command (which executes [this script](torchbiggraph/examples/fb15k.py)):
 ```bash
 torchbiggraph_example_fb15k
 ```
@@ -116,7 +116,7 @@ Switching to the new checkpoint version
 
 Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set. The `torchbiggraph_example_fb15k` command performs a *filtered* evaluation, which calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. Filtered evaluation is used in the literature for FB15k, but does not scale beyond small graphs.
 
-The final results should match the values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) reported in [the paper](https://www.sysml.cc/doc/2019/71.pdf):
+The final results should match the values of `mrr` (Mean Reciprocal Rank, MRR) and `r10` (Hits@10) reported in [the paper](https://mlsys.org/Conferences/2019/doc/2019/71.pdf):
 ```
 Stats: pos_rank:  65.4821 , mrr:  0.789921 , r1:  0.738501 , r10:  0.876894 , r50:  0.92647 , auc:  0.989868 , count:  59071
 ```
