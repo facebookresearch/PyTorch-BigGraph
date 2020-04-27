@@ -562,15 +562,26 @@ class TrainingCoordinator:
         if self.rank == SINGLE_TRAINER:
             for stats_dict in self.checkpoint_manager.maybe_read_stats():
                 index: int = stats_dict["index"]
-                stats: Stats = Stats.from_dict(stats_dict["stats"])
+                stats: Optional[Stats] = None
+                if "stats" in stats_dict:
+                    stats: Stats = Stats.from_dict(stats_dict["stats"])
                 eval_stats_before: Optional[Stats] = None
                 if "eval_stats_before" in stats_dict:
                     eval_stats_before = Stats.from_dict(stats_dict["eval_stats_before"])
                 eval_stats_after: Optional[Stats] = None
                 if "eval_stats_after" in stats_dict:
                     eval_stats_after = Stats.from_dict(stats_dict["eval_stats_after"])
+                eval_stats_chunk_avg: Optional[Stats] = None
+                if "eval_stats_chunk_avg" in stats_dict:
+                    eval_stats_chunk_avg = Stats.from_dict(
+                        stats_dict["eval_stats_chunk_avg"]
+                    )
                 self.stats_handler.on_stats(
-                    index, eval_stats_before, stats, eval_stats_after
+                    index,
+                    eval_stats_before,
+                    stats,
+                    eval_stats_after,
+                    eval_stats_chunk_avg,
                 )
 
         for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
@@ -721,7 +732,11 @@ class TrainingCoordinator:
             # Distributed Processing: all machines can leave the barrier now.
             self._barrier()
 
-            self._maybe_write_checkpoint(epoch_idx, edge_path_idx, edge_chunk_idx)
+            current_index = (iteration_manager.iteration_idx + 1) * total_buckets - 1
+
+            self._maybe_write_checkpoint(
+                epoch_idx, edge_path_idx, edge_chunk_idx, current_index
+            )
 
             # now we're sure that all partition files exist,
             # so be strict about loading them
@@ -907,8 +922,13 @@ class TrainingCoordinator:
             return None
 
     def _maybe_write_checkpoint(
-        self, epoch_idx: int, edge_path_idx: int, edge_chunk_idx: int
+        self,
+        epoch_idx: int,
+        edge_path_idx: int,
+        edge_chunk_idx: int,
+        current_index: int,
     ) -> None:
+
         config = self.config
 
         # Preserving a checkpoint requires two steps:
@@ -952,11 +972,14 @@ class TrainingCoordinator:
 
             logger.info("Writing the training stats")
             all_stats_dicts: List[Dict[str, Any]] = []
+            bucket_eval_stats_list = []
+            chunk_stats_dict = {
+                "epoch_idx": epoch_idx,
+                "edge_path_idx": edge_path_idx,
+                "edge_chunk_idx": edge_chunk_idx,
+            }
             for stats in self.bucket_scheduler.get_stats_for_pass():
                 stats_dict = {
-                    "epoch_idx": epoch_idx,
-                    "edge_path_idx": edge_path_idx,
-                    "edge_chunk_idx": edge_chunk_idx,
                     "lhs_partition": stats.lhs_partition,
                     "rhs_partition": stats.rhs_partition,
                     "index": stats.index,
@@ -964,9 +987,25 @@ class TrainingCoordinator:
                 }
                 if stats.eval_before is not None:
                     stats_dict["eval_stats_before"] = stats.eval_before.to_dict()
+                    bucket_eval_stats_list.append(stats.eval_before)
+
                 if stats.eval_after is not None:
                     stats_dict["eval_stats_after"] = stats.eval_after.to_dict()
+
+                stats_dict.update(chunk_stats_dict)
                 all_stats_dicts.append(stats_dict)
+
+            if len(bucket_eval_stats_list) != 0:
+                eval_stats_chunk_avg = Stats.average_list(bucket_eval_stats_list)
+                self.stats_handler.on_stats(
+                    index=current_index, eval_stats_chunk_avg=eval_stats_chunk_avg
+                )
+                chunk_stats_dict["index"] = current_index
+                chunk_stats_dict[
+                    "eval_stats_chunk_avg"
+                ] = eval_stats_chunk_avg.to_dict()
+                all_stats_dicts.append(chunk_stats_dict)
+
             self.checkpoint_manager.append_stats(all_stats_dicts)
 
         logger.info("Writing the checkpoint")

@@ -307,7 +307,10 @@ class SingleMachineBucketScheduler(AbstractBucketScheduler):
             raise ValueError(f"Bucket and stats don't match: {bucket}, {stats}")
         self.stats.append(stats)
         self.stats_handler.on_stats(
-            stats.index, stats.eval_before, stats.train, stats.eval_after
+            index=stats.index,
+            eval_stats_before=stats.eval_before,
+            train_stats=stats.train,
+            eval_stats_after=stats.eval_after,
         )
 
     def check_and_set_dirty(self, entity: EntityName, part: Partition) -> bool:
@@ -547,7 +550,10 @@ class LockServer(Server, Startable):
         self.active.pop(bucket)
         self.stats.append(stats)
         self.stats_handler.on_stats(
-            stats.index, stats.eval_before, stats.train, stats.eval_after
+            index=stats.index,
+            eval_stats_before=stats.eval_before,
+            train_stats=stats.train,
+            eval_stats_after=stats.eval_after,
         )
         logger.info(f"Bucket {bucket} released: active= {self.active}")
 

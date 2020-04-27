@@ -58,6 +58,13 @@ class Stats:
             count=self.count, **{k: v / self.count for k, v in self.metrics.items()}
         )
 
+    @classmethod
+    def average_list(cls: Type["Stats"], stats: Iterable["Stats"]) -> "Stats":
+        """Return a stats whose metrics are the average of all stats.
+        """
+
+        return cls.sum([s * s.count for s in stats]).average()
+
     def __str__(self) -> str:
         return "%s , count:  %d" % (
             " , ".join("%s:  %.6g" % (k, v) for k, v in self.metrics.items()),
@@ -69,6 +76,11 @@ class Stats:
             isinstance(other, Stats)
             and self.count == other.count
             and self.metrics == other.metrics
+        )
+
+    def __mul__(self, c: float) -> "Stats":
+        return type(self)(
+            count=self.count, **{k: v * c for k, v in self.metrics.items()}
         )
 
     def to_dict(self) -> SerializedStats:
@@ -89,8 +101,9 @@ class StatsHandler:
     def on_stats(
         self,
         index: int,
-        eval_stats_before: Optional[Stats],
-        train_stats: Stats,
-        eval_stats_after: Optional[Stats],
+        eval_stats_before: Optional[Stats] = None,
+        train_stats: Optional[Stats] = None,
+        eval_stats_after: Optional[Stats] = None,
+        eval_stats_chunk_avg: Optional[Stats] = None,
     ) -> None:
         pass

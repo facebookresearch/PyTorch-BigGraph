@@ -271,7 +271,12 @@ class TestFunctional(TestCase):
                 "index",
             ):
                 self.assertIsInstance(v, int)
-            elif k in ("stats", "eval_stats_before", "eval_stats_after"):
+            elif k in (
+                "stats",
+                "eval_stats_before",
+                "eval_stats_after",
+                "eval_stats_chunk_avg",
+            ):
                 self.assertIsInstance(v, dict)
                 assert isinstance(v, dict)
                 self.assertCountEqual(v.keys(), ["count", "metrics"])
