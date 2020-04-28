@@ -18,7 +18,8 @@ PBG is designed with scale in mind, and achieves it through:
 - *distributed execution* across multiple machines (optional), all simultaneously operating on disjoint parts of the graph
 - *batched negative sampling*, allowing for processing >1 million edges/sec/machine with 100 negatives per edge
 
-PBG is *not* for model exploration with exotic models on small graphs, e.g. graph convnets, deep networks, etc.
+PBG is not optimized for small graphs. If your graph has fewer than 100,000 nodes, consider using [KBC](https://github.com/facebookresearch/kbc) with the ComplEx model and N3 regularizer. KBC produces state-of-the-art embeddings for graphs that can fit on a single GPU. Compared to KBC, PyTorch-BigGraph enables learning on very large graphs whose embeddings wouldn't fit in a single GPU or a single machine, but may not produce high-quality embeddings for small graphs without careful tuning.
+
 
 ## Requirements
 
