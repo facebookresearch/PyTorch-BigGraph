@@ -713,7 +713,6 @@ class TrainingCoordinator:
                     f"( {2 * num_eval_edges / eval_time / 1e6:.2g} M/sec ); "
                     f"io: {io_time:.2f} s for {io_bytes:,} bytes ( {io_bytes / io_time / 1e6:.2f} MB/sec )"
                 )
-                bucket_logger.info(f"{stats}")
 
                 self.model.clear_all_embeddings()
 
