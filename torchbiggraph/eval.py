@@ -19,6 +19,7 @@ from torchbiggraph.checkpoint_manager import CheckpointManager
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.graph_storages import EDGE_STORAGES
+from torchbiggraph.losses import LOSS_FUNCTIONS
 from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
 from torchbiggraph.stats import Stats, average_of_sums
 from torchbiggraph.types import UNPARTITIONED, Bucket, EntityName, Partition
@@ -50,6 +51,8 @@ class RankingEvaluator(AbstractBatchProcessor):
     def eval(self, scores: Scores, batch_edges: EdgeList) -> Stats:
         batch_size = len(batch_edges)
 
+        loss = self.calc_loss(scores, batch_edges)
+
         ranks = []
         aucs = []
         if scores.lhs_neg.nelement() > 0:
@@ -65,6 +68,7 @@ class RankingEvaluator(AbstractBatchProcessor):
             aucs.append(rhs_auc)
 
         return Stats(
+            loss=float(loss),
             pos_rank=average_of_sums(*ranks),
             mrr=average_of_sums(*(rank.float().reciprocal() for rank in ranks)),
             r1=average_of_sums(*(rank.le(1) for rank in ranks)),
@@ -88,7 +92,10 @@ def do_eval_and_report_stats(
     tag_logs_with_process_name(f"Evaluator")
 
     if evaluator is None:
-        evaluator = RankingEvaluator()
+        evaluator = RankingEvaluator(
+            loss_fn=LOSS_FUNCTIONS.get_class(config.loss_fn)(margin=config.margin),
+            relation_weights=[relation.weight for relation in config.relations],
+        )
 
     if config.verbose > 0:
         import pprint

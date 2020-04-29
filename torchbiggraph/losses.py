@@ -30,6 +30,13 @@ class AbstractLossFunction(nn.Module, ABC):
     all the negative ones.
     """
 
+    def __init__(self, **kwargs):
+        # loss functions will default ignore any kwargs, but can ask for any
+        # specific kwargs of interest in their constructor
+        # FIXME: This is not ideal. Perhaps we should pass in the config
+        # or a subconfig instead?
+        super().__init__()
+
     @abstractmethod
     def forward(
         self, pos_scores: FloatTensorType, neg_scores: FloatTensorType
@@ -64,7 +71,7 @@ class LogisticLossFunction(AbstractLossFunction):
 
 @LOSS_FUNCTIONS.register_as("ranking")
 class RankingLossFunction(AbstractLossFunction):
-    def __init__(self, margin):
+    def __init__(self, *, margin, **kwargs):
         super().__init__()
         self.margin = margin
 

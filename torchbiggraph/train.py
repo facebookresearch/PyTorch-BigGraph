@@ -79,29 +79,16 @@ dist_logger = logging.LoggerAdapter(logger, {"distributed": True})
 
 
 class Trainer(AbstractBatchProcessor):
-
-    loss_fn: AbstractLossFunction
-
     def __init__(
         self,
         model_optimizer: Optimizer,
-        loss_fn: str,
-        margin: float,
-        relations: List[RelationSchema],
+        loss_fn: AbstractLossFunction,
+        relation_weights: List[float],
     ) -> None:
-        super().__init__()
+        super().__init__(loss_fn, relation_weights)
         self.model_optimizer = model_optimizer
         self.unpartitioned_optimizers: Dict[EntityName, Optimizer] = {}
         self.partitioned_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
-
-        loss_fn_class = LOSS_FUNCTIONS.get_class(loss_fn)
-        # TODO This is awful! Can we do better?
-        if loss_fn == "ranking":
-            self.loss_fn = loss_fn_class(margin)
-        else:
-            self.loss_fn = loss_fn_class()
-
-        self.relations = relations
 
     def process_one_batch(
         self, model: MultiRelationEmbedder, batch_edges: EdgeList
@@ -110,14 +97,7 @@ class Trainer(AbstractBatchProcessor):
 
         scores = model(batch_edges)
 
-        lhs_loss = self.loss_fn(scores.lhs_pos, scores.lhs_neg)
-        rhs_loss = self.loss_fn(scores.rhs_pos, scores.rhs_neg)
-        relation = self.relations[
-            batch_edges.get_relation_type_as_scalar()
-            if batch_edges.has_scalar_relation_type()
-            else 0
-        ]
-        loss = relation.weight * (lhs_loss + rhs_loss)
+        loss = self.calc_loss(scores, batch_edges)
 
         stats = Stats(
             loss=float(loss),
@@ -138,9 +118,13 @@ class Trainer(AbstractBatchProcessor):
 
 class TrainingRankingEvaluator(RankingEvaluator):
     def __init__(
-        self, override_num_batch_negs: int, override_num_uniform_negs: int
+        self,
+        loss_fn: AbstractLossFunction,
+        relation_weights: List[float],
+        override_num_batch_negs: int,
+        override_num_uniform_negs: int,
     ) -> None:
-        super().__init__()
+        super().__init__(loss_fn, relation_weights)
         self.override_num_batch_negs = override_num_batch_negs
         self.override_num_uniform_negs = override_num_uniform_negs
 
@@ -484,15 +468,18 @@ class TrainingCoordinator:
         if model is None:
             model = make_model(config)
         model.share_memory()
+        loss_fn = LOSS_FUNCTIONS.get_class(config.loss_fn)(margin=config.margin)
+        relation_weights = [relation.weight for relation in config.relations]
         if trainer is None:
             trainer = Trainer(
                 model_optimizer=make_optimizer(config, model.parameters(), False),
-                loss_fn=config.loss_fn,
-                margin=config.margin,
-                relations=config.relations,
+                loss_fn=loss_fn,
+                relation_weights=relation_weights,
             )
         if evaluator is None:
             evaluator = TrainingRankingEvaluator(
+                loss_fn=loss_fn,
+                relation_weights=relation_weights,
                 override_num_batch_negs=config.eval_num_batch_negs,
                 override_num_uniform_negs=config.eval_num_uniform_negs,
             )

@@ -12,7 +12,8 @@ from typing import Callable, Iterable, List, Optional
 
 import torch
 from torchbiggraph.edgelist import EdgeList
-from torchbiggraph.model import MultiRelationEmbedder
+from torchbiggraph.losses import AbstractLossFunction
+from torchbiggraph.model import MultiRelationEmbedder, Scores
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import LongTensorType
 
@@ -120,6 +121,23 @@ def process_in_batches(
 
 
 class AbstractBatchProcessor(ABC):
+    def __init__(self, loss_fn: AbstractLossFunction, relation_weights: List[float]):
+        self.loss_fn = loss_fn
+        self.relation_weights = relation_weights
+
+    def calc_loss(self, scores: Scores, batch_edges: EdgeList):
+
+        lhs_loss = self.loss_fn(scores.lhs_pos, scores.lhs_neg)
+        rhs_loss = self.loss_fn(scores.rhs_pos, scores.rhs_neg)
+        relation = (
+            batch_edges.get_relation_type_as_scalar()
+            if batch_edges.has_scalar_relation_type()
+            else 0
+        )
+        loss = self.relation_weights[relation] * (lhs_loss + rhs_loss)
+
+        return loss
+
     @abstractmethod
     def process_one_batch(
         self, model: MultiRelationEmbedder, batch_edges: EdgeList

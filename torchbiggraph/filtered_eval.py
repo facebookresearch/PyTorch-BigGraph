@@ -14,6 +14,7 @@ from torchbiggraph.config import ConfigSchema
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.graph_storages import EDGE_STORAGES
+from torchbiggraph.losses import LOSS_FUNCTIONS
 from torchbiggraph.model import Scores
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import UNPARTITIONED
@@ -31,7 +32,10 @@ class FilteredRankingEvaluator(RankingEvaluator):
     """
 
     def __init__(self, config: ConfigSchema, filter_paths: List[str]) -> None:
-        super().__init__()
+        loss_fn = LOSS_FUNCTIONS.get_class(config.loss_fn)(margin=config.margin)
+        relation_weights = [r.weight for r in config.relations]
+        super().__init__(loss_fn, relation_weights)
+
         if len(config.relations) != 1 or len(config.entities) != 1:
             raise RuntimeError(
                 "Filtered ranking evaluation should only be used "

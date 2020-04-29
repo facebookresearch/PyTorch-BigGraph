@@ -97,7 +97,7 @@ class TestRankingLossFunction(TensorTestCase):
             ],
             requires_grad=True,
         )
-        loss_fn = RankingLossFunction(1.0)
+        loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
         self.assertTensorEqual(loss, torch.tensor(13.4475))
         loss.backward()
@@ -107,7 +107,7 @@ class TestRankingLossFunction(TensorTestCase):
     def test_forward_good(self):
         pos_scores = torch.full((3,), 2, requires_grad=True)
         neg_scores = torch.full((3, 5), 1, requires_grad=True)
-        loss_fn = RankingLossFunction(1.0)
+        loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
@@ -115,7 +115,7 @@ class TestRankingLossFunction(TensorTestCase):
     def test_forward_bad(self):
         pos_scores = torch.full((3,), -1, requires_grad=True)
         neg_scores = torch.zeros((3, 5), requires_grad=True)
-        loss_fn = RankingLossFunction(1.0)
+        loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
         self.assertTensorEqual(loss, torch.tensor(30.0))
         loss.backward()
@@ -123,7 +123,7 @@ class TestRankingLossFunction(TensorTestCase):
     def test_no_neg(self):
         pos_scores = torch.zeros((3,), requires_grad=True)
         neg_scores = torch.empty((3, 0), requires_grad=True)
-        loss_fn = RankingLossFunction(1.0)
+        loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
@@ -131,7 +131,7 @@ class TestRankingLossFunction(TensorTestCase):
     def test_no_pos(self):
         pos_scores = torch.empty((0,), requires_grad=True)
         neg_scores = torch.empty((0, 3), requires_grad=True)
-        loss_fn = RankingLossFunction(1.0)
+        loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
