@@ -70,7 +70,8 @@ class FilteredRankingEvaluator(RankingEvaluator):
 
             logger.info(f"Done building links map from path {path}")
 
-    def eval(self, scores: Scores, batch_edges: EdgeList) -> Stats:
+    def _adjust_scores(self, scores: Scores, batch_edges: EdgeList):
+
         for idx in range(len(batch_edges)):
             # Assume non-featurized.
             cur_lhs = int(batch_edges.lhs.to_tensor()[idx])
@@ -89,5 +90,3 @@ class FilteredRankingEvaluator(RankingEvaluator):
             # so to avoid counting positives we give them a negative margin.
             scores.lhs_neg[idx][lhs_edges_filtered] = -1e9
             scores.rhs_neg[idx][rhs_edges_filtered] = -1e9
-
-        return super().eval(scores, batch_edges)  # noqa

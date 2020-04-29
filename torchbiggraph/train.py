@@ -90,7 +90,7 @@ class Trainer(AbstractBatchProcessor):
         self.unpartitioned_optimizers: Dict[EntityName, Optimizer] = {}
         self.partitioned_optimizers: Dict[Tuple[EntityName, Partition], Optimizer] = {}
 
-    def process_one_batch(
+    def _process_one_batch(
         self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
         model.zero_grad()
@@ -114,29 +114,6 @@ class Trainer(AbstractBatchProcessor):
             optimizer.step(closure=None)
 
         return stats
-
-
-class TrainingRankingEvaluator(RankingEvaluator):
-    def __init__(
-        self,
-        loss_fn: AbstractLossFunction,
-        relation_weights: List[float],
-        override_num_batch_negs: int,
-        override_num_uniform_negs: int,
-    ) -> None:
-        super().__init__(loss_fn, relation_weights)
-        self.override_num_batch_negs = override_num_batch_negs
-        self.override_num_uniform_negs = override_num_uniform_negs
-
-    def process_one_batch(
-        self, model: MultiRelationEmbedder, batch_edges: EdgeList
-    ) -> Stats:
-        with override_model(
-            model,
-            num_batch_negs=self.override_num_batch_negs,
-            num_uniform_negs=self.override_num_uniform_negs,
-        ):
-            return super().process_one_batch(model, batch_edges)
 
 
 class IterationManager(MetadataProvider):
@@ -477,11 +454,16 @@ class TrainingCoordinator:
                 relation_weights=relation_weights,
             )
         if evaluator is None:
-            evaluator = TrainingRankingEvaluator(
+            eval_overrides = {}
+            if config.eval_num_batch_negs is not None:
+                eval_overrides["num_batch_negs"] = config.eval_num_batch_negs
+            if config.eval_num_uniform_negs is not None:
+                eval_overrides["num_uniform_negs"] = config.eval_num_uniform_negs
+
+            evaluator = RankingEvaluator(
                 loss_fn=loss_fn,
                 relation_weights=relation_weights,
-                override_num_batch_negs=config.eval_num_batch_negs,
-                override_num_uniform_negs=config.eval_num_uniform_negs,
+                overrides=eval_overrides,
             )
 
         if config.init_path is not None:

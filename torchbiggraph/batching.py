@@ -8,12 +8,12 @@
 
 import time
 from abc import ABC, abstractmethod
-from typing import Callable, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import torch
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.losses import AbstractLossFunction
-from torchbiggraph.model import MultiRelationEmbedder, Scores
+from torchbiggraph.model import MultiRelationEmbedder, Scores, override_model
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import LongTensorType
 
@@ -121,9 +121,15 @@ def process_in_batches(
 
 
 class AbstractBatchProcessor(ABC):
-    def __init__(self, loss_fn: AbstractLossFunction, relation_weights: List[float]):
+    def __init__(
+        self,
+        loss_fn: AbstractLossFunction,
+        relation_weights: List[float],
+        overrides: Optional[Dict[str, Any]] = None,
+    ):
         self.loss_fn = loss_fn
         self.relation_weights = relation_weights
+        self.overrides = overrides
 
     def calc_loss(self, scores: Scores, batch_edges: EdgeList):
 
@@ -139,7 +145,16 @@ class AbstractBatchProcessor(ABC):
         return loss
 
     @abstractmethod
-    def process_one_batch(
+    def _process_one_batch(
         self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
         pass
+
+    def process_one_batch(
+        self, model: MultiRelationEmbedder, batch_edges: EdgeList
+    ) -> Stats:
+        if self.overrides is not None:
+            with override_model(model, **self.overrides):
+                return self._process_one_batch(model, batch_edges)
+        else:
+            return self._process_one_batch(model, batch_edges)

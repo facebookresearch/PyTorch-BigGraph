@@ -41,14 +41,15 @@ logger = logging.getLogger("torchbiggraph")
 
 
 class RankingEvaluator(AbstractBatchProcessor):
-    def process_one_batch(
+    def _process_one_batch(
         self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
+
         with torch.no_grad():
             scores = model(batch_edges)
-        return self.eval(scores, batch_edges)
 
-    def eval(self, scores: Scores, batch_edges: EdgeList) -> Stats:
+        self._adjust_scores(scores, batch_edges)
+
         batch_size = len(batch_edges)
 
         loss = self.calc_loss(scores, batch_edges)
@@ -78,6 +79,11 @@ class RankingEvaluator(AbstractBatchProcessor):
             auc=batch_size * sum(aucs) / len(aucs),
             count=batch_size,
         )
+
+    def _adjust_scores(self, scores: Scores, batch_edges: EdgeList):
+        # This is a hook for the filtered evaluator to do the filtering
+        # of true edges
+        pass
 
 
 def do_eval_and_report_stats(

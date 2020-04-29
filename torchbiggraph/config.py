@@ -355,21 +355,21 @@ class ConfigSchema(Schema):
             "used to track evaluation metrics during training."
         },
     )
-    eval_num_batch_negs: int = attr.ib(
+    eval_num_batch_negs: Optional[int] = attr.ib(
         default=1000,
-        validator=non_negative,
+        validator=optional(non_negative),
         metadata={
-            "help": "The value that overrides the number of negatives "
+            "help": "If set, overrides the number of negatives "
             "per positive edge sampled from the batch during the "
             "evaluation steps that occur before and after each "
             "training step."
         },
     )
-    eval_num_uniform_negs: int = attr.ib(
+    eval_num_uniform_negs: Optional[int] = attr.ib(
         default=1000,
-        validator=non_negative,
+        validator=optional(non_negative),
         metadata={
-            "help": "The value that overrides the number of "
+            "help": "If set, overrides the number of "
             "uniformly-sampled negatives per positive edge "
             "during the evaluation steps that occur before and "
             "after each training step."
