@@ -41,6 +41,15 @@ As an alternative, one can instead install the *development* version from the re
 pip install .
 ```
 
+Note: PyTorch-BigGraph includes some C++ kernels that are only used for the experimental GPU mode. If you are seeing C++ compilation errors during installation, you can turn off C++ compilation by running
+
+```bash
+PBG_INSTALL_CPP=0 pip install .
+```
+
+Everything will work identically except that you won't be able to run GPU training (`torchbiggraph_train_gpu`).
+
+
 ## Getting started
 
 The results of [the paper](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) can easily be reproduced by running the following command (which executes [this script](torchbiggraph/examples/fb15k.py)):

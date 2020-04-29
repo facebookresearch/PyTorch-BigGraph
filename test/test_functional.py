@@ -12,6 +12,7 @@ import multiprocessing as mp
 import os.path
 import random
 import time
+import unittest
 from functools import partial
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, Mapping, NamedTuple, Tuple, Union
@@ -20,11 +21,13 @@ from unittest import TestCase, main
 import attr
 import h5py
 import numpy as np
+import torch
 from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
 from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.stats import SerializedStats
 from torchbiggraph.train import train
+from torchbiggraph.train_gpu import train as train_gpu
 from torchbiggraph.util import (
     SubprocessInitializer,
     call_one_after_the_other,
@@ -484,6 +487,49 @@ class TestFunctional(TestCase):
         )
         # Just make sure no exceptions are raised and nothing crashes.
         train(train_config, rank=0, subprocess_init=self.subprocess_init)
+        self.assertCheckpointWritten(train_config, version=1)
+        do_eval(eval_config, subprocess_init=self.subprocess_init)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "No GPU")
+    def test_gpu(self):
+        self._test_gpu()
+
+    @unittest.skipIf(not torch.cuda.is_available(), "No GPU")
+    def test_gpu_half(self):
+        self._test_gpu(do_half_precision=True)
+
+    def _test_gpu(self, do_half_precision=False):
+        entity_name = "e"
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
+        base_config = ConfigSchema(
+            dimension=16,
+            batch_size=1024,
+            num_batch_negs=64,
+            num_uniform_negs=64,
+            relations=[relation_config],
+            entities={entity_name: EntitySchema(num_partitions=2)},
+            entity_path=None,  # filled in later
+            edge_paths=[],  # filled in later
+            checkpoint_path=self.checkpoint_path.name,
+            workers=2,
+            num_gpus=2,
+            half_precision=do_half_precision,
+        )
+        dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
+        self.addCleanup(dataset.cleanup)
+        train_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[0].name],
+        )
+        eval_config = attr.evolve(
+            base_config,
+            entity_path=dataset.entity_path.name,
+            edge_paths=[dataset.relation_paths[1].name],
+            relations=[attr.evolve(relation_config, all_negs=True)],
+        )
+        # Just make sure no exceptions are raised and nothing crashes.
+        train_gpu(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
