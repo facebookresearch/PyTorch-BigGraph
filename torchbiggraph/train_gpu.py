@@ -9,51 +9,18 @@
 import argparse
 import ctypes
 import logging
-import math
 import os
 import time
-from abc import ABC, abstractmethod
 from collections import defaultdict
-from functools import partial
 from multiprocessing.connection import wait as mp_wait
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    Iterable,
-    List,
-    NamedTuple,
-    Optional,
-    Set,
-    Tuple,
-)
+from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 import torch
-import torch.distributed as td
 import torch.multiprocessing as mp
 from torch.optim import Adagrad, Optimizer
 from torchbiggraph import _C
 from torchbiggraph.batching import AbstractBatchProcessor, process_in_batches
-from torchbiggraph.bucket_scheduling import (
-    AbstractBucketScheduler,
-    BucketStats,
-    DistributedBucketScheduler,
-    LockServer,
-    SingleMachineBucketScheduler,
-)
-from torchbiggraph.checkpoint_manager import (
-    CheckpointManager,
-    ConfigMetadataProvider,
-    MetadataProvider,
-    PartitionClient,
-)
-from torchbiggraph.config import (
-    ConfigFileLoader,
-    ConfigSchema,
-    RelationSchema,
-    add_to_sys_path,
-)
+from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import EDGE_STORAGES, ENTITY_STORAGES
@@ -124,8 +91,8 @@ class TimeKeeper:
 
 
 class SubprocessArgs(NamedTuple):
-    lhs_partitioned_types: Set[str]
-    rhs_partitioned_types: Set[str]
+    lhs_types: Set[str]
+    rhs_types: Set[str]
     lhs_part: Partition
     rhs_part: Partition
     lhs_subpart: SubPartition
@@ -194,8 +161,8 @@ class GPUProcess(mp.get_context("spawn").Process):
                 break
 
             stats = self.do_one_job(
-                lhs_partitioned_types=job.lhs_partitioned_types,
-                rhs_partitioned_types=job.rhs_partitioned_types,
+                lhs_types=job.lhs_types,
+                rhs_types=job.rhs_types,
                 lhs_part=job.lhs_part,
                 rhs_part=job.rhs_part,
                 lhs_subpart=job.lhs_subpart,
@@ -217,8 +184,8 @@ class GPUProcess(mp.get_context("spawn").Process):
 
     def do_one_job(  # noqa
         self,
-        lhs_partitioned_types: Set[str],
-        rhs_partitioned_types: Set[str],
+        lhs_types: Set[str],
+        rhs_types: Set[str],
         lhs_part: Partition,
         rhs_part: Partition,
         lhs_subpart: SubPartition,
@@ -243,9 +210,9 @@ class GPUProcess(mp.get_context("spawn").Process):
         occurrences: Dict[
             Tuple[EntityName, Partition, SubPartition], Set[Side]
         ] = defaultdict(set)
-        for entity_name in lhs_partitioned_types:
+        for entity_name in lhs_types:
             occurrences[entity_name, lhs_part, lhs_subpart].add(Side.LHS)
-        for entity_name in rhs_partitioned_types:
+        for entity_name in rhs_types:
             occurrences[entity_name, rhs_part, rhs_subpart].add(Side.RHS)
 
         if lhs_part != rhs_part:  # Bipartite
@@ -323,10 +290,10 @@ class GPUProcess(mp.get_context("spawn").Process):
             Tuple[EntityName, Partition, SubPartition], Set[Side]
         ] = defaultdict(set)
         if next_lhs_subpart is not None:
-            for entity_name in lhs_partitioned_types:
+            for entity_name in lhs_types:
                 next_occurrences[entity_name, lhs_part, next_lhs_subpart].add(Side.LHS)
         if next_rhs_subpart is not None:
-            for entity_name in rhs_partitioned_types:
+            for entity_name in rhs_types:
                 next_occurrences[entity_name, rhs_part, next_rhs_subpart].add(Side.RHS)
 
         tk.start("copy_from_device")
@@ -606,8 +573,8 @@ class GPUTrainingCoordinator(TrainingCoordinator):
             self.gpu_pool.schedule(
                 gpu_idx,
                 SubprocessArgs(
-                    lhs_partitioned_types=holder.lhs_partitioned_types,
-                    rhs_partitioned_types=holder.rhs_partitioned_types,
+                    lhs_types=holder.lhs_partitioned_types,
+                    rhs_types=holder.rhs_partitioned_types,
                     lhs_part=cur_b.lhs,
                     rhs_part=cur_b.rhs,
                     lhs_subpart=this_bucket[0],

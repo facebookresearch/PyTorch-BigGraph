@@ -919,18 +919,16 @@ class TrainingCoordinator:
             f"{self.iteration_manager.num_edge_chunks}"
         )
         if self.rank == 0:
-            for entity, econfig in config.entities.items():
-                if econfig.num_partitions == 1:
-                    logger.info(f"Writing {entity} embeddings")
-                    embs = self.holder.unpartitioned_embeddings[entity]
-                    optimizer = self.trainer.unpartitioned_optimizers[entity]
-                    self.checkpoint_manager.write(
-                        entity,
-                        UNPARTITIONED,
-                        embs.detach(),
-                        optimizer.state_dict(),
-                        unpartitioned=True,
-                    )
+            for entity, embs in self.holder.unpartitioned_embeddings.items():
+                logger.info(f"Writing {entity} embeddings")
+                optimizer = self.trainer.unpartitioned_optimizers[entity]
+                self.checkpoint_manager.write(
+                    entity,
+                    UNPARTITIONED,
+                    embs.detach(),
+                    optimizer.state_dict(),
+                    unpartitioned=True,
+                )
 
             logger.info("Writing the metadata")
             state_dict: ModuleStateDict = self.model.state_dict()

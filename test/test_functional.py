@@ -498,7 +498,11 @@ class TestFunctional(TestCase):
     def test_gpu_half(self):
         self._test_gpu(do_half_precision=True)
 
-    def _test_gpu(self, do_half_precision=False):
+    @unittest.skipIf(not torch.cuda.is_available(), "No GPU")
+    def test_gpu_1partition(self):
+        self._test_gpu(num_partitions=1)
+
+    def _test_gpu(self, do_half_precision=False, num_partitions=2):
         entity_name = "e"
         relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
@@ -507,7 +511,7 @@ class TestFunctional(TestCase):
             num_batch_negs=64,
             num_uniform_negs=64,
             relations=[relation_config],
-            entities={entity_name: EntitySchema(num_partitions=2)},
+            entities={entity_name: EntitySchema(num_partitions=num_partitions)},
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
@@ -536,17 +540,21 @@ class TestFunctional(TestCase):
     def _test_distributed(self, num_partitions):
         sync_path = TemporaryDirectory()
         self.addCleanup(sync_path.cleanup)
-        entity_name = "e"
+        e1 = "e1"
+        e2 = "e2"
         relation_config = RelationSchema(
             name="r",
-            lhs=entity_name,
-            rhs=entity_name,
+            lhs=e1,
+            rhs=e2,
             operator="linear",  # To exercise the parameter server.
         )
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
-            entities={entity_name: EntitySchema(num_partitions=num_partitions)},
+            entities={
+                e1: EntitySchema(num_partitions=num_partitions),
+                e2: EntitySchema(num_partitions=4),
+            },
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
