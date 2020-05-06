@@ -4,6 +4,8 @@
 
 PyTorch-BigGraph (PBG) is a distributed system for learning graph embeddings for large graphs, particularly big web interaction graphs with up to billions of entities and trillions of edges.
 
+**Update:** *PBG now supports GPU training. Check out the [GPU Training](#gpu-training) section below!*
+
 PBG was introduced in the [PyTorch-BigGraph: A Large-scale Graph Embedding Framework](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) paper, presented at the [SysML conference](https://mlsys.org/) in 2019.
 
 PBG trains on an input graph by ingesting its list of edges, each identified by its source and target entities and, possibly, a relation type. It outputs a feature vector (embedding) for each entity, trying to place adjacent entities close to each other in the vector space, while pushing unconnected entities apart. Therefore, entities that have a similar distribution of neighbors will end up being nearby.
@@ -85,7 +87,7 @@ Luckily, there is a command that does all of this:
 ```bash
 torchbiggraph_import_from_tsv \
   --lhs-col=0 --rel-col=1 --rhs-col=2 \
-  torchbiggraph/examples/configs/fb15k_config.py \
+  torchbiggraph/examples/configs/fb15k_config_cpu.py \
   data/FB15k/freebase_mtr100_mte100-train.txt \
   data/FB15k/freebase_mtr100_mte100-valid.txt \
   data/FB15k/freebase_mtr100_mte100-test.txt
@@ -122,6 +124,29 @@ Writing the checkpoint
 Switching to the new checkpoint version
 ```
 
+### GPU Training
+
+*Warning: GPU Training is still experimental; expect sharp corners and lack of documentation.*
+
+`torchbiggraph_example_fb15k` will automatically detect if a GPU is available and run with the GPU training config. For your own training runs, you will need to change a few parameters to enable GPU training. Lets see how the two FB15k configs differ:
+
+```
+$ diff torchbiggraph/examples/configs/fb15k_config_cpu.py torchbiggraph/examples/configs/fb15k_config_gpu.py
+37a38
+>         batch_size=10000,
+42a44,45
+>         # GPU
+>         num_gpus=1,
+
+```
+The most important difference is of course `num_gpus=1`, which says to run on 1 GPU. If `num_gpus=N>1`, PBG will recursively shard the embeddings within each partition into `N` subpartitions to run on multiple GPUs. The subpartitions need to fit in GPU memory, so if you get CUDA out-of-memory errors, you'll need to increase `num_partitions` or `num_gpus`.
+
+The next most important difference for GPU training is that `batch_size` must be much larger. Since training is being performed on a single GPU instead of 40 cores, the batch size can be increased by about that factor as well. We suggest batch size of around 100,000 in order to achieve good speeds for GPU training.
+
+Since evaluation still occurs on CPU, we suggest turning down `eval_fraction` to at most `0.01` so that evaluation does not become a bottleneck (not relevant for FB15k which doesn't do eval during training).
+
+Finally, to take advantage of GPU speed, we suggest turning up `num_uniform_negatives` and/or `num_batch_negatives` to about `1000` rather than their default values of `50` (FB15k already uses 1000 uniform negatives).
+
 ### Evaluation
 
 Once training is complete, the entity embeddings it produced can be evaluated against a held-out edge set. The `torchbiggraph_example_fb15k` command performs a *filtered* evaluation, which calculates the ranks of the edges in the evaluation set by comparing them against all other edges *except* the ones that are true positives in any of the training, validation or test set. Filtered evaluation is used in the literature for FB15k, but does not scale beyond small graphs.
@@ -134,7 +159,7 @@ Stats: pos_rank:  65.4821 , mrr:  0.789921 , r1:  0.738501 , r10:  0.876894 , r5
 Evaluation can also be run directly from the command line as follows:
 ```bash
 torchbiggraph_eval \
-  torchbiggraph/examples/configs/fb15k_config.py \
+  torchbiggraph/examples/configs/fb15k_config_cpu.py \
   -p edge_paths=data/FB15k/freebase_mtr100_mte100-test_partitioned \
   -p relations.0.all_negs=true \
   -p num_uniform_negs=0

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import attr
 import pkg_resources
+import torch
 from torchbiggraph.config import ConfigFileLoader, add_to_sys_path
 from torchbiggraph.converters.importers import TSVEdgelistReader, convert_input_data
 from torchbiggraph.converters.utils import download_url, extract_tar
@@ -33,9 +34,15 @@ FILENAMES = [
 
 # Figure out the path where the sample config was installed by the package manager.
 # This can be overridden with --config.
-DEFAULT_CONFIG = pkg_resources.resource_filename(
-    "torchbiggraph.examples", "configs/fb15k_config.py"
-)
+USE_CUDA = torch.cuda.is_available()
+if USE_CUDA:
+    DEFAULT_CONFIG = pkg_resources.resource_filename(
+        "torchbiggraph.examples", "configs/fb15k_config_gpu.py"
+    )
+else:
+    DEFAULT_CONFIG = pkg_resources.resource_filename(
+        "torchbiggraph.examples", "configs/fb15k_config_cpu.py"
+    )
 
 
 def main():
