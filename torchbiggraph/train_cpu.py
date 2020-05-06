@@ -15,7 +15,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import torch
 import torch.distributed as td
-from torch.optim import Adagrad, Optimizer
+from torch.optim import Optimizer
+from torchbiggraph.async_adagrad import AsyncAdagrad
 from torchbiggraph.batching import AbstractBatchProcessor, call, process_in_batches
 from torchbiggraph.bucket_scheduling import (
     BucketStats,
@@ -222,7 +223,7 @@ def make_optimizer(
             lr = config.relation_lr
         else:
             lr = config.lr
-        optimizer = Adagrad(params, lr=lr)
+        optimizer = AsyncAdagrad(params, lr=lr)
     optimizer.share_memory()
     return optimizer
 
@@ -733,7 +734,7 @@ class TrainingCoordinator:
         out: FloatTensorType,
         strict: bool = False,
         force_dirty: bool = False,
-    ) -> Tuple[torch.nn.Parameter, Adagrad]:
+    ) -> Tuple[torch.nn.Parameter, Optimizer]:
         if strict:
             embs, optim_state = self.checkpoint_manager.read(
                 entity, part, out=out, force_dirty=force_dirty

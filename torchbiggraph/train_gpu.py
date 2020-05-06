@@ -6,7 +6,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-import argparse
 import ctypes
 import logging
 import os
@@ -17,7 +16,6 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 import torch
 import torch.multiprocessing as mp
-from torch.optim import Adagrad, Optimizer
 from torchbiggraph import _C
 from torchbiggraph.batching import AbstractBatchProcessor, process_in_batches
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path

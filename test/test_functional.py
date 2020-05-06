@@ -8,7 +8,6 @@
 
 import json
 import logging
-import multiprocessing as mp
 import os.path
 import random
 import time
@@ -22,6 +21,7 @@ import attr
 import h5py
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
 from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server

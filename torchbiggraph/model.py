@@ -1034,7 +1034,11 @@ class MultiRelationEmbedder(nn.Module):
 
             # Apply operator to right-hand side, sample negatives on both sides unless
             # one side is disabled.
-            pos_scores, lhs_neg_scores, rhs_neg_scores = self.forward_direction_agnostic(  # noqa
+            (
+                pos_scores,
+                lhs_neg_scores,
+                rhs_neg_scores,
+            ) = self.forward_direction_agnostic(  # noqa
                 edges.lhs,
                 edges.rhs,
                 edges.get_relation_type(),

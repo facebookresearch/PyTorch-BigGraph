@@ -19,7 +19,8 @@ class RowAdagrad(Optimizer):
     Assumes that all the model parameters are 2-dimensional tensors
     containing embedding weights.
 
-    Code mostly copy-pasted from torch/optim/Adagrad
+    Code mostly copy-pasted from torch/optim/Adagrad, with HOGWILD-safe
+    update (see async_adagrad.py)
     """
 
     def __init__(self, params, lr=1e-2, lr_decay=0, weight_decay=0):
@@ -83,16 +84,26 @@ class RowAdagrad(Optimizer):
                     grad = grad.coalesce()
                     grad_indices = grad._indices()[0]
                     grad_values = grad._values()
-
-                    state["sum"].index_add_(
-                        0, grad_indices, (grad_values * grad_values).mean(1)
-                    )
-                    std = state["sum"][grad_indices]  # _sparse_mask
-                    std_values = std.sqrt_().add_(1e-10).unsqueeze(1)
+                    # multiple HOGWILD processes may perform unsynchronized
+                    # updates to G. Update a local copy of G independently from
+                    # the shared-memory copy, to guarantee that
+                    # local_G >= grad^2
+                    local_G = state["sum"][grad_indices]  # _sparse_mask
+                    delta_G = (grad_values * grad_values).mean(1)
+                    state["sum"].index_add_(0, grad_indices, delta_G)
+                    local_G += delta_G
+                    std_values = local_G.sqrt_().add_(1e-10).unsqueeze(1)
                     p.data.index_add_(0, grad_indices, -clr * grad_values / std_values)
                 else:
-                    state["sum"] += (grad * grad).mean(1)
-                    std = state["sum"].sqrt().add_(1e-10)
-                    p.data.addcdiv_(-clr, grad, std.unsqueeze(1))
+                    # multiple HOGWILD processes may perform unsynchronized
+                    # updates to G. Update a local copy of G independently from
+                    # the shared-memory copy, to guarantee that
+                    # local_G >= grad^2
+                    local_G = state["sum"].clone()
+                    delta_G = (grad * grad).mean(1)
+                    state["sum"] += delta_G
+                    local_G += delta_G
+                    std = local_G.sqrt().add_(1e-10)
+                    p.data.addcdiv_(grad, std.unsqueeze(1), value=-clr)
 
         return loss
