@@ -27,7 +27,6 @@ from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.stats import SerializedStats
 from torchbiggraph.train import train
-from torchbiggraph.train_gpu import train as train_gpu
 from torchbiggraph.util import (
     SubprocessInitializer,
     call_one_after_the_other,
@@ -533,7 +532,7 @@ class TestFunctional(TestCase):
             relations=[attr.evolve(relation_config, all_negs=True)],
         )
         # Just make sure no exceptions are raised and nothing crashes.
-        train_gpu(train_config, rank=0, subprocess_init=self.subprocess_init)
+        train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 

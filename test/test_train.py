@@ -9,7 +9,7 @@
 from itertools import product
 from unittest import TestCase, main
 
-from torchbiggraph.train import IterationManager
+from torchbiggraph.train_cpu import IterationManager
 
 
 class TestIterationManager(TestCase):

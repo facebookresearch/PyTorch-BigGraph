@@ -28,7 +28,7 @@ from torchbiggraph.model import MultiRelationEmbedder
 from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
 from torchbiggraph.row_adagrad import RowAdagrad
 from torchbiggraph.stats import Stats, StatsHandler
-from torchbiggraph.train import Trainer, TrainingCoordinator
+from torchbiggraph.train_cpu import Trainer, TrainingCoordinator
 from torchbiggraph.types import (
     SINGLE_TRAINER,
     Bucket,
@@ -237,8 +237,8 @@ class GPUProcess(mp.get_context("spawn").Process):
             gpu_embeddings.copy_(embeddings[subpart_slice], non_blocking=True)
             gpu_embeddings = torch.nn.Parameter(gpu_embeddings)
             gpu_optimizer = RowAdagrad([gpu_embeddings], lr=lr)
-            cpu_state, = optimizer.state.values()
-            gpu_state, = gpu_optimizer.state.values()
+            (cpu_state,) = optimizer.state.values()
+            (gpu_state,) = gpu_optimizer.state.values()
             # logger.info(f"GPU #{self.gpu_idx} allocating {(subpart_slice.stop - subpart_slice.start) * 4:,} bytes")
             gpu_state["sum"].copy_(cpu_state["sum"][subpart_slice], non_blocking=True)
 
@@ -308,8 +308,8 @@ class GPUProcess(mp.get_context("spawn").Process):
 
             embeddings[subpart_slice].copy_(gpu_embeddings.detach(), non_blocking=True)
             del gpu_embeddings
-            cpu_state, = optimizer.state.values()
-            gpu_state, = gpu_optimizer.state.values()
+            (cpu_state,) = optimizer.state.values()
+            (gpu_state,) = gpu_optimizer.state.values()
             cpu_state["sum"][subpart_slice].copy_(gpu_state["sum"], non_blocking=True)
             del gpu_state["sum"]
             del self.sub_holder[entity_name, part, subpart]
@@ -417,6 +417,11 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         subprocess_init: Optional[Callable[[], None]] = None,
         stats_handler: StatsHandler = NOOP_STATS_HANDLER,
     ):
+
+        super().__init__(
+            config, model, trainer, evaluator, rank, subprocess_init, stats_handler
+        )
+
         assert config.num_gpus > 0
 
         if config.half_precision:
@@ -426,10 +431,6 @@ class GPUTrainingCoordinator(TrainingCoordinator):
             assert config.batch_size % 8 == 0
             assert config.num_batch_negs % 8 == 0
             assert config.num_uniform_negs % 8 == 0
-
-        super().__init__(
-            config, model, trainer, evaluator, rank, subprocess_init, stats_handler
-        )
 
         assert len(self.holder.lhs_unpartitioned_types) == 0
         assert len(self.holder.rhs_unpartitioned_types) == 0
@@ -501,7 +502,7 @@ class GPUTrainingCoordinator(TrainingCoordinator):
             perm = _C.randperm(self.entity_counts[entity][part], os.cpu_count())
             _C.shuffle(embs, perm, os.cpu_count())
             optimizer = self.trainer.partitioned_optimizers[entity, part]
-            optimizer_state, = optimizer.state.values()
+            (optimizer_state,) = optimizer.state.values()
             _C.shuffle(optimizer_state["sum"], perm, os.cpu_count())
             perm_holder[entity, part] = perm
             rev_perm = _C.reverse_permutation(perm, os.cpu_count())
@@ -629,7 +630,7 @@ class GPUTrainingCoordinator(TrainingCoordinator):
             rev_perm = rev_perm_holder[entity, part]
             optimizer = self.trainer.partitioned_optimizers[entity, part]
             _C.shuffle(embs, rev_perm, os.cpu_count())
-            state, = optimizer.state.values()
+            (state,) = optimizer.state.values()
             _C.shuffle(state["sum"], rev_perm, os.cpu_count())
 
         bucket_logger.debug(
@@ -641,50 +642,3 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         )
 
         return Stats.sum(all_stats).average()
-
-
-def train(
-    config: ConfigSchema,
-    model: Optional[MultiRelationEmbedder] = None,
-    trainer: Optional[AbstractBatchProcessor] = None,
-    evaluator: Optional[AbstractBatchProcessor] = None,
-    rank: Rank = SINGLE_TRAINER,
-    subprocess_init: Optional[Callable[[], None]] = None,
-) -> None:
-    coordinator = GPUTrainingCoordinator(
-        config, model, trainer, evaluator, rank, subprocess_init
-    )
-    coordinator.train()
-    coordinator.close()
-
-
-def main():
-    setup_logging()
-    config_help = "\n\nConfig parameters:\n\n" + "\n".join(ConfigSchema.help())
-    parser = argparse.ArgumentParser(
-        epilog=config_help,
-        # Needed to preserve line wraps in epilog.
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("config", help="Path to config file")
-    parser.add_argument("-p", "--param", action="append", nargs="*")
-    parser.add_argument(
-        "--rank",
-        type=int,
-        default=SINGLE_TRAINER,
-        help="For multi-machine, this machine's rank",
-    )
-    opt = parser.parse_args()
-
-    loader = ConfigFileLoader()
-    config = loader.load_config(opt.config, opt.param)
-    set_logging_verbosity(config.verbose)
-    subprocess_init = SubprocessInitializer()
-    subprocess_init.register(setup_logging, config.verbose)
-    subprocess_init.register(add_to_sys_path, loader.config_dir.name)
-
-    train(config, rank=opt.rank, subprocess_init=subprocess_init)
-
-
-if __name__ == "__main__":
-    main()
