@@ -529,6 +529,7 @@ class GPUTrainingCoordinator(TrainingCoordinator):
             num_subparts,
             num_subparts,
             os.cpu_count(),
+            config.dynamic_relations,
         )
         bucket_logger.debug(
             "Time spent splitting edges into sub-buckets: "

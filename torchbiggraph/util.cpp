@@ -268,8 +268,19 @@ subBucket(
     at::Tensor& relOut,
     int8_t numLhsSubParts,
     int8_t numRhsSubParts,
-    int numThreads) {
+    int numThreads,
+    bool dynamicRelations) {
   int64_t numEdges = relIn.sizes()[0];
+  size_t numRelations = lhsPerms.size();
+
+  if (
+      rhsPerms.size() != numRelations ||
+      lhsEntityCounts.size() != numRelations ||
+      rhsEntityCounts.size() != numRelations
+  ) {
+    throw std::runtime_error("Inconsistent num_relations");
+  }
+
   std::vector<int64_t*> lhsPermsData;
   lhsPermsData.reserve(lhsPerms.size());
   for (const auto& p : lhsPerms) {
@@ -325,7 +336,10 @@ subBucket(
                      int64_t endEdgeIdx,
                      int64_t* myNumEdgesBySubBucketData) {
     for (int64_t edgeIdx = startEdgeIdx; edgeIdx < endEdgeIdx; edgeIdx += 1) {
-      int64_t relId = relInData[edgeIdx];
+      int64_t relId = dynamicRelations ? 0 : relInData[edgeIdx];
+      if (relId >= numRelations) {
+        throw std::runtime_error("rel > numRelations");
+      }
       int64_t lhsOffset = lhsPermsDataData[relId][lhsInData[edgeIdx]];
       int64_t rhsOffset = rhsPermsDataData[relId][rhsInData[edgeIdx]];
       int8_t lhsSubPart = lhsOffset / lhsSubPartSizesData[relId];
@@ -375,7 +389,7 @@ subBucket(
                      int64_t endEdgeIdx,
                      int64_t* mySubBucketOffsets) {
     for (int64_t edgeIdx = startEdgeIdx; edgeIdx < endEdgeIdx; edgeIdx += 1) {
-      int64_t relId = relInData[edgeIdx];
+      int64_t relId = dynamicRelations ? 0 : relInData[edgeIdx];
       int64_t lhsOffset = lhsPermsDataData[relId][lhsInData[edgeIdx]];
       int64_t rhsOffset = rhsPermsDataData[relId][rhsInData[edgeIdx]];
       int8_t lhsSubPart = lhsOffset / lhsSubPartSizesData[relId];
@@ -386,7 +400,7 @@ subBucket(
           mySubBucketOffsets[lhsSubPart * numRhsSubParts + rhsSubPart];
       lhsOutData[offset] = lhsSubOffset;
       rhsOutData[offset] = rhsSubOffset;
-      relOutData[offset] = relId;
+      relOutData[offset] = relInData[edgeIdx];
       offset += 1;
     }
   };
@@ -433,5 +447,6 @@ PYBIND11_MODULE(_C, m) {
       py::arg("rel_out"),
       py::arg("num_lhs_sub_parts"),
       py::arg("num_rhs_sub_parts"),
-      py::arg("num_threads"));
+      py::arg("num_threads"),
+      py::arg("dynamic_relations"));
 }
