@@ -11,6 +11,7 @@
 # disable only those two checks but there doesn't seem to be a way to do so.
 # flake8: noqa
 
+import logging
 from unittest import TestCase, main
 
 import torch
@@ -19,6 +20,9 @@ import torch.nn as nn
 from torch.optim import Adagrad
 from torchbiggraph.async_adagrad import AsyncAdagrad
 from torchbiggraph.row_adagrad import RowAdagrad
+
+
+logger = logging.getLogger("torchbiggraph")
 
 
 class TensorTestCase(TestCase):
@@ -49,6 +53,7 @@ def do_optim(model, optimizer, N, rank):
 
 class TestOptimizers(TensorTestCase):
     def _stress_optimizer(self, model, optimizer, num_processes=1):
+        logger.info("_stress_optimizer begin")
         processes = []
         for rank in range(num_processes):
             p = mp.get_context("spawn").Process(
@@ -57,10 +62,13 @@ class TestOptimizers(TensorTestCase):
                 args=(model, optimizer, 100, rank),
             )
             p.start()
+            self.addCleanup(p.terminate)
             processes.append(p)
 
         for p in processes:
             p.join()
+
+        logger.info("_stress_optimizer complete")
 
     # def testHogwildStability_Adagrad(self):
     #     NE = 10000
