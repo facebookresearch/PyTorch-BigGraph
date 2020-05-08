@@ -66,7 +66,8 @@ class TestOptimizers(TensorTestCase):
     #     NE = 10000
     #     model = nn.Embedding(NE, 100)
     #     optimizer = Adagrad(model.parameters())
-    #     self._stress_optimizer(model, optimizer, 20)
+    #     num_processes = mp.cpu_count() // 2 + 1
+    #     self._stress_optimizer(model, optimizer, num_processes)
 
     #     # This fails for Adagrad because it's not stable
     #     self.assertLess(model.weight.abs().max(), 1000)
@@ -75,7 +76,8 @@ class TestOptimizers(TensorTestCase):
         NE = 10000
         model = nn.Embedding(NE, 100)
         optimizer = AsyncAdagrad(model.parameters())
-        self._stress_optimizer(model, optimizer, num_processes=20)
+        num_processes = mp.cpu_count() // 2 + 1
+        self._stress_optimizer(model, optimizer, num_processes=num_processes)
 
         self.assertLess(model.weight.abs().max(), 1000)
 
@@ -83,7 +85,8 @@ class TestOptimizers(TensorTestCase):
         NE = 10000
         model = nn.Embedding(NE, 100)
         optimizer = RowAdagrad(model.parameters())
-        self._stress_optimizer(model, optimizer, num_processes=20)
+        num_processes = mp.cpu_count() // 2 + 1
+        self._stress_optimizer(model, optimizer, num_processes=num_processes)
 
         # This fails for Adagrad because it's not stable
         self.assertLess(model.weight.abs().max(), 1000)
