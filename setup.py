@@ -13,7 +13,7 @@ from torch.utils import cpp_extension
 
 
 if __name__ == "__main__":
-    if int(os.getenv("PBG_INSTALL_CPP", 1)) == 0:
+    if int(os.getenv("PBG_INSTALL_CPP", 0)) == 0:
         setup()
     else:
         setup(

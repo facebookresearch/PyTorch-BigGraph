@@ -43,10 +43,10 @@ As an alternative, one can instead install the *development* version from the re
 pip install .
 ```
 
-Note: PyTorch-BigGraph includes some C++ kernels that are only used for the experimental GPU mode. If you are seeing C++ compilation errors during installation, you can turn off C++ compilation by running
+PyTorch-BigGraph includes some C++ kernels that are only used for the experimental GPU mode. If you want to use GPU mode, compile the C++ code as follows:
 
 ```bash
-PBG_INSTALL_CPP=0 pip install .
+PBG_INSTALL_CPP=1 pip install .
 ```
 
 Everything will work identically except that you won't be able to run GPU training (`torchbiggraph_train_gpu`).
@@ -101,7 +101,7 @@ This simple utility is only suitable for small graphs that fit entirely in memor
 The `torchbiggraph_train` command is used to launch training. The training parameters are tucked away in a configuration file, whose path is given to the command. They can however be overridden from the command line with the `--param` flag. The sample config is used for both training and evaluation, so we will have to use the override to specify the edge set to use.
 ```bash
 torchbiggraph_train \
-  torchbiggraph/examples/configs/fb15k_config.py \
+  torchbiggraph/examples/configs/fb15k_config_cpu.py \
   -p edge_paths=data/FB15k/freebase_mtr100_mte100-train_partitioned
 ```
 
