@@ -105,15 +105,15 @@ class TestRankingLossFunction(TensorTestCase):
         self.assertTrue((neg_scores.grad != 0).any())
 
     def test_forward_good(self):
-        pos_scores = torch.full((3,), 2, requires_grad=True)
-        neg_scores = torch.full((3, 5), 1, requires_grad=True)
+        pos_scores = torch.full((3,), 2.0, requires_grad=True)
+        neg_scores = torch.full((3, 5), 1.0, requires_grad=True)
         loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
 
     def test_forward_bad(self):
-        pos_scores = torch.full((3,), -1, requires_grad=True)
+        pos_scores = torch.full((3,), -1.0, requires_grad=True)
         neg_scores = torch.zeros((3, 5), requires_grad=True)
         loss_fn = RankingLossFunction(margin=1.0)
         loss = loss_fn(pos_scores, neg_scores)
