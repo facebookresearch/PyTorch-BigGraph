@@ -16,28 +16,30 @@ from unittest import TestCase, main
 import torch
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.model import (
-    AffineDynamicOperator,
-    AffineOperator,
     BiasedComparator,
-    ComplexDiagonalDynamicOperator,
-    ComplexDiagonalOperator,
     CosComparator,
-    DiagonalDynamicOperator,
-    DiagonalOperator,
     DotComparator,
     FeaturizedEmbedding,
-    IdentityDynamicOperator,
-    IdentityOperator,
     L2Comparator,
-    LinearDynamicOperator,
-    LinearOperator,
     SimpleEmbedding,
     SquaredL2Comparator,
+)
+from torchbiggraph.operators import (
+    AffineDynamicOperator,
+    AffineOperator,
+    ComplexDiagonalDynamicOperator,
+    ComplexDiagonalOperator,
+    DiagonalDynamicOperator,
+    DiagonalOperator,
+    IdentityDynamicOperator,
+    IdentityOperator,
+    LinearDynamicOperator,
+    LinearOperator,
     TranslationDynamicOperator,
     TranslationOperator,
-    match_shape,
 )
 from torchbiggraph.tensorlist import TensorList
+from torchbiggraph.util import match_shape
 
 
 class TensorTestCase(TestCase):
@@ -52,70 +54,6 @@ class TensorTestCase(TestCase):
             actual, expected, rtol=0.00005, atol=0.00005, equal_nan=True
         ):
             self.fail("Expected\n%r\ngot\n%r" % (expected, actual))
-
-
-class TestMatchShape(TestCase):
-    def test_zero_dimensions(self):
-        t = torch.zeros(())
-        self.assertIsNone(match_shape(t))
-        self.assertIsNone(match_shape(t, ...))
-        with self.assertRaises(TypeError):
-            match_shape(t, 0)
-        with self.assertRaises(TypeError):
-            match_shape(t, 1)
-        with self.assertRaises(TypeError):
-            match_shape(t, -1)
-
-    def test_one_dimension(self):
-        t = torch.zeros((3,))
-        self.assertIsNone(match_shape(t, 3))
-        self.assertIsNone(match_shape(t, ...))
-        self.assertIsNone(match_shape(t, 3, ...))
-        self.assertIsNone(match_shape(t, ..., 3))
-        self.assertEqual(match_shape(t, -1), 3)
-        with self.assertRaises(TypeError):
-            match_shape(t)
-        with self.assertRaises(TypeError):
-            match_shape(t, 3, 1)
-        with self.assertRaises(TypeError):
-            match_shape(t, 3, ..., 3)
-
-    def test_many_dimension(self):
-        t = torch.zeros((3, 4, 5))
-        self.assertIsNone(match_shape(t, 3, 4, 5))
-        self.assertIsNone(match_shape(t, ...))
-        self.assertIsNone(match_shape(t, ..., 5))
-        self.assertIsNone(match_shape(t, 3, ..., 5))
-        self.assertIsNone(match_shape(t, 3, 4, 5, ...))
-        self.assertEqual(match_shape(t, -1, 4, 5), 3)
-        self.assertEqual(match_shape(t, -1, ...), 3)
-        self.assertEqual(match_shape(t, -1, 4, ...), 3)
-        self.assertEqual(match_shape(t, -1, ..., 5), 3)
-        self.assertEqual(match_shape(t, -1, 4, -1), (3, 5))
-        self.assertEqual(match_shape(t, ..., -1, -1), (4, 5))
-        self.assertEqual(match_shape(t, -1, -1, -1), (3, 4, 5))
-        self.assertEqual(match_shape(t, -1, -1, ..., -1), (3, 4, 5))
-        with self.assertRaises(TypeError):
-            match_shape(t)
-        with self.assertRaises(TypeError):
-            match_shape(t, 3)
-        with self.assertRaises(TypeError):
-            match_shape(t, 3, 4)
-        with self.assertRaises(TypeError):
-            match_shape(t, 5, 4, 3)
-        with self.assertRaises(TypeError):
-            match_shape(t, 3, 4, 5, 6)
-        with self.assertRaises(TypeError):
-            match_shape(t, 3, 4, ..., 4, 5)
-
-    def test_bad_args(self):
-        t = torch.empty((0,))
-        with self.assertRaises(RuntimeError):
-            match_shape(t, ..., ...)
-        with self.assertRaises(RuntimeError):
-            match_shape(t, "foo")
-        with self.assertRaises(AttributeError):
-            match_shape(None)
 
 
 class TestSimpleEmbedding(TensorTestCase):

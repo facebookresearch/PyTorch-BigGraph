@@ -218,6 +218,16 @@ class ConfigSchema(Schema):
             "scores, below which a (linear) loss is incured."
         },
     )
+    regularization_coef: float = attr.ib(
+        default=0,
+        metadata={
+            "help": "coefficient by which the regularization loss is "
+            "multiplied before being added to the data loss."
+        },
+    )
+    regularizer: str = attr.ib(
+        default="N3", metadata={"help": "Type of regularization to be applied."}
+    )
 
     # data config
 

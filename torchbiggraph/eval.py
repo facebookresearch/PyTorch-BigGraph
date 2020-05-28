@@ -46,7 +46,7 @@ class RankingEvaluator(AbstractBatchProcessor):
     ) -> Stats:
 
         with torch.no_grad():
-            scores = model(batch_edges)
+            scores, _ = model(batch_edges)
 
         self._adjust_scores(scores, batch_edges)
 

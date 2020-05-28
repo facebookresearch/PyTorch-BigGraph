@@ -35,10 +35,11 @@ def get_torchbiggraph_config():
         comparator="dot",
         # Training
         num_epochs=50,
-        batch_size=10000,
+        batch_size=5000,
         num_uniform_negs=1000,
         loss_fn="softmax",
         lr=0.1,
+        regularization_coef=1e-3,
         # Evaluation during training
         eval_fraction=0,
         # GPU

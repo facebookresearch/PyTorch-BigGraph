@@ -345,6 +345,7 @@ class TestFunctional(TestCase):
             dimension=10,
             relations=[relation_config],
             entities={entity_name: EntitySchema(num_partitions=1)},
+            regularization_coef=1e-4,
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
@@ -438,6 +439,7 @@ class TestFunctional(TestCase):
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
+            regularization_coef=1e-4,
         )
         dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
         self.addCleanup(dataset.cleanup)
@@ -516,6 +518,7 @@ class TestFunctional(TestCase):
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
             num_gpus=2,
+            regularization_coef=1e-4,
             half_precision=do_half_precision,
         )
         dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])

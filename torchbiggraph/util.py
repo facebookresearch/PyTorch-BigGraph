@@ -26,6 +26,7 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
+    Union,
 )
 
 import torch
@@ -36,6 +37,85 @@ from torchbiggraph.types import Bucket, EntityName, FloatTensorType, Partition, 
 
 
 logger = logging.getLogger("torchbiggraph")
+
+
+def match_shape(
+    tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]
+) -> Union[None, int, Tuple[int, ...]]:
+    """Compare the given tensor's shape with what you expect it to be.
+
+    This function serves two goals: it can be used both to assert that the size
+    of a tensor (or part of it) is what it should be, and to query for the size
+    of the unknown dimensions. The former result can be achieved with:
+
+        >>> match_shape(t, 2, 3, 4)
+
+    which is similar to
+
+        >>> assert t.size() == (2, 3, 4)
+
+    except that it doesn't use an assert (and is thus not stripped when the code
+    is optimized) and that it raises a TypeError (instead of an AssertionError)
+    with an informative error message. It works with any number of positional
+    arguments, including zero. If a dimension's size is not known beforehand
+    pass a -1: no check will be performed and the size will be returned.
+
+        >>> t = torch.empty(2, 3, 4)
+        >>> match_shape(t, 2, -1, 4)
+        3
+        >>> match_shape(t, -1, 3, -1)
+        (2, 4)
+
+    If the number of dimensions isn't known beforehand, an ellipsis can be used
+    as a placeholder for any number of dimensions (including zero). Their sizes
+    won't be returned.
+
+        >>> t = torch.empty(2, 3, 4)
+        >>> match_shape(t, ..., 3, -1)
+        4
+
+    """
+    if not all(isinstance(d, int) or d is Ellipsis for d in expected_shape):
+        raise RuntimeError(
+            "Some arguments aren't ints or ellipses: %s" % (expected_shape,)
+        )
+    actual_shape = tensor.size()
+    error = TypeError(
+        "Shape doesn't match: (%s) != (%s)"
+        % (
+            ", ".join("%d" % d for d in actual_shape),
+            ", ".join(
+                "..." if d is Ellipsis else "*" if d < 0 else "%d" % d
+                for d in expected_shape
+            ),
+        )
+    )
+    if Ellipsis not in expected_shape:
+        if len(actual_shape) != len(expected_shape):
+            raise error
+    else:
+        if expected_shape.count(Ellipsis) > 1:
+            raise RuntimeError("Two or more ellipses in %s" % (tuple(expected_shape),))
+        if len(actual_shape) < len(expected_shape) - 1:
+            raise error
+        pos = expected_shape.index(Ellipsis)
+        expected_shape = (
+            expected_shape[:pos]
+            + actual_shape[pos : pos + 1 - len(expected_shape)]
+            + expected_shape[pos + 1 :]
+        )
+    unknown_dims: List[int] = []
+    for actual_dim, expected_dim in zip(actual_shape, expected_shape):
+        if expected_dim < 0:
+            unknown_dims.append(actual_dim)
+            continue
+        if actual_dim != expected_dim:
+            raise error
+    if not unknown_dims:
+        return None
+    if len(unknown_dims) == 1:
+        return unknown_dims[0]
+    return tuple(unknown_dims)
 
 
 def tag_logs_with_process_name(process_name: str) -> None:
@@ -293,17 +373,24 @@ def get_partitioned_types(
             "Currently num_partitions must be a single "
             "value across all partitioned entities."
         )
-
-    (num_partitions, partitioned_entity_names), = entity_names_by_num_parts.items()
+    ((num_partitions, partitioned_entity_names),) = entity_names_by_num_parts.items()
     return num_partitions, unpartitioned_entity_names, partitioned_entity_names
 
 
 class EmbeddingHolder:
     def __init__(self, config: ConfigSchema) -> None:
-        self.nparts_lhs, self.lhs_unpartitioned_types, self.lhs_partitioned_types = get_partitioned_types(  # noqa
+        (
+            self.nparts_lhs,
+            self.lhs_unpartitioned_types,
+            self.lhs_partitioned_types,
+        ) = get_partitioned_types(  # noqa
             config, Side.LHS
         )
-        self.nparts_rhs, self.rhs_unpartitioned_types, self.rhs_partitioned_types = get_partitioned_types(  # noqa
+        (
+            self.nparts_rhs,
+            self.rhs_unpartitioned_types,
+            self.rhs_partitioned_types,
+        ) = get_partitioned_types(  # noqa
             config, Side.RHS
         )
         if self.nparts_lhs == 1 and self.nparts_rhs == 1:

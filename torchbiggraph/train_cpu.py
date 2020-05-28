@@ -30,9 +30,7 @@ from torchbiggraph.checkpoint_manager import (
     MetadataProvider,
     PartitionClient,
 )
-from torchbiggraph.config import (
-    ConfigSchema,
-)
+from torchbiggraph.config import ConfigSchema
 from torchbiggraph.distributed import ProcessRanks, init_process_group, start_server
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.eval import RankingEvaluator
@@ -89,18 +87,21 @@ class Trainer(AbstractBatchProcessor):
     ) -> Stats:
         model.zero_grad()
 
-        scores = model(batch_edges)
+        scores, reg = model(batch_edges)
 
         loss = self.calc_loss(scores, batch_edges)
 
         stats = Stats(
             loss=float(loss),
+            reg=float(reg) if reg is not None else 0.0,
             violators_lhs=int((scores.lhs_neg > scores.lhs_pos.unsqueeze(1)).sum()),
             violators_rhs=int((scores.rhs_neg > scores.rhs_pos.unsqueeze(1)).sum()),
             count=len(batch_edges),
         )
-
-        loss.backward()
+        if reg is not None:
+            (loss + reg).backward()
+        else:
+            loss.backward()
         self.model_optimizer.step(closure=None)
         for optimizer in self.unpartitioned_optimizers.values():
             optimizer.step(closure=None)

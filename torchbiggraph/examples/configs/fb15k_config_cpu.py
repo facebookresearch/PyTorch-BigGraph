@@ -38,6 +38,7 @@ def get_torchbiggraph_config():
         num_uniform_negs=1000,
         loss_fn="softmax",
         lr=0.1,
+        regularization_coef=1e-3,
         # Evaluation during training
         eval_fraction=0,  # to reproduce results, we need to use all training data
     )
