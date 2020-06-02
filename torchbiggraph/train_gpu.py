@@ -390,6 +390,8 @@ def build_nonbipartite_schedule_inner(size: int) -> List[List[int]]:
 
 
 def build_nonbipartite_schedule(size: int) -> List[List[int]]:
+    if size == 1:
+        return [[(0, 0)]]
     if size <= 0 or size % 2 != 0:
         raise ValueError("Bad")
     half = size // 2
@@ -469,7 +471,7 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         cur_b = self.cur_b
         bucket_logger = self.bucket_logger
         num_edges = len(edges)
-        if cur_b.lhs == cur_b.rhs:
+        if cur_b.lhs == cur_b.rhs and config.num_gpus > 1:
             num_subparts = 2 * config.num_gpus
         else:
             num_subparts = config.num_gpus
