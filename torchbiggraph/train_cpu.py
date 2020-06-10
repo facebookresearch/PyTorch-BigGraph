@@ -87,7 +87,13 @@ class Trainer(AbstractBatchProcessor):
     def _process_one_batch(
         self, model: MultiRelationEmbedder, batch_edges: EdgeList
     ) -> Stats:
-        model.zero_grad()
+        # Tricky: this isbasically like calling `model.zero_grad()` except
+        # that `zero_grad` calls `p.grad.zero_()`. When we perform infrequent
+        # global L2 regularization, it converts the embedding gradients to dense,
+        # and then they can never convert back to sparse gradients unless we set
+        # them to `None` again here.
+        for p in model.parameters():
+            p.grad = None
 
         scores, reg = model(batch_edges)
 
@@ -103,7 +109,7 @@ class Trainer(AbstractBatchProcessor):
         if reg is not None:
             loss = loss + reg
         if model.wd > 0 and random.random() < 1. / model.wd_interval:
-            loss = loss * model.wd * model.wd_interval * model.l2_norm()
+            loss = loss + model.wd * model.wd_interval * model.l2_norm()
         loss.backward()
         self.model_optimizer.step(closure=None)
         for optimizer in self.unpartitioned_optimizers.values():
