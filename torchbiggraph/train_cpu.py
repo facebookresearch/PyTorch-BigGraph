@@ -9,6 +9,7 @@
 import logging
 import math
 import time
+import random
 from collections import defaultdict
 from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
@@ -100,9 +101,10 @@ class Trainer(AbstractBatchProcessor):
             count=len(batch_edges),
         )
         if reg is not None:
-            (loss + reg).backward()
-        else:
-            loss.backward()
+            loss = loss + reg
+        if model.wd > 0 and random.random() < 1. / model.wd_interval:
+            loss = loss * model.wd * model.wd_interval * model.l2_norm()
+        loss.backward()
         self.model_optimizer.step(closure=None)
         for optimizer in self.unpartitioned_optimizers.values():
             optimizer.step(closure=None)

@@ -228,6 +228,17 @@ class ConfigSchema(Schema):
     regularizer: str = attr.ib(
         default="N3", metadata={"help": "Type of regularization to be applied."}
     )
+    
+    wd : float = attr.ib(
+        default=0,
+        validator=non_negative,
+        metadata={"help": "Simple (unweighted) weight decay"},
+    )
+    wd_interval : int = attr.ib(
+        default=100,
+        validator=non_negative,
+        metadata={"help": "Interval to amortize weight decay"},
+    )
 
     # data config
 
