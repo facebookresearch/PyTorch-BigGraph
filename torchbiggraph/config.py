@@ -396,6 +396,12 @@ class ConfigSchema(Schema):
             "after each training step."
         },
     )
+    early_stopping: bool = attr.ib(
+        default=False,
+        metadata={
+            "help": "Stop training when validation loss increases."
+        }
+    )
 
     # expert options
 
