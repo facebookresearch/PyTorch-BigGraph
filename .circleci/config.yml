@@ -42,4 +42,4 @@ jobs:
           name: Test all the things!
           command: |
             . ~/venv/bin/activate
-            python3 setup.py test
+            CIRCLECI_TEST=1 python3 setup.py test

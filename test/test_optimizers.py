@@ -12,6 +12,8 @@
 # flake8: noqa
 
 import logging
+import os
+import unittest
 from unittest import TestCase, main
 
 import torch
@@ -80,6 +82,7 @@ class TestOptimizers(TensorTestCase):
     #     # This fails for Adagrad because it's not stable
     #     self.assertLess(model.weight.abs().max(), 1000)
 
+    @unittest.skipIf(os.environ.get("CIRCLECI_TEST") == "1", "Hangs in CircleCI")
     def testHogwildStability_AsyncAdagrad(self):
         NE = 10000
         model = nn.Embedding(NE, 100)
@@ -89,6 +92,7 @@ class TestOptimizers(TensorTestCase):
 
         self.assertLess(model.weight.abs().max(), 1000)
 
+    @unittest.skipIf(os.environ.get("CIRCLECI_TEST") == "1", "Hangs in CircleCI")
     def testHogwildStability_RowAdagrad(self):
         NE = 10000
         model = nn.Embedding(NE, 100)

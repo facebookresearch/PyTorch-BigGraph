@@ -26,7 +26,7 @@ from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
 from torchbiggraph.eval import do_eval
 from torchbiggraph.partitionserver import run_partition_server
 from torchbiggraph.stats import SerializedStats
-from torchbiggraph.train import train
+from torchbiggraph.train import GPU_INSTALLED, train
 from torchbiggraph.util import (
     SubprocessInitializer,
     call_one_after_the_other,
@@ -491,15 +491,15 @@ class TestFunctional(TestCase):
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "No GPU")
+    @unittest.skipIf(not torch.cuda.is_available() or not GPU_INSTALLED, "No GPU")
     def test_gpu(self):
         self._test_gpu()
 
-    @unittest.skipIf(not torch.cuda.is_available(), "No GPU")
+    @unittest.skipIf(not torch.cuda.is_available() or not GPU_INSTALLED, "No GPU")
     def test_gpu_half(self):
         self._test_gpu(do_half_precision=True)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "No GPU")
+    @unittest.skipIf(not torch.cuda.is_available() or not GPU_INSTALLED, "No GPU")
     def test_gpu_1partition(self):
         self._test_gpu(num_partitions=1)
 
