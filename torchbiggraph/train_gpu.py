@@ -16,7 +16,6 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 import torch
 import torch.multiprocessing as mp
-from torchbiggraph import _C
 from torchbiggraph.batching import AbstractBatchProcessor, process_in_batches
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
 from torchbiggraph.edgelist import EdgeList
@@ -59,6 +58,14 @@ from torchbiggraph.util import (
     split_almost_equally,
     tag_logs_with_process_name,
 )
+
+
+try:
+    from torchbiggraph import _C
+
+    CPP_INSTALLED = True
+except ImportError:
+    CPP_INSTALLED = False
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -423,6 +430,12 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         )
 
         assert config.num_gpus > 0
+        if not CPP_INSTALLED:
+            raise RuntimeError(
+                "GPU support requires C++ installation: "
+                "install with C++ support by running "
+                "`PBG_INSTALL_CPP=1 pip install .`"
+            )
 
         if config.half_precision:
             for entity in config.entities:

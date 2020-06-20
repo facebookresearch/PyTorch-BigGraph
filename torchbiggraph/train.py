@@ -14,20 +14,13 @@ from torchbiggraph.batching import AbstractBatchProcessor
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
 from torchbiggraph.model import MultiRelationEmbedder
 from torchbiggraph.train_cpu import TrainingCoordinator
+from torchbiggraph.train_gpu import GPUTrainingCoordinator
 from torchbiggraph.types import SINGLE_TRAINER, Rank
 from torchbiggraph.util import (
     SubprocessInitializer,
     set_logging_verbosity,
     setup_logging,
 )
-
-
-try:
-    from torchbiggraph.train_gpu import GPUTrainingCoordinator
-
-    GPU_INSTALLED = True
-except ImportError:
-    GPU_INSTALLED = False
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -42,12 +35,6 @@ def train(
     rank: Rank = SINGLE_TRAINER,
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> None:
-    if config.num_gpus > 0 and not GPU_INSTALLED:
-        raise RuntimeError(
-            "GPU support requires C++ installation: "
-            "install with C++ support by running "
-            "`PBG_INSTALL_CPP=1 pip install .`"
-        )
     CoordinatorT = (
         GPUTrainingCoordinator if config.num_gpus > 0 else TrainingCoordinator
     )
