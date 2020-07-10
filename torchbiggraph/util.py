@@ -221,13 +221,13 @@ def allocate_shared_tensor(shape: Iterable[int], *, dtype: torch.dtype) -> torch
 def split_almost_equally(size: int, *, num_parts: int) -> Iterable[slice]:
     """Split an interval of the given size into the given number of subintervals
 
-    The sizes of the subintervals will be between the floor and the ceil of the
-    "exact" fractional size, with larger intervals preceding smaller ones.
+    The sizes of the subintervals will at most the ceil of the exact fractional
+    size, with later subintervals possibly being smaller (or even empty).
 
     """
     size_per_part = size // num_parts + (1 if size % num_parts != 0 else 0)
     for i in range(num_parts):
-        yield slice(i * size_per_part, min((i + 1) * size_per_part, size))
+        yield slice(min(i * size_per_part, size), min((i + 1) * size_per_part, size))
 
 
 def div_roundup(num: int, denom: int) -> int:
