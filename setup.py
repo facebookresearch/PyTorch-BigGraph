@@ -9,13 +9,12 @@
 import os
 
 from setuptools import setup
-from torch.utils import cpp_extension
-
 
 if __name__ == "__main__":
     if int(os.getenv("PBG_INSTALL_CPP", 0)) == 0:
         setup()
     else:
+        from torch.utils import cpp_extension
         setup(
             ext_modules=[
                 cpp_extension.CppExtension(
