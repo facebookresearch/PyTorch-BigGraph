@@ -52,7 +52,7 @@ class ProcessRanks(NamedTuple):
         trainers = add_group(num_machines)
         parameter_servers = add_group(num_machines)
         parameter_clients = add_group(num_machines)
-        lock_server, = add_group(1)
+        (lock_server,) = add_group(1)
         if num_partition_servers < 0:
             # Use machines as partition servers
             partition_servers = add_group(num_machines)

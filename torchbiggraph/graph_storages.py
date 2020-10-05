@@ -291,7 +291,7 @@ class BufferedDataset:
         self.buffer_offset = 0
 
     def append(self, tensor: torch.Tensor) -> None:
-        tensor_size, = tensor.shape
+        (tensor_size,) = tensor.shape
         tensor_offset = 0
         while True:
             tensor_left = tensor_size - tensor_offset

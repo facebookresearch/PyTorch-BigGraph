@@ -43,8 +43,7 @@ class FilteredRankingEvaluator(RankingEvaluator):
             )
         if not config.relations[0].all_negs:
             raise RuntimeError("Filtered Eval can only be done with all negatives.")
-
-        entity, = config.entities.values()
+        (entity,) = config.entities.values()
         if entity.featurized:
             raise RuntimeError("Entity cannot be featurized for filtered eval.")
         if entity.num_partitions > 1:

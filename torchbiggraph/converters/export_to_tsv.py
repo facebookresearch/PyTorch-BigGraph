@@ -85,10 +85,10 @@ def make_tsv_for_relation_types(
     print("Writing relation type parameters...")
     relation_types = relation_type_storage.load_names()
     if model.num_dynamic_rels > 0:
-        rel_t_config, = model.relations
+        (rel_t_config,) = model.relations
         op_name = rel_t_config.operator
-        lhs_operator, = model.lhs_operators
-        rhs_operator, = model.rhs_operators
+        (lhs_operator,) = model.lhs_operators
+        (rhs_operator,) = model.rhs_operators
         for side, operator in [("lhs", lhs_operator), ("rhs", rhs_operator)]:
             for param_name, all_params in operator.named_parameters():
                 for rel_t_name, param in zip(relation_types, all_params):

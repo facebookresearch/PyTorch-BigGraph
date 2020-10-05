@@ -29,7 +29,7 @@ FALSE_STRINGS = {"0", "n", "no", "false", "off"}
 # Optional[foo] is an alias for Union[foo, NoneType], but Unions are weird.
 def unpack_optional(type_):
     try:
-        candidate_arg, = set(type_.__args__) - {type(None)}
+        (candidate_arg,) = set(type_.__args__) - {type(None)}
     except (AttributeError, LookupError, ValueError):
         raise TypeError("Not an optional type")
     if type_ != Optional[candidate_arg]:
@@ -100,7 +100,7 @@ class Mapper(ABC):
     def map_list(self, data: Any, type_) -> List:
         if not isinstance(data, list):
             raise DeepTypeError("Not a list")
-        element_type, = type_.__args__
+        (element_type,) = type_.__args__
         result = []
         for idx, element in enumerate(data):
             try:
@@ -274,7 +274,7 @@ class Schema:
         if isclass(type_) and issubclass(type_, Enum):
             return "(%s)" % "|".join(member.name.lower() for member in type_)
         if has_origin(type_, list):
-            element_type, = type_.__args__
+            (element_type,) = type_.__args__
             return "[%s]" % cls.represent_type(element_type)
         if has_origin(type_, dict):
             key_type, value_type = type_.__args__
@@ -309,7 +309,7 @@ class Schema:
                 pass
             append_if_subschema(type_)
             if has_origin(type_, list):
-                element_type, = type_.__args__
+                (element_type,) = type_.__args__
                 append_if_subschema(element_type)
             elif has_origin(type_, dict):
                 _, value_type = type_.__args__
@@ -350,7 +350,7 @@ def extract_nested_type(type_: Any, path: List[str]) -> Any:
     if len(path) == 0:
         return type_
     if has_origin(type_, list):
-        element_type, = type_.__args__
+        (element_type,) = type_.__args__
         return extract_nested_type(element_type, path[1:])
     if has_origin(type_, dict):
         _, value_type = type_.__args__

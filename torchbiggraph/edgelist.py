@@ -27,7 +27,7 @@ class EdgeList:
         if all(el.has_scalar_relation_type() for el in edge_lists):
             rel_types = {el.get_relation_type_as_scalar() for el in edge_lists}
             if len(rel_types) == 1:
-                rel_type, = rel_types
+                (rel_type,) = rel_types
                 return cls(cat_lhs, cat_rhs, torch.tensor(rel_type, dtype=torch.long))
         cat_rel = torch.cat([el.rel.expand((len(el),)) for el in edge_lists])
         return EdgeList(cat_lhs, cat_rhs, cat_rel)

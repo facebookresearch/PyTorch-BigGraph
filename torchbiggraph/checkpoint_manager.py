@@ -76,7 +76,7 @@ MODEL_STATE_DICT_MAPPINGS = [
 
 
 def model_state_dict_public_to_private(
-    public_state_dict: Optional[Dict[str, torch.Tensor]],
+    public_state_dict: Optional[Dict[str, torch.Tensor]]
 ) -> Optional[ModuleStateDict]:
     if public_state_dict is None:
         return None
@@ -198,9 +198,7 @@ class ConfigMetadataProvider(MetadataProvider):
         return {"config/json": self.json_config_dict}
 
 
-def serialize_optim_state(
-    optim_state: Optional[OptimizerStateDict],
-) -> Optional[bytes]:
+def serialize_optim_state(optim_state: Optional[OptimizerStateDict]) -> Optional[bytes]:
     if optim_state is None:
         return None
     with io.BytesIO() as bf:
@@ -358,13 +356,13 @@ class CheckpointManager:
         self.storage.append_stats([json.dumps(s) for s in stats])
 
     def read_stats(
-        self
+        self,
     ) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
         for line in self.storage.load_stats():
             yield json.loads(line)
 
     def maybe_read_stats(
-        self
+        self,
     ) -> Generator[Dict[str, Union[int, SerializedStats]], None, None]:
         try:
             yield from self.read_stats()
