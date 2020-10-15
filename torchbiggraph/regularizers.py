@@ -50,8 +50,7 @@ REGULARIZERS = PluginRegistry[AbstractRegularizer]()
 
 @REGULARIZERS.register_as("N3")
 class N3Regularizer(AbstractRegularizer):
-    """N3 regularizer described in https://arxiv.org/pdf/1806.07297.pdf
-    """
+    """N3 regularizer described in https://arxiv.org/pdf/1806.07297.pdf"""
 
     def reg_embs(
         self, src_pos: FloatTensorType, dst_pos: FloatTensorType

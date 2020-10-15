@@ -176,7 +176,6 @@ class Client(object):
         return inner
 
     def join(self):
-        """Should be called by each client upon completion, to ensure a clean exit.
-        """
+        """Should be called by each client upon completion, to ensure a clean exit."""
         send(_JOIN_KEY, self.server_rank)
         recv(self.server_rank)

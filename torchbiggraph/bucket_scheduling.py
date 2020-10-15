@@ -91,9 +91,7 @@ def create_ordered_buckets(
 def create_buckets_ordered_lexicographically(
     nparts_lhs: int, nparts_rhs: int
 ) -> List[Bucket]:
-    """Return buckets in increasing LHS and, for the same LHS, in increasing RHS
-
-    """
+    """Return buckets in increasing LHS and, for the same LHS, in increasing RHS"""
     buckets = [
         Bucket(lhs, rhs) for lhs in range(nparts_lhs) for rhs in range(nparts_rhs)
     ]

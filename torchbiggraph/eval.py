@@ -93,7 +93,7 @@ def do_eval_and_report_stats(
     subprocess_init: Optional[Callable[[], None]] = None,
 ) -> Generator[Tuple[Optional[int], Optional[Bucket], Stats], None, None]:
     """Computes eval metrics (mr/mrr/r1/r10/r50) for a checkpoint with trained
-       embeddings.
+    embeddings.
     """
     tag_logs_with_process_name(f"Evaluator")
 

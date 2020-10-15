@@ -257,8 +257,7 @@ class ParameterClient:
     def store(
         self, key: str, src: torch.Tensor, accum: bool = False, overwrite: bool = True
     ) -> None:
-        """Store or accumulate a tensor on the server.
-        """
+        """Store or accumulate a tensor on the server."""
         cmd_rpc = torch.tensor(
             [
                 STORE_CMD,
@@ -311,8 +310,7 @@ class ParameterClient:
     def get(
         self, key: str, dst: Optional[torch.Tensor] = None, shared: bool = False
     ) -> Optional[torch.Tensor]:
-        """Get a tensor from the server.
-        """
+        """Get a tensor from the server."""
         cmd_rpc = torch.tensor(
             [GET_CMD, len(key), dst is None, 0, 0, 0], dtype=torch.long
         )
