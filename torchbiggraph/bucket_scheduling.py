@@ -537,7 +537,7 @@ class LockServer(Server, Startable):
         logger.info(
             f"Bucket {new_bucket} acquired by trainer {rank}: active= {self.active}"
         )
-        return new_bucket, remaining
+        return new_bucket, remaining - 1
 
     def release_bucket(self, bucket: Bucket, stats: BucketStats) -> None:
         """

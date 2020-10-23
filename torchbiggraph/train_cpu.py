@@ -598,8 +598,10 @@ class TrainingCoordinator:
                 self.model.set_all_embeddings(holder, cur_b)
 
                 current_index = (
-                    iteration_manager.iteration_idx + 1
-                ) * total_buckets - remaining
+                    (iteration_manager.iteration_idx + 1) * total_buckets
+                    - remaining
+                    - 1
+                )
 
                 bucket_logger.debug("Loading edges")
                 edges = edge_storage.load_chunk_of_edges(
