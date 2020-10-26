@@ -78,7 +78,7 @@ class TimeKeeper:
         self.sub_ts = {}
 
     def _get_time(self) -> float:
-        return time.monotonic_ns() / 1e9
+        return time.monotonic()
 
     def start(self, name: str) -> None:
         self.sub_ts[name] = self._get_time()
