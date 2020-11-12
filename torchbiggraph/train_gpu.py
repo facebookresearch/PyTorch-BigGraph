@@ -7,6 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import ctypes
+import ctypes.util
 import logging
 import os
 import time
@@ -154,7 +155,7 @@ class GPUProcess(mp.get_context("spawn").Process):
             cflags = ctypes.c_uint(0)
             # FIXME: broken by D20249187
             # cudart = torch.cuda.cudart()
-            cudart = ctypes.cdll.LoadLibrary(None)
+            cudart = ctypes.cdll.LoadLibrary(ctypes.util.find_library("cudart"))
             res = cudart.cudaHostRegister(cptr, csize, cflags)
             torch.cuda.check_error(res)
             assert s.is_pinned()
@@ -311,7 +312,9 @@ class GPUProcess(mp.get_context("spawn").Process):
             optimizer = trainer.partitioned_optimizers[entity_name, part]
             subpart_slice = subpart_slices[entity_name, part, subpart]
 
-            embeddings[subpart_slice].copy_(gpu_embeddings.detach(), non_blocking=True)
+            embeddings[subpart_slice].data.copy_(
+                gpu_embeddings.detach(), non_blocking=True
+            )
             del gpu_embeddings
             (cpu_state,) = optimizer.state.values()
             (gpu_state,) = gpu_optimizer.state.values()
