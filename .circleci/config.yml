@@ -30,7 +30,7 @@ jobs:
             python3 -m venv ~/venv
             . ~/venv/bin/activate
             pip install pip --upgrade --upgrade-strategy eager
-            pip install numpy
+            pip install dataclasses numpy typing_extensions
             pip install torch --no-index --find-links https://download.pytorch.org/whl/cpu/torch_stable.html --no-deps --upgrade --upgrade-strategy eager --progress-bar off
             pip install . --upgrade --upgrade-strategy eager --progress-bar off
             pip freeze > ~/pip_freeze.txt
