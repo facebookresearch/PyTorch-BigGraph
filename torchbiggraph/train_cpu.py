@@ -279,16 +279,22 @@ class TrainingCoordinator:
         ] = defaultdict(set)
         for entity_type, counts in entity_counts.items():
             max_count = max(counts)
-            num_sides = (
-                (1 if entity_type in holder.lhs_partitioned_types else 0)
-                + (1 if entity_type in holder.rhs_partitioned_types else 0)
-                + (
-                    1
-                    if entity_type
-                    in (holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types)
-                    else 0
+            if holder.nparts_lhs == 1 and holder.nparts_rhs == 1:
+                num_sides = 1
+            else:
+                num_sides = (
+                    (1 if entity_type in holder.lhs_partitioned_types else 0)
+                    + (1 if entity_type in holder.rhs_partitioned_types else 0)
+                    + (
+                        1
+                        if entity_type
+                        in (
+                            holder.lhs_unpartitioned_types
+                            | holder.rhs_unpartitioned_types
+                        )
+                        else 0
+                    )
                 )
-            )
             for _ in range(num_sides):
                 embedding_storage_freelist[entity_type].add(
                     allocate_shared_tensor(
