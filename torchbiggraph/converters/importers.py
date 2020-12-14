@@ -201,63 +201,15 @@ def generate_entity_path_files(
         relation_type_storage.save_names(relation_types.get_list())
 
 
-def generate_edge_path_files_fast(
-    edge_file_in: Path,
-    edge_path_out: Path,
-    edge_storage: AbstractEdgeStorage,
-    entities_by_type: Dict[str, Dictionary],
-    relation_types: Dictionary,
-    relation_configs: List[RelationSchema],
-    edgelist_reader: EdgelistReader,
-) -> None:
-    processed = 0
-    skipped = 0
-
-    log("Taking the fast train!")
-    data = []
-    for lhs_word, rhs_word, rel_word in edgelist_reader.read(edge_file_in):
-        if rel_word is None:
-            rel_id = 0
-        else:
-            try:
-                rel_id = relation_types.get_id(rel_word)
-            except KeyError:
-                # Ignore edges whose relation type is not known.
-                skipped += 1
-                continue
-
-        lhs_type = relation_configs[rel_id].lhs
-        rhs_type = relation_configs[rel_id].rhs
-
-        try:
-            _, lhs_offset = entities_by_type[lhs_type].get_partition(lhs_word)
-            _, rhs_offset = entities_by_type[rhs_type].get_partition(rhs_word)
-        except KeyError:
-            # Ignore edges whose entities are not known.
-            skipped += 1
-            continue
-
-        data.append((lhs_offset, rhs_offset, rel_id))
-
-        processed = processed + 1
-        if processed % 100000 == 0:
-            log(f"- Processed {processed} edges so far...")
-
+def append_to_file(data, appender):
     lhs_offsets, rhs_offsets, rel_ids = zip(*data)
-    edge_list = EdgeList(
-        EntityList.from_tensor(torch.tensor(list(lhs_offsets), dtype=torch.long)),
-        EntityList.from_tensor(torch.tensor(list(rhs_offsets), dtype=torch.long)),
-        torch.tensor(list(rel_ids), dtype=torch.long),
-    )
-    edge_storage.save_edges(0, 0, edge_list)
-
-    log(f"- Processed {processed} edges in total")
-    if skipped > 0:
-        log(
-            f"- Skipped {skipped} edges because their relation type or "
-            f"entities were unknown (either not given in the config or "
-            f"filtered out as too rare)."
+    appender.append_edges(
+        EdgeList(
+            EntityList.from_tensor(torch.tensor(lhs_offsets, dtype=torch.long)),
+            EntityList.from_tensor(torch.tensor(rhs_offsets, dtype=torch.long)),
+            torch.tensor(rel_ids, dtype=torch.long),
         )
+    )
 
 
 def generate_edge_path_files(
@@ -269,6 +221,7 @@ def generate_edge_path_files(
     relation_configs: List[RelationSchema],
     dynamic_relations: bool,
     edgelist_reader: EdgelistReader,
+    n_flush_edges: int = 100000,
 ) -> None:
     log(
         f"Preparing edge path {edge_path_out}, "
@@ -283,25 +236,15 @@ def generate_edge_path_files(
         entities_by_type[rconfig.rhs].num_parts for rconfig in relation_configs
     )
 
-    if not dynamic_relations and num_lhs_parts == 1 and num_rhs_parts == 1:
-        return generate_edge_path_files_fast(
-            edge_file_in,
-            edge_path_out,
-            edge_storage,
-            entities_by_type,
-            relation_types,
-            relation_configs,
-            edgelist_reader,
-        )
-
     log(f"- Edges will be partitioned in {num_lhs_parts} x {num_rhs_parts} buckets.")
 
     processed = 0
     skipped = 0
-
     # We use an ExitStack in order to close the dynamically-created edge appenders.
     with ExitStack() as appender_stack:
         appenders: Dict[Tuple[int, int], AbstractEdgeAppender] = {}
+        data: Dict[Tuple[int, int], List[Tuple[int, int, int]]] = {}
+
         for lhs_word, rhs_word, rel_word in edgelist_reader.read(edge_file_in):
             if rel_word is None:
                 rel_id = 0
@@ -336,21 +279,22 @@ def generate_edge_path_files(
                 appenders[lhs_part, rhs_part] = appender_stack.enter_context(
                     edge_storage.save_edges_by_appending(lhs_part, rhs_part)
                 )
-            appenders[lhs_part, rhs_part].append_edges(
-                EdgeList(
-                    EntityList.from_tensor(
-                        torch.tensor([lhs_offset], dtype=torch.long)
-                    ),
-                    EntityList.from_tensor(
-                        torch.tensor([rhs_offset], dtype=torch.long)
-                    ),
-                    torch.tensor([rel_id], dtype=torch.long),
-                )
-            )
+                data[lhs_part, rhs_part] = []
+
+            part_data = data[lhs_part, rhs_part]
+            part_data.append((lhs_offset, rhs_offset, rel_id))
+            if len(part_data) > n_flush_edges:
+                append_to_file(part_data, appenders[lhs_part, rhs_part])
+                part_data.clear()
 
             processed = processed + 1
             if processed % 100000 == 0:
                 log(f"- Processed {processed} edges so far...")
+
+        for (lhs_part, rhs_part), part_data in data.items():
+            if len(part_data) > 0:
+                append_to_file(part_data, appenders[lhs_part, rhs_part])
+                part_data.clear()
 
     log(f"- Processed {processed} edges in total")
     if skipped > 0:
