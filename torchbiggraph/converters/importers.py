@@ -6,6 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import datetime
 import random
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
@@ -27,6 +28,10 @@ from torchbiggraph.graph_storages import (
     AbstractRelationTypeStorage,
 )
 from torchbiggraph.types import UNPARTITIONED
+
+
+def log(msg):
+    print(f"[{datetime.datetime.now()}] {msg}", flush=True)
 
 
 class EdgelistReader(ABC):
@@ -72,7 +77,7 @@ class ParquetEdgelistReader(EdgelistReader):
                 "'pip install parquet'"
             )
 
-        with path.open("rt") as tf:
+        with path.open("rb") as tf:
             columns = [self.lhs_col, self.rhs_col]
             if self.rel_col is not None:
                 columns.append(self.rel_col)
@@ -92,7 +97,7 @@ def collect_relation_types(
 ) -> Dictionary:
 
     if dynamic_relations:
-        print("Looking up relation types in the edge files...")
+        log("Looking up relation types in the edge files...")
         counter: Counter[str] = Counter()
         for edgepath in edge_paths:
             for _lhs_word, _rhs_word, rel_word in edgelist_reader.read(edgepath):
@@ -100,23 +105,23 @@ def collect_relation_types(
                     raise RuntimeError("Need to specify rel_col in dynamic mode.")
                 counter[rel_word] += 1
 
-        print(f"- Found {len(counter)} relation types")
+        log(f"- Found {len(counter)} relation types")
         if relation_type_min_count > 0:
-            print(
+            log(
                 "- Removing the ones with fewer than "
                 f"{relation_type_min_count} occurrences..."
             )
             counter = Counter(
                 {k: c for k, c in counter.items() if c >= relation_type_min_count}
             )
-            print(f"- Left with {len(counter)} relation types")
-        print("- Shuffling them...")
+            log(f"- Left with {len(counter)} relation types")
+        log("- Shuffling them...")
         names = list(counter.keys())
         random.shuffle(names)
 
     else:
         names = [rconfig.name for rconfig in relation_configs]
-        print(f"Using the {len(names)} relation types given in the config")
+        log(f"Using the {len(names)} relation types given in the config")
 
     return Dictionary(names)
 
@@ -135,7 +140,7 @@ def collect_entities_by_type(
     for entity_name in entity_configs.keys():
         counters[entity_name] = Counter()
 
-    print("Searching for the entities in the edge files...")
+    log("Searching for the entities in the edge files...")
     for edgepath in edge_paths:
         for lhs_word, rhs_word, rel_word in edgelist_reader.read(edgepath):
             if dynamic_relations or rel_word is None:
@@ -151,17 +156,17 @@ def collect_entities_by_type(
 
     entities_by_type: Dict[str, Dictionary] = {}
     for entity_name, counter in counters.items():
-        print(f"Entity type {entity_name}:")
-        print(f"- Found {len(counter)} entities")
+        log(f"Entity type {entity_name}:")
+        log(f"- Found {len(counter)} entities")
         if entity_min_count > 0:
-            print(
+            log(
                 f"- Removing the ones with fewer than {entity_min_count} occurrences..."
             )
             counter = Counter(
                 {k: c for k, c in counter.items() if c >= entity_min_count}
             )
-            print(f"- Left with {len(counter)} entities")
-        print("- Shuffling them...")
+            log(f"- Left with {len(counter)} entities")
+        log("- Shuffling them...")
         names = list(counter.keys())
         random.shuffle(names)
         entities_by_type[entity_name] = Dictionary(
@@ -178,22 +183,33 @@ def generate_entity_path_files(
     relation_types: Dictionary,
     dynamic_relations: bool,
 ) -> None:
-    print(f"Preparing counts and dictionaries for entities and relation types:")
+    log(f"Preparing counts and dictionaries for entities and relation types:")
     entity_storage.prepare()
     relation_type_storage.prepare()
 
     for entity_name, entities in entities_by_type.items():
         for part in range(entities.num_parts):
-            print(
+            log(
                 f"- Writing count of entity type {entity_name} " f"and partition {part}"
             )
             entity_storage.save_count(entity_name, part, entities.part_size(part))
             entity_storage.save_names(entity_name, part, entities.get_part_list(part))
 
     if dynamic_relations:
-        print("- Writing count of dynamic relations")
+        log("- Writing count of dynamic relations")
         relation_type_storage.save_count(relation_types.size())
         relation_type_storage.save_names(relation_types.get_list())
+
+
+def append_to_file(data, appender):
+    lhs_offsets, rhs_offsets, rel_ids = zip(*data)
+    appender.append_edges(
+        EdgeList(
+            EntityList.from_tensor(torch.tensor(lhs_offsets, dtype=torch.long)),
+            EntityList.from_tensor(torch.tensor(rhs_offsets, dtype=torch.long)),
+            torch.tensor(rel_ids, dtype=torch.long),
+        )
+    )
 
 
 def generate_edge_path_files(
@@ -205,8 +221,9 @@ def generate_edge_path_files(
     relation_configs: List[RelationSchema],
     dynamic_relations: bool,
     edgelist_reader: EdgelistReader,
+    n_flush_edges: int = 100000,
 ) -> None:
-    print(
+    log(
         f"Preparing edge path {edge_path_out}, "
         f"out of the edges found in {edge_file_in}"
     )
@@ -219,14 +236,15 @@ def generate_edge_path_files(
         entities_by_type[rconfig.rhs].num_parts for rconfig in relation_configs
     )
 
-    print(f"- Edges will be partitioned in {num_lhs_parts} x {num_rhs_parts} buckets.")
+    log(f"- Edges will be partitioned in {num_lhs_parts} x {num_rhs_parts} buckets.")
 
     processed = 0
     skipped = 0
-
     # We use an ExitStack in order to close the dynamically-created edge appenders.
     with ExitStack() as appender_stack:
         appenders: Dict[Tuple[int, int], AbstractEdgeAppender] = {}
+        data: Dict[Tuple[int, int], List[Tuple[int, int, int]]] = {}
+
         for lhs_word, rhs_word, rel_word in edgelist_reader.read(edge_file_in):
             if rel_word is None:
                 rel_id = 0
@@ -261,25 +279,26 @@ def generate_edge_path_files(
                 appenders[lhs_part, rhs_part] = appender_stack.enter_context(
                     edge_storage.save_edges_by_appending(lhs_part, rhs_part)
                 )
-            appenders[lhs_part, rhs_part].append_edges(
-                EdgeList(
-                    EntityList.from_tensor(
-                        torch.tensor([lhs_offset], dtype=torch.long)
-                    ),
-                    EntityList.from_tensor(
-                        torch.tensor([rhs_offset], dtype=torch.long)
-                    ),
-                    torch.tensor([rel_id], dtype=torch.long),
-                )
-            )
+                data[lhs_part, rhs_part] = []
+
+            part_data = data[lhs_part, rhs_part]
+            part_data.append((lhs_offset, rhs_offset, rel_id))
+            if len(part_data) > n_flush_edges:
+                append_to_file(part_data, appenders[lhs_part, rhs_part])
+                part_data.clear()
 
             processed = processed + 1
             if processed % 100000 == 0:
-                print(f"- Processed {processed} edges so far...")
+                log(f"- Processed {processed} edges so far...")
 
-    print(f"- Processed {processed} edges in total")
+        for (lhs_part, rhs_part), part_data in data.items():
+            if len(part_data) > 0:
+                append_to_file(part_data, appenders[lhs_part, rhs_part])
+                part_data.clear()
+
+    log(f"- Processed {processed} edges in total")
     if skipped > 0:
-        print(
+        log(
             f"- Skipped {skipped} edges because their relation type or "
             f"entities were unknown (either not given in the config or "
             f"filtered out as too rare)."
@@ -327,12 +346,12 @@ def convert_input_data(
     )
 
     if all(some_files_exists):
-        print(
+        log(
             "Found some files that indicate that the input data "
             "has already been preprocessed, not doing it again."
         )
         all_paths = ", ".join(str(p) for p in [entity_path] + edge_paths_out)
-        print(f"These files are in: {all_paths}")
+        log(f"These files are in: {all_paths}")
         return
 
     relation_types = collect_relation_types(
