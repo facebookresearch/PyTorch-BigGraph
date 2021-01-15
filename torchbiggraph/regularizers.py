@@ -70,7 +70,7 @@ class N3Regularizer(AbstractRegularizer):
         rel_idxs: LongTensorType,
     ) -> FloatTensorType:
         total = 0
-        operator_params = operator.get_operator_params_for_reg(rel_idxs)
+        operator_params = operator.get_operator_params_for_reg(rel_idxs).to(src_pos.device)
         if operator_params is not None:
             total += torch.sum(operator_params ** 3).to(src_pos.device)
         for x in (src_pos, dst_pos):
@@ -85,7 +85,7 @@ class N3Regularizer(AbstractRegularizer):
         operator: AbstractOperator,
     ) -> FloatTensorType:
         total = 0
-        operator_params = operator.get_operator_params_for_reg()
+        operator_params = operator.get_operator_params_for_reg().to(src_pos.device)
         if operator_params is not None:
             batch_size = len(src_pos)
             total += torch.sum(operator_params ** 3) * batch_size

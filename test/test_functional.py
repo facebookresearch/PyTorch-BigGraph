@@ -506,7 +506,7 @@ class TestFunctional(TestCase):
 
     def _test_gpu(self, do_half_precision=False, num_partitions=2):
         entity_name = "e"
-        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
+        relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name, operator="complex_diagonal")
         base_config = ConfigSchema(
             dimension=16,
             batch_size=1024,
