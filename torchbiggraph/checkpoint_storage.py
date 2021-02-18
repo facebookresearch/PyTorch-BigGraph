@@ -10,7 +10,6 @@ import errno
 import logging
 import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple
 
 import h5py
@@ -18,7 +17,8 @@ import numpy as np
 import torch
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.types import EntityName, FloatTensorType, ModuleStateDict, Partition
-from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor
+from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor, url_scheme
+from torchbiggraph.storage_repository import CUSTOM_PATH, AbstractPath as Path
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -208,6 +208,7 @@ def load_model_state_dict(hf: h5py.File) -> Optional[ModuleStateDict]:
 
 @CHECKPOINT_STORAGES.register_as("")  # No scheme
 @CHECKPOINT_STORAGES.register_as("file")
+@CHECKPOINT_STORAGES.register_as("hdfs")
 class FileCheckpointStorage(AbstractCheckpointStorage):
 
     """Reads and writes checkpoint data to/from disk.
@@ -241,9 +242,8 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
     """
 
     def __init__(self, path: str) -> None:
-        if path.startswith("file://"):
-            path = path[len("file://") :]
-        self.path: Path = Path(path).resolve(strict=False)
+        self.path: Path = CUSTOM_PATH.get_class(url_scheme(path))(path).resolve(strict=False)
+        self.prepare()
 
     def get_version_file(self, *, path: Optional[Path] = None) -> Path:
         if path is None:
@@ -319,7 +319,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
     ) -> None:
         path = self.get_entity_partition_file(version, entity_name, partition)
         logger.debug(f"Saving to {path}")
-        with h5py.File(path, "w") as hf:
+        with path.open("w") as hf:
             hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
             for k, v in metadata.items():
                 hf.attrs[k] = v
@@ -338,11 +338,13 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         path = self.get_entity_partition_file(version, entity_name, partition)
         logger.debug(f"Loading from {path}")
         try:
-            with h5py.File(path, "r") as hf:
+            with path.open("r") as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                     raise RuntimeError(f"Version mismatch in embeddings file {path}")
                 embs = load_embeddings(hf, out=out)
                 optim_state = load_optimizer_state_dict(hf)
+        except FileNotFoundError as err:
+            raise CouldNotLoadData() from err
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
@@ -368,7 +370,7 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
     ) -> None:
         path = self.get_model_file(version)
         logger.debug(f"Saving to {path}")
-        with h5py.File(path, "w") as hf:
+        with path.open("w") as hf:
             hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
             for k, v in metadata.items():
                 hf.attrs[k] = v
@@ -383,11 +385,13 @@ class FileCheckpointStorage(AbstractCheckpointStorage):
         path = self.get_model_file(version)
         logger.debug(f"Loading from {path}")
         try:
-            with h5py.File(path, "r") as hf:
+            with path.open("r") as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                     raise RuntimeError(f"Version mismatch in model file {path}")
                 state_dict = load_model_state_dict(hf)
                 optim_state = load_optimizer_state_dict(hf)
+        except FileNotFoundError as err:
+            raise CouldNotLoadData() from err
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.

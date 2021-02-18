@@ -709,6 +709,8 @@ class TrainingCoordinator:
                 epoch_idx, edge_path_idx, edge_chunk_idx, current_index
             )
 
+            self._maybe_clear_edge_storage_dir(edge_storage)
+
             # now we're sure that all partition files exist,
             # so be strict about loading them
             self.strict = True
@@ -1005,3 +1007,7 @@ class TrainingCoordinator:
             self.checkpoint_manager.preserve_current_version(config, epoch_idx + 1)
         if not preserve_old_checkpoint:
             self.checkpoint_manager.remove_old_version(config)
+
+    def _maybe_clear_edge_storage_dir(self, edge_storage) -> None:
+            # clean edge storage path for scheme 'hdfs' and not local (i.e. '' or 'file')
+            edge_storage.cleardir()
