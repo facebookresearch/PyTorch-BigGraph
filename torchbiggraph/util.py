@@ -34,7 +34,8 @@ import torch.multiprocessing
 from torch.optim import Optimizer
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.types import Bucket, EntityName, FloatTensorType, Partition, Side
-
+import subprocess
+from urllib.parse import urlparse
 
 logger = logging.getLogger("torchbiggraph")
 
@@ -434,3 +435,24 @@ def get_num_workers(override: Optional[int]) -> int:
         f"couldn't be auto-detected; defaulting to {result} workers."
     )
     return result
+
+
+def url_path(url):
+    return urlparse(url).path
+
+
+def url_scheme(url):
+    return urlparse(url).scheme
+
+
+def run_external_cmd(command: str) -> Tuple[int, str, str]:
+    logger.info('run_external_cmd : {0}'.format(command))
+
+    args_list = command.split()
+    proc = subprocess.Popen(args_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (output, errors) = proc.communicate()
+    if proc.returncode:
+        raise RuntimeError(
+            'Error running command: %s. Return code: %d, Error: %s' % (
+                ' '.join(args_list), proc.returncode, errors))
+    return proc.returncode, str(output), str(errors)
