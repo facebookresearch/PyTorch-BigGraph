@@ -107,3 +107,8 @@ the entities, with the first dimension being the number of entities and the
 second being the dimension of the embedding.
 
 Just like for the model parameters file, the optimizer state dict and additional metadata is also included.
+
+HDFS Format
+^^^^^^^^^^
+
+Include the prefix ``hdfs://`` in entities, edges and checkpoint paths when running in distributed hdfs cluster.

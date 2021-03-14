@@ -72,7 +72,8 @@ class N3Regularizer(AbstractRegularizer):
         total = 0
         operator_params = operator.get_operator_params_for_reg(rel_idxs)
         if operator_params is not None:
-            total += torch.sum(operator_params ** 3).to(src_pos.device)
+            operator_params = operator_params.to(src_pos.device)
+            total += torch.sum(operator_params ** 3)
         for x in (src_pos, dst_pos):
             total += torch.sum(operator.prepare_embs_for_reg(x) ** 3)
         total *= self.weight
@@ -87,6 +88,7 @@ class N3Regularizer(AbstractRegularizer):
         total = 0
         operator_params = operator.get_operator_params_for_reg()
         if operator_params is not None:
+            operator_params = operator_params.to(src_pos.device)
             batch_size = len(src_pos)
             total += torch.sum(operator_params ** 3) * batch_size
         for x in (src_pos, dst_pos):
