@@ -11,7 +11,6 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from pathlib import Path
 from types import TracebackType
 from typing import ContextManager, Dict, Iterator, List, Optional, Type
 
@@ -23,7 +22,8 @@ from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.tensorlist import TensorList
 from torchbiggraph.types import Partition
-from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor, div_roundup
+from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor, div_roundup, url_scheme
+from torchbiggraph.storage_repository import CUSTOM_PATH, AbstractPath as Path
 
 
 logger = logging.getLogger("torchbiggraph")
@@ -180,11 +180,10 @@ def load_names(path: Path) -> List[str]:
 
 @ENTITY_STORAGES.register_as("")  # No scheme
 @ENTITY_STORAGES.register_as("file")
+@ENTITY_STORAGES.register_as("hdfs")
 class FileEntityStorage(AbstractEntityStorage):
     def __init__(self, path: str) -> None:
-        if path.startswith("file://"):
-            path = path[len("file://") :]
-        self.path = Path(path).resolve(strict=False)
+        self.path = CUSTOM_PATH.get_class(url_scheme(path))(path).resolve(strict=False)
 
     def get_count_file(self, entity_name: str, partition: Partition) -> Path:
         return self.path / f"entity_count_{entity_name}_{partition}.txt"
@@ -218,11 +217,10 @@ class FileEntityStorage(AbstractEntityStorage):
 
 @RELATION_TYPE_STORAGES.register_as("")  # No scheme
 @RELATION_TYPE_STORAGES.register_as("file")
+@RELATION_TYPE_STORAGES.register_as("hdfs")
 class FileRelationTypeStorage(AbstractRelationTypeStorage):
     def __init__(self, path: str) -> None:
-        if path.startswith("file://"):
-            path = path[len("file://") :]
-        self.path = Path(path).resolve(strict=False)
+        self.path = CUSTOM_PATH.get_class(url_scheme(path))(path).resolve(strict=False)
 
     def get_count_file(self) -> Path:
         return self.path / "dynamic_rel_count.txt"
@@ -367,6 +365,7 @@ class FileEdgeAppender(AbstractEdgeAppender):
 
 @EDGE_STORAGES.register_as("")  # No scheme
 @EDGE_STORAGES.register_as("file")
+@EDGE_STORAGES.register_as("hdfs")
 class FileEdgeStorage(AbstractEdgeStorage):
     """Reads partitioned edgelists from disk, in the format
     created by edge_downloader.py.
@@ -378,9 +377,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
     """
 
     def __init__(self, path: str) -> None:
-        if path.startswith("file://"):
-            path = path[len("file://") :]
-        self.path = Path(path).resolve(strict=False)
+        self.path = CUSTOM_PATH.get_class(url_scheme(path))(path).resolve(strict=False)
 
     def get_edges_file(self, lhs_p: Partition, rhs_p: Partition) -> Path:
         return self.path / f"edges_{lhs_p}_{rhs_p}.h5"
@@ -394,7 +391,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
     def get_number_of_edges(self, lhs_p: Partition, rhs_p: Partition) -> int:
         file_path = self.get_edges_file(lhs_p, rhs_p)
         try:
-            with h5py.File(file_path, "r") as hf:
+            with file_path.open("r") as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                     raise RuntimeError(f"Version mismatch in edge file {file_path}")
                 return hf["rel"].len()
@@ -415,7 +412,7 @@ class FileEdgeStorage(AbstractEdgeStorage):
     ) -> EdgeList:
         file_path = self.get_edges_file(lhs_p, rhs_p)
         try:
-            with h5py.File(file_path, "r") as hf:
+            with file_path.open("r", reload=False) as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
                     raise RuntimeError(f"Version mismatch in edge file {file_path}")
                 lhs_ds = hf["lhs"]
@@ -486,3 +483,6 @@ class FileEdgeStorage(AbstractEdgeStorage):
             hf.attrs[FORMAT_VERSION_ATTR] = FORMAT_VERSION
             yield appender
         tmp_file_path.rename(file_path)
+
+    def cleardir(self):
+        self.path.cleardir()
