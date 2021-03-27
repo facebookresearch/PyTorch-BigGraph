@@ -42,13 +42,14 @@ class EdgelistReader(ABC):
 
 
 class TSVEdgelistReader(EdgelistReader):
-    def __init__(self, lhs_col: int, rhs_col: int, rel_col: int):
+    def __init__(self, lhs_col: int, rhs_col: int, rel_col: int, sep: Optional[str] = None):
         self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
+        self.sep = sep
 
     def read(self, path: Path):
         with path.open("rt") as tf:
             for line_num, line in enumerate(tf, start=1):
-                words = line.split()
+                words = line.split(self.sep)
                 try:
                     lhs_word = words[self.lhs_col]
                     rhs_word = words[self.rhs_col]
