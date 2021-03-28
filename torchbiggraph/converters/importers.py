@@ -42,14 +42,22 @@ class EdgelistReader(ABC):
 
 
 class TSVEdgelistReader(EdgelistReader):
-    def __init__(self, lhs_col: int, rhs_col: int, rel_col: int, sep: Optional[str] = None):
-        self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
-        self.sep = sep
+    def __init__(
+        self,
+        lhs_col: int,
+        rhs_col: int,
+        rel_col: Optional[int],
+        delimiter: Optional[str] = None,
+    ):
+        self.lhs_col = lhs_col
+        self.rhs_col = rhs_col
+        self.rel_col = rel_col
+        self.delimiter = delimiter
 
     def read(self, path: Path):
         with path.open("rt") as tf:
             for line_num, line in enumerate(tf, start=1):
-                words = line.split(self.sep)
+                words = line.split(self.delimiter)
                 try:
                     lhs_word = words[self.lhs_col]
                     rhs_word = words[self.rhs_col]
@@ -86,7 +94,7 @@ class ParquetEdgelistReader(EdgelistReader):
                 if self.rel_col is not None:
                     yield row
                 else:
-                    yield (row[0], row[1], None)
+                    yield row[0], row[1], None
 
 
 def collect_relation_types(
