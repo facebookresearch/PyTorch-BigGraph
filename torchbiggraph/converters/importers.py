@@ -211,12 +211,13 @@ def generate_entity_path_files(
 
 
 def append_to_file(data, appender):
-    lhs_offsets, rhs_offsets, rel_ids = zip(*data)
+    # lhs_offsets, rhs_offsets, rel_ids = zip(*data)
+    data = torch.tensor(data, dtype=torch.long).t() 
     appender.append_edges(
         EdgeList(
-            EntityList.from_tensor(torch.tensor(lhs_offsets, dtype=torch.long)),
-            EntityList.from_tensor(torch.tensor(rhs_offsets, dtype=torch.long)),
-            torch.tensor(rel_ids, dtype=torch.long),
+            EntityList.from_tensor(data[0, :]),
+            EntityList.from_tensor(data[1, :]),
+            data[2, :],
         )
     )
 
@@ -230,7 +231,7 @@ def generate_edge_path_files(
     relation_configs: List[RelationSchema],
     dynamic_relations: bool,
     edgelist_reader: EdgelistReader,
-    n_flush_edges: int = 100000,
+    n_flush_edges: int = 500000,
 ) -> None:
     log(
         f"Preparing edge path {edge_path_out}, "
