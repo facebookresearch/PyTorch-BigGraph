@@ -83,7 +83,7 @@ class RankingEvaluator(AbstractBatchProcessor):
             r50=average_of_sums(*(rank.le(50) for rank in ranks)),
             # At the end the AUC will be averaged over count.
             randomized_auc=batch_size * sum(aucs) / len(aucs),
-            randomized_acc=batch_size * accs
+            randomized_acc=batch_size * accs,
             count=batch_size,
         )
 
