@@ -27,6 +27,7 @@ from torchbiggraph.util import (
     EmbeddingHolder,
     SubprocessInitializer,
     compute_randomized_auc,
+    compute_randomized_acc
     create_pool,
     get_async_result,
     get_num_workers,
@@ -68,6 +69,11 @@ class RankingEvaluator(AbstractBatchProcessor):
             ranks.append(rhs_rank)
             aucs.append(rhs_auc)
 
+        accs = 0.0
+        if scores.lhs_neg.nelement() > 0 and scores.rhs_neg.nelement() > 0:
+            accs = compute_randomized_acc(scores.lhs_pos, scores.lhs_neg,
+                                            scores.rhs_pos, scores.rhs_neg , batch_size)
+
         return Stats(
             loss=float(loss),
             pos_rank=average_of_sums(*ranks),
@@ -77,6 +83,7 @@ class RankingEvaluator(AbstractBatchProcessor):
             r50=average_of_sums(*(rank.le(50) for rank in ranks)),
             # At the end the AUC will be averaged over count.
             auc=batch_size * sum(aucs) / len(aucs),
+            acc=batch_size * accs
             count=batch_size,
         )
 

@@ -422,6 +422,23 @@ def compute_randomized_auc(
     return float(diff.float().mean())
 
 
+def compute_randomized_acc(
+    lhs_pos_: FloatTensorType, lhs_neg_: FloatTensorType,
+    rhs_pos_: FloatTensorType, rhs_neg_: FloatTensorType,
+    num_samples: int
+) -> float:
+    assert lhs_pos_.shape == rhs_pos_.shape
+    lhs_pos_ = rhs_pos_.view(-1, 1).expand(lhs_neg_.shape).reshape(-1)
+    rhs_pos_ = rhs_pos_.view(-1, 1).expand(rhs_neg_.shape).reshape(-1)
+    lhs_neg_, rhs_neg_ = lhs_neg_.view(-1), rhs_neg_.view(-1)
+    index = torch.randint(len(lhs_pos_), (num_samples,))
+    diff = (
+        (lhs_pos_[index] > lhs_neg_[index])
+        & (rhs_pos_[index] > rhs_neg_[index])
+    )
+    return float(diff.float().mean())
+
+
 def get_num_workers(override: Optional[int]) -> int:
     if override is not None:
         return override
