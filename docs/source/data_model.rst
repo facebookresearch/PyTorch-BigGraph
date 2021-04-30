@@ -27,7 +27,7 @@ side entity type.
     In this graph, there are 14 entities: 5 of the red entity type, 6 of the
     yellow entity type and 3 of the blue entity type; there are also 12 edges:
     6 of the orange relation type (between red and yellow entities), 3 of the
-    purple entity type (between red and blue entities) and 3 of the green entity
+    purple relation type (between red and blue entities) and 3 of the green relation
     type (between yellow and blue entities).
 
 In order for PBG to operate on large-scale graphs, the graph is broken
