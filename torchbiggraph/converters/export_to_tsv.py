@@ -96,7 +96,7 @@ def make_tsv_for_relation_types(
                     write(
                         relation_types_tf,
                         (rel_t_name, side, op_name, param_name, shape),
-                        param,
+                        param.flatten(),
                     )
     else:
         for rel_t_name, rel_t_config, operator in zip(
@@ -113,7 +113,7 @@ def make_tsv_for_relation_types(
                 write(
                     relation_types_tf,
                     (rel_t_name, "rhs", op_name, param_name, shape),
-                    param,
+                    param.flatten(),
                 )
 
     relation_types_output_filename = getattr(
