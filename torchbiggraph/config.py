@@ -256,6 +256,13 @@ class ConfigSchema(Schema):
             "the entities of some types."
         },
     )
+    init_entity_path: Optional[str] = attr.ib(
+        default=None,
+        metadata={
+            "help": "If set, it must be a path to a directory that "
+            "contains initial values of the entities and their offsets "
+        },
+    )
     checkpoint_preservation_interval: Optional[int] = attr.ib(
         default=None,
         metadata={

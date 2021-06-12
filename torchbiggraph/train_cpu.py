@@ -472,6 +472,19 @@ class TrainingCoordinator:
         else:
             self.loadpath_manager = None
 
+        # TODO: Need to read new offsets from entity_storage here
+
+        # Load previously partitioned entities and their offsets
+        if config.init_entity_path:
+            init_entity_storage = ENTITY_STORAGES.make_instance(config.init_entity_path)
+            self.init_entity_offsets: Dict[str, List[str]] = {}
+            for entity, econf in config.entities.items():
+                for part in range(econf.num_partitions):
+                    self.init_entity_offsets[entity].\
+                        append(init_entity_storage.load_names(entity, part))
+        else:
+            self.init_entity_offsets = None
+
         # load model from checkpoint or loadpath, if available
         state_dict, optim_state = checkpoint_manager.maybe_read_model()
         if state_dict is None and self.loadpath_manager is not None:
@@ -488,6 +501,20 @@ class TrainingCoordinator:
             dimension = config.entity_dimension(entity)
             embs = torch.FloatTensor(s).view(-1, dimension)[:count]
             embs, optimizer = self._load_embeddings(entity, UNPARTITIONED, out=embs)
+            """
+            Enlarging the embeddings from previous run. The function takes in
+            the trained N old embeddings from init_path defined, and enlarge it to
+            N + M embeddings, with M be the number of new entities joining the training,
+            and initialize the M embeddings with random numbers
+            """
+            if self.init_entity_offsets:
+                new_embs = torch.FloatTensor(s).view(-1, dimension)[:count]
+                new_names = entity_storage.load_names(entity, UNPARTITIONED)
+                init_subset = [new_names.index(name)
+                               for name in self.init_entity_offsets[entity]]
+                # Initialize embeddings from previous checkpoint
+                new_embs[init_subset, :] = embs
+                embs = new_embs
             holder.unpartitioned_embeddings[entity] = embs
             trainer.unpartitioned_optimizers[entity] = optimizer
 

@@ -58,6 +58,7 @@ class TestConfigMetadataProvider(TestCase):
             entity_path="foo",
             edge_paths=["bar"],
             checkpoint_path="baz",
+            init_entity_path="foo"
         )
         metadata = ConfigMetadataProvider(config).get_checkpoint_metadata()
         self.assertIsInstance(metadata, dict)
