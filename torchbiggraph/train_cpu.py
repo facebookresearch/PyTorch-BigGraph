@@ -255,6 +255,7 @@ class TrainingCoordinator:
 
         logger.info("Loading entity counts...")
         entity_storage = ENTITY_STORAGES.make_instance(config.entity_path)
+        self.entity_storage = entity_storage
         entity_counts: Dict[str, List[int]] = {}
         for entity, econf in config.entities.items():
             entity_counts[entity] = []
@@ -472,16 +473,20 @@ class TrainingCoordinator:
         else:
             self.loadpath_manager = None
 
-        # TODO: Need to read new offsets from entity_storage here
-
         # Load previously partitioned entities and their offsets
+        # TODO: Bring this tp importer level so that train gpu can also use
         if config.init_entity_path:
             init_entity_storage = ENTITY_STORAGES.make_instance(config.init_entity_path)
             self.init_entity_offsets: Dict[str, List[str]] = {}
+            self.init_entity_counts: Dict[str, List[int]] = {}
             for entity, econf in config.entities.items():
+                self.init_entity_offsets[entity] = []
+                self.init_entity_counts[entity] = []
                 for part in range(econf.num_partitions):
                     self.init_entity_offsets[entity].\
                         append(init_entity_storage.load_names(entity, part))
+                    self.init_entity_counts[entity].\
+                        append(init_entity_storage.load_count(entity, part))
         else:
             self.init_entity_offsets = None
 
@@ -496,7 +501,10 @@ class TrainingCoordinator:
 
         logger.debug("Loading unpartitioned entities...")
         for entity in holder.lhs_unpartitioned_types | holder.rhs_unpartitioned_types:
-            count = entity_counts[entity][0]
+            if self.init_entity_offsets is not None:
+                count = self.init_entity_counts[entity][0]
+            else:
+                count = entity_counts[entity][0]
             s = embedding_storage_freelist[entity].pop()
             dimension = config.entity_dimension(entity)
             embs = torch.FloatTensor(s).view(-1, dimension)[:count]
@@ -508,12 +516,15 @@ class TrainingCoordinator:
             and initialize the M embeddings with random numbers
             """
             if self.init_entity_offsets:
-                new_embs = torch.FloatTensor(s).view(-1, dimension)[:count]
-                new_names = entity_storage.load_names(entity, UNPARTITIONED)
+                count = self.entity_counts[entity][0]
+                new_embs = torch.rand((count, dimension))
+                new_names = self.entity_storage.load_names(entity, part)
                 init_subset = [new_names.index(name)
-                               for name in self.init_entity_offsets[entity]]
+                               for name in self.init_entity_offsets[entity][part]]
                 # Initialize embeddings from previous checkpoint
-                new_embs[init_subset, :] = embs
+                new_embs[init_subset, :] = embs.clone()
+                # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
+                assert torch.equal(new_embs[init_subset[0], :], embs[0])
                 embs = new_embs
             holder.unpartitioned_embeddings[entity] = embs
             trainer.unpartitioned_optimizers[entity] = optimizer
@@ -842,13 +853,36 @@ class TrainingCoordinator:
             for entity, part in new_parts - old_parts:
                 logger.debug(f"Loading ({entity} {part})")
                 force_dirty = self.bucket_scheduler.check_and_set_dirty(entity, part)
-                count = self.entity_counts[entity][part]
+                # There are trained embeddings already, updating the
+                #  offsets here
+                if self.init_entity_offsets is not None:
+                    count = self.init_entity_counts[entity][part]
+                else:
+                    count = self.entity_counts[entity][part]
                 s = self.embedding_storage_freelist[entity].pop()
                 dimension = self.config.entity_dimension(entity)
                 embs = torch.FloatTensor(s).view(-1, dimension)[:count]
                 embs, optimizer = self._load_embeddings(
                     entity, part, out=embs, strict=self.strict, force_dirty=force_dirty
                 )
+                """
+                Enlarging the embeddings from previously trained embeddings. We take in
+                the trained N old embeddings from init_path defined, and enlarge it to
+                N + M embeddings, with M be the number of new entities joining the training,
+                and initialize the M embeddings with random numbers
+                """
+                if self.init_entity_offsets:
+                    count = self.entity_counts[entity][part]
+                    # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
+                    new_embs = torch.rand((count, dimension))
+                    new_names = self.entity_storage.load_names(entity, part)
+                    init_subset = [new_names.index(name)
+                                   for name in self.init_entity_offsets[entity][part]]
+                    # Initialize embeddings from previous checkpoint
+                    new_embs[init_subset, :] = embs.clone()
+                    # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
+                    assert torch.equal(new_embs[init_subset[0], :], embs[0])
+                    embs = new_embs
                 holder.partitioned_embeddings[entity, part] = embs
                 self.trainer.partitioned_optimizers[entity, part] = optimizer
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
