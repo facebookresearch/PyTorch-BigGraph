@@ -872,20 +872,33 @@ class TrainingCoordinator:
                 and initialize the M embeddings with random numbers
                 """
                 if self.init_entity_offsets:
+                    logger.debug(f"Enlarging from pretrained embeddings of entity {entity} in partition {part}")
                     count = self.entity_counts[entity][part]
                     # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
                     new_embs = torch.rand((count, dimension))
                     new_names = self.entity_storage.load_names(entity, part)
-                    init_subset = [new_names.index(name)
-                                   for name in self.init_entity_offsets[entity][part]]
+
+                    subset_idxs = set()
+                    for name in self.init_entity_offsets[entity][part]:
+                        subset_idxs.add(new_names.index(name))
+                    subset_idxs = list(subset_idxs)
+                    # subset_idxs = [new_names.index(name) for name in self.init_entity_offsets[entity][part]]
+
                     # Initialize embeddings from previous checkpoint
-                    new_embs[init_subset, :] = embs.clone()
+                    new_embs[subset_idxs, :] = embs.detach().clone()
+
                     # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
-                    assert torch.equal(new_embs[init_subset[0], :], embs[0])
+                    assert torch.equal(new_embs[subset_idxs, :], embs)
+
                     embs = new_embs
+                logger.debug(f"Loaded {entity} embeddings of shape {embs.shape}")
                 holder.partitioned_embeddings[entity, part] = embs
                 self.trainer.partitioned_optimizers[entity, part] = optimizer
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
+
+        # Load the pretrained embeddings only once
+        # TODO: Temporary solution, refactor later
+        self.init_entity_offsets = None
 
         assert new_parts == holder.partitioned_embeddings.keys()
 
