@@ -874,23 +874,30 @@ class TrainingCoordinator:
                 if self.init_entity_offsets:
                     logger.debug(f"Enlarging from pretrained embeddings of entity {entity} in partition {part}")
                     count = self.entity_counts[entity][part]
-                    # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
                     new_embs = torch.rand((count, dimension))
-                    new_names = self.entity_storage.load_names(entity, part)
+                    # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
+                    init_names: Set = set(self.init_entity_offsets[entity][part])
+                    new_names: List = self.entity_storage.load_names(entity, part)
+                    subset_idxs = {name: j for (j, name) in enumerate(init_names)}
 
-                    subset_idxs = set()
-                    for name in self.init_entity_offsets[entity][part]:
-                        subset_idxs.add(new_names.index(name))
-                    subset_idxs = list(subset_idxs)
-                    # subset_idxs = [new_names.index(name) for name in self.init_entity_offsets[entity][part]]
+                    for i, new_name in enumerate(new_names):
 
-                    # Initialize embeddings from previous checkpoint
+                        if new_name in init_names:
+                            subset_idxs[new_name] = i
+
+                        if (i+1) % 1000000 == 0:
+                                logger.debug(f"Mapped {i} entities...")
+
+                    subset_idxs = list(subset_idxs.values())
                     new_embs[subset_idxs, :] = embs.detach().clone()
 
                     # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
+                    logger.debug(f"{new_embs[subset_idxs[0], :]}")
+                    logger.debug(embs[0])
                     assert torch.equal(new_embs[subset_idxs, :], embs)
 
                     embs = new_embs
+
                 logger.debug(f"Loaded {entity} embeddings of shape {embs.shape}")
                 holder.partitioned_embeddings[entity, part] = embs
                 self.trainer.partitioned_optimizers[entity, part] = optimizer
