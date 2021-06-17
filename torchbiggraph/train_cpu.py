@@ -802,6 +802,39 @@ class TrainingCoordinator:
                 fast_approx_rand(embs)
                 embs.mul_(self.config.init_scale)
                 optim_state = None
+        """
+        Enlarging the embeddings from previously trained embeddings. We take in
+        the trained N old embeddings from init_path defined, and enlarge it to
+        N + M embeddings, with M be the number of new entities joining the training,
+        and initialize the M embeddings with random numbers
+        """
+        if self.init_entity_offsets is not None:
+            logger.debug(f"Enlarging from pretrained embeddings of entity {entity} in partition {part}")
+            count = self.entity_counts[entity][part]
+            dimension = self.config.entity_dimension(entity)
+            new_embs = torch.rand((count, dimension))
+            # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
+            init_names: Set = set(self.init_entity_offsets[entity][part])
+            new_names: List = self.entity_storage.load_names(entity, part)
+            subset_idxs = {name: j for (j, name) in enumerate(init_names)}
+
+            for i, new_name in enumerate(new_names):
+                if new_name in init_names:
+                    subset_idxs[new_name] = i
+
+                if (i + 1) % 1000000 == 0:
+                    logger.debug(f"Mapped {i+1} entities...")
+
+            subset_idxs = list(subset_idxs.values())
+            new_embs[subset_idxs, :] = embs.detach().clone()
+
+            # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
+            assert torch.equal(new_embs[subset_idxs, :], embs)
+
+            embs = new_embs
+            optim_state = None
+            logger.debug(f"Loaded {entity} embeddings of shape {embs.shape}")
+
         embs = torch.nn.Parameter(embs)
         optimizer = make_optimizer(self.config, [embs], True)
         if optim_state is not None:
@@ -865,47 +898,15 @@ class TrainingCoordinator:
                 embs, optimizer = self._load_embeddings(
                     entity, part, out=embs, strict=self.strict, force_dirty=force_dirty
                 )
-                """
-                Enlarging the embeddings from previously trained embeddings. We take in
-                the trained N old embeddings from init_path defined, and enlarge it to
-                N + M embeddings, with M be the number of new entities joining the training,
-                and initialize the M embeddings with random numbers
-                """
-                if self.init_entity_offsets:
-                    logger.debug(f"Enlarging from pretrained embeddings of entity {entity} in partition {part}")
-                    count = self.entity_counts[entity][part]
-                    new_embs = torch.rand((count, dimension))
-                    # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
-                    init_names: Set = set(self.init_entity_offsets[entity][part])
-                    new_names: List = self.entity_storage.load_names(entity, part)
-                    subset_idxs = {name: j for (j, name) in enumerate(init_names)}
 
-                    for i, new_name in enumerate(new_names):
-
-                        if new_name in init_names:
-                            subset_idxs[new_name] = i
-
-                        if (i+1) % 1000000 == 0:
-                                logger.debug(f"Mapped {i} entities...")
-
-                    subset_idxs = list(subset_idxs.values())
-                    new_embs[subset_idxs, :] = embs.detach().clone()
-
-                    # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
-                    logger.debug(f"{new_embs[subset_idxs[0], :]}")
-                    logger.debug(embs[0])
-                    assert torch.equal(new_embs[subset_idxs, :], embs)
-
-                    embs = new_embs
-
-                logger.debug(f"Loaded {entity} embeddings of shape {embs.shape}")
                 holder.partitioned_embeddings[entity, part] = embs
                 self.trainer.partitioned_optimizers[entity, part] = optimizer
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
 
-        # Load the pretrained embeddings only once
-        # TODO: Temporary solution, refactor later
-        self.init_entity_offsets = None
+            # Load the pretrained embeddings only once
+            # TODO: Temporary solution, refactor later
+            self.init_entity_offsets = None
+
 
         assert new_parts == holder.partitioned_embeddings.keys()
 
