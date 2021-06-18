@@ -33,12 +33,7 @@ When running on multiple machines, they need to be able to communicate to each o
 
 ## Installation
 
-To install the latest version of PBG run:
-```bash
-pip install torchbiggraph
-```
-
-As an alternative, one can instead install the *development* version from the repository. This may have newer features but could be more unstable. To do so, clone the repository (or download it as an archive) and, inside the top-level directory, run:
+Clone the repository (or download it as an archive) and, inside the top-level directory, run:
 ```bash
 pip install .
 ```
@@ -49,7 +44,7 @@ PyTorch-BigGraph includes some C++ kernels that are only used for the experiment
 PBG_INSTALL_CPP=1 pip install .
 ```
 
-Everything will work identically except that you won't be able to run GPU training (`torchbiggraph_train_gpu`).
+Everything will work identically except that you will be able to run GPU training (`torchbiggraph_train_gpu`).
 
 
 ## Getting started
