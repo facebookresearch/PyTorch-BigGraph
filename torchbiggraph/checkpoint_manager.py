@@ -35,6 +35,7 @@ from torchbiggraph.types import (
     Partition,
     Rank,
 )
+from torchbiggraph.graph_storages import AbstractEntityStorage
 from torchbiggraph.util import CouldNotLoadData
 
 
@@ -447,6 +448,86 @@ class CheckpointManager:
         if self.rank == 0:
             self.storage.copy_model_to_snapshot(version, epoch_idx)
             self.storage.copy_version_to_snapshot(version, epoch_idx)
+
+    def enlarge(
+            self,
+            config: ConfigSchema,
+            init_entity_storage: AbstractEntityStorage,
+            entity_storage: AbstractEntityStorage,
+            entity_counts: Dict[str, List[int]],
+    ) -> None:
+        """
+        Enlarge a checkpoint to the new checkpoint path
+
+        * Read new entity counts and offsets from the updated partitioned data
+        * Enlarge previous N embeddings to N + M with M new entities
+         - Map the previous N embeddings to according to the new offsets
+         - Initialize the rest M embeddings to with random vectors
+        @param config: Config dictionary for the PBG run
+        @param init_entity_storage:
+        @param entity_storage:
+        @param entity_counts:
+        @return: None
+        """
+        logger.debug(f"Enlarging checkpoint from {config.init_path} to {config.checkpoint_path}")
+
+        init_entity_offsets: Dict[str, List[str]] = {}
+        init_entity_counts: Dict[str, List[int]] = {}
+        init_checkpoint_storage: AbstractCheckpointStorage = CHECKPOINT_STORAGES.make_instance(config.init_path)
+        init_version: int = init_checkpoint_storage.load_version()
+        metadata = self.collect_metadata()
+        # Load offsets from initial entities
+        for entity, econf in config.entities.items():
+            init_entity_offsets[entity] = []
+            init_entity_counts[entity] = []
+            for part in range(econf.num_partitions):
+                init_entity_offsets[entity]. \
+                    append(init_entity_storage.load_names(entity, part))
+                init_entity_counts[entity]. \
+                    append(init_entity_storage.load_count(entity, part))
+
+        # Enlarge embeddings to the new check point
+        for entity, econf in config.entities.items():
+            for part in range(econf.num_partitions):
+
+                embs, _ = init_checkpoint_storage.load_entity_partition(init_version, entity, part)
+
+                new_count = entity_counts[entity][part]
+                dimension = config.entity_dimension(entity)
+
+                new_embs = torch.randn((new_count, dimension))
+
+                logger.debug(f"Loaded old {entity} embeddings of shape {embs.shape}")
+                logger.debug(f"Loading {entity} embeddings of shape {new_embs.shape}")
+                logger.debug(f"Old embeddings {entity}{embs[0]}")
+
+                # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
+                init_names: Set = set(init_entity_offsets[entity][part])
+                new_names: List = entity_storage.load_names(entity, part)
+                subset_idxs = {name: j for (j, name) in enumerate(init_names)}
+
+                for i, new_name in enumerate(new_names):
+                    if new_name in init_names:
+                        subset_idxs[new_name] = i
+
+                    if (i + 1) % 1000000 == 0:
+                        logger.debug(f"Mapped {i + 1} entities...")
+
+                subset_idxs = list(subset_idxs.values())
+                # Enlarged embeddings with the offsets obtained from previous training
+                # Initialize new embeddings with random numbers
+                old_embs = embs.clone()
+                new_embs[subset_idxs, :] = embs.clone()
+
+                # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
+                logger.debug(f"New embs at index {0} \n {new_embs[0, :]}")
+
+                assert torch.equal(new_embs[subset_idxs, :], old_embs)
+
+                embs = new_embs
+                optim_state = None
+
+                self.storage.save_entity_partition(0, entity, part, embs, optim_state, metadata)
 
     def close(self) -> None:
         self.join()
