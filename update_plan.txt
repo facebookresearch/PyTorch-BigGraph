@@ -1,5 +1,0 @@
-1. Load entity mapping from previously pbg_input names
-2. Append new entities to the end of dictionary
-3. modify load_entities_by_type to preserve the previous mapping
-4. Enlarge the embeddings before training - add script to train_cpu.py
- -> Read the count files from newly partitioned data
