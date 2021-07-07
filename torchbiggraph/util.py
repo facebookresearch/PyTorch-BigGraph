@@ -206,15 +206,21 @@ class CouldNotLoadData(Exception):
     pass
 
 
+# Directly allocate a tensor on shared memory (instead of first allocating on
+# private memory and then converting, which uses twice the memory at peak, which
+# we cannot afford)
 def allocate_shared_tensor(shape: Iterable[int], *, dtype: torch.dtype) -> torch.Tensor:
-    dummy_tensor = torch.empty((0,), dtype=dtype)
-    storage_type = dummy_tensor.storage_type()
-    module, tensor_type_name = dummy_tensor.type().split(".")
-    assert module == "torch"
-    tensor_type = getattr(torch, tensor_type_name)
+    tensor = torch.empty((0,), dtype=dtype)
     size = torch.Size(shape)
-    storage = storage_type._new_shared(size.numel())
-    tensor = tensor_type(storage).view(size)
+    try:
+        # Post https://github.com/pytorch/pytorch/pull/59671 implementation
+        storage = torch.ByteStorage._new_shared(
+            nbytes=size.numel() * tensor.element_size()
+        )
+    except TypeError:
+        # Old and no longer working implementation
+        storage = tensor.storage_type()._new_shared(size.numel())
+    tensor.set_(storage, 0, size)
     return tensor
 
 
