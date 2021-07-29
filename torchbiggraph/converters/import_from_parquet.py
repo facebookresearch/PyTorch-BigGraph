@@ -43,6 +43,9 @@ def main():
     )
     parser.add_argument("--rel-col", type=str, help="Column index for relation entity")
     parser.add_argument(
+        "--weight-col", type=int, help="(Optional) Column index for edge weight"
+    )
+    parser.add_argument(
         "--relation-type-min-count",
         type=int,
         default=1,
@@ -72,7 +75,7 @@ def main():
         entity_path,
         edge_paths,
         opt.edge_paths,
-        ParquetEdgelistReader(opt.lhs_col, opt.rhs_col, opt.rel_col),
+        ParquetEdgelistReader(opt.lhs_col, opt.rhs_col, opt.rel_col, opt.weight_col),
         opt.entity_min_count,
         opt.relation_type_min_count,
         dynamic_relations,

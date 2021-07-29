@@ -363,6 +363,8 @@ class FileEdgeAppender(AbstractEdgeAppender):
             self.append_tensor_list("lhsd", edgelist.lhs.tensor_list)
         if len(edgelist.rhs.tensor_list.data) != 0:
             self.append_tensor_list("rhsd", edgelist.rhs.tensor_list)
+        if edgelist.has_weight():
+            self.append_tensor("weight", edgelist.weight)
 
 
 @EDGE_STORAGES.register_as("")  # No scheme
@@ -442,7 +444,18 @@ class FileEdgeStorage(AbstractEdgeStorage):
                 lhsd = self.read_dynamic(hf, "lhsd", begin, end, shared=shared)
                 rhsd = self.read_dynamic(hf, "rhsd", begin, end, shared=shared)
 
-                return EdgeList(EntityList(lhs, lhsd), EntityList(rhs, rhsd), rel)
+                if "weight" in hf:
+                    weight_ds = hf["weight"]
+                    weight = allocator((chunk_size,), dtype=torch.long)
+                    if chunk_size > 0:
+                        weight_ds.read_direct(
+                            weight.numpy(), source_sel=np.s_[begin:end]
+                        )
+                else:
+                    weight = None
+                return EdgeList(
+                    EntityList(lhs, lhsd), EntityList(rhs, rhsd), rel, weight
+                )
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.

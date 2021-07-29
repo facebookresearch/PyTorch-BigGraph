@@ -144,7 +144,6 @@ class GPUProcess(mp.get_context("spawn").Process):
         return torch.device("cuda", index=self.gpu_idx)
 
     def run(self) -> None:
-
         torch.set_num_threads(1)
         torch.cuda.set_device(self.my_device)
         if self.subprocess_init is not None:
@@ -493,6 +492,7 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         edges_lhs = edges.lhs.tensor
         edges_rhs = edges.rhs.tensor
         edges_rel = edges.rel
+        assert edges.weight is None, "Edge weights not implemented in GPU mode yet"
         if eval_edge_idxs is not None:
             bucket_logger.debug("Removing eval edges")
             tk.start("remove_eval")

@@ -35,7 +35,12 @@ def group_by_relation_type(edges: EdgeList) -> List[EdgeList]:
         rel_type = sorted_rel[start]
         edges_for_rel_type = edges[order[start:end]]
         result.append(
-            EdgeList(edges_for_rel_type.lhs, edges_for_rel_type.rhs, rel_type)
+            EdgeList(
+                edges_for_rel_type.lhs,
+                edges_for_rel_type.rhs,
+                rel_type,
+                edges_for_rel_type.weight,
+            )
         )
     return result
 
@@ -133,8 +138,8 @@ class AbstractBatchProcessor(ABC):
 
     def calc_loss(self, scores: Scores, batch_edges: EdgeList):
 
-        lhs_loss = self.loss_fn(scores.lhs_pos, scores.lhs_neg)
-        rhs_loss = self.loss_fn(scores.rhs_pos, scores.rhs_neg)
+        lhs_loss = self.loss_fn(scores.lhs_pos, scores.lhs_neg, batch_edges.weight)
+        rhs_loss = self.loss_fn(scores.rhs_pos, scores.rhs_neg, batch_edges.weight)
         relation = (
             batch_edges.get_relation_type_as_scalar()
             if batch_edges.has_scalar_relation_type()

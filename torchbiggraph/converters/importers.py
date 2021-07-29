@@ -47,11 +47,13 @@ class TSVEdgelistReader(EdgelistReader):
         lhs_col: int,
         rhs_col: int,
         rel_col: Optional[int],
+        weight_col: Optional[int],
         delimiter: Optional[str] = None,
     ):
         self.lhs_col = lhs_col
         self.rhs_col = rhs_col
         self.rel_col = rel_col
+        self.weight_col = weight_col
         self.delimiter = delimiter
 
     def read(self, path: Path):
@@ -62,7 +64,10 @@ class TSVEdgelistReader(EdgelistReader):
                     lhs_word = words[self.lhs_col]
                     rhs_word = words[self.rhs_col]
                     rel_word = words[self.rel_col] if self.rel_col is not None else None
-                    yield lhs_word, rhs_word, rel_word
+                    weight_word = (
+                        words[self.weight_col] if self.weight_word is not None else None
+                    )
+                    yield lhs_word, rhs_word, rel_word, weight_word
                 except IndexError:
                     raise RuntimeError(
                         f"Line {line_num} of {path} has only {len(words)} words"
@@ -70,12 +75,21 @@ class TSVEdgelistReader(EdgelistReader):
 
 
 class ParquetEdgelistReader(EdgelistReader):
-    def __init__(self, lhs_col: str, rhs_col: str, rel_col: Optional[str]):
+    def __init__(
+        self,
+        lhs_col: str,
+        rhs_col: str,
+        rel_col: Optional[str],
+        weight_col: Optional[str],
+    ):
         """Reads edgelists from a Parquet file.
 
         col arguments can either be the column name or the offset of the col.
         """
-        self.lhs_col, self.rhs_col, self.rel_col = lhs_col, rhs_col, rel_col
+        self.lhs_col = lhs_col
+        self.rhs_col = rhs_col
+        self.rel_col = rel_col
+        self.weight_col = weight_col
 
     def read(self, path: Path):
         try:
@@ -87,14 +101,19 @@ class ParquetEdgelistReader(EdgelistReader):
             )
 
         with path.open("rb") as tf:
-            columns = [self.lhs_col, self.rhs_col]
-            if self.rel_col is not None:
-                columns.append(self.rel_col)
-            for row in parquet.reader(tf, columns=columns):
-                if self.rel_col is not None:
-                    yield row
-                else:
-                    yield row[0], row[1], None
+            columns = [self.lhs_col, self.rhs_col, self.rel_col, self.weight_col]
+            fetch_columns = [c for c in columns if c is not None]
+            for row in parquet.reader(tf, columns=fetch_columns):
+                offset = 0
+                ret = []
+                for c in columns:
+                    if c is not None:
+                        ret.append(row[offset])
+                        offset += 1
+                    else:
+                        ret.append(None)
+
+                yield tuple(ret)
 
 
 def collect_relation_types(
@@ -151,7 +170,7 @@ def collect_entities_by_type(
 
     log("Searching for the entities in the edge files...")
     for edgepath in edge_paths:
-        for lhs_word, rhs_word, rel_word in edgelist_reader.read(edgepath):
+        for lhs_word, rhs_word, rel_word, _weight in edgelist_reader.read(edgepath):
             if dynamic_relations or rel_word is None:
                 rel_id = 0
             else:
@@ -211,12 +230,14 @@ def generate_entity_path_files(
 
 
 def append_to_file(data, appender):
-    lhs_offsets, rhs_offsets, rel_ids = zip(*data)
+    lhs_offsets, rhs_offsets, rel_ids, weights = zip(*data)
+    weights = torch.tensor(weights) if weights[0] is not None else None
     appender.append_edges(
         EdgeList(
             EntityList.from_tensor(torch.tensor(lhs_offsets, dtype=torch.long)),
             EntityList.from_tensor(torch.tensor(rhs_offsets, dtype=torch.long)),
             torch.tensor(rel_ids, dtype=torch.long),
+            weights,
         )
     )
 
@@ -254,7 +275,7 @@ def generate_edge_path_files(
         appenders: Dict[Tuple[int, int], AbstractEdgeAppender] = {}
         data: Dict[Tuple[int, int], List[Tuple[int, int, int]]] = {}
 
-        for lhs_word, rhs_word, rel_word in edgelist_reader.read(edge_file_in):
+        for lhs_word, rhs_word, rel_word, weight in edgelist_reader.read(edge_file_in):
             if rel_word is None:
                 rel_id = 0
             else:
@@ -291,7 +312,7 @@ def generate_edge_path_files(
                 data[lhs_part, rhs_part] = []
 
             part_data = data[lhs_part, rhs_part]
-            part_data.append((lhs_offset, rhs_offset, rel_id))
+            part_data.append((lhs_offset, rhs_offset, rel_id, weight))
             if len(part_data) > n_flush_edges:
                 append_to_file(part_data, appenders[lhs_part, rhs_part])
                 part_data.clear()
