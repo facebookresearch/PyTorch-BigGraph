@@ -130,6 +130,7 @@ class GPUProcess(mp.get_context("spawn").Process):
     ) -> None:
         super().__init__(daemon=True, name=f"GPU #{gpu_idx}")
         self.gpu_idx = gpu_idx
+
         self.master_endpoint, self.worker_endpoint = mp.get_context("spawn").Pipe()
         self.subprocess_init = subprocess_init
         self.sub_holder: Dict[
@@ -143,20 +144,17 @@ class GPUProcess(mp.get_context("spawn").Process):
         return torch.device("cuda", index=self.gpu_idx)
 
     def run(self) -> None:
+
         torch.set_num_threads(1)
         torch.cuda.set_device(self.my_device)
         if self.subprocess_init is not None:
             self.subprocess_init()
         self.master_endpoint.close()
+
         for s in self.embedding_storage_freelist:
             assert s.is_shared()
-            cptr = ctypes.c_void_p(s.data_ptr())
-            csize = ctypes.c_size_t(s.size() * s.element_size())
-            cflags = ctypes.c_uint(0)
-            # FIXME: broken by D20249187
-            # cudart = torch.cuda.cudart()
-            cudart = ctypes.cdll.LoadLibrary(ctypes.util.find_library("cudart"))
-            res = cudart.cudaHostRegister(cptr, csize, cflags)
+            cudart = torch.cuda.cudart()
+            res = cudart.cudaHostRegister(s.data_ptr(), s.size() * s.element_size(), 0)
             torch.cuda.check_error(res)
             assert s.is_pinned()
         logger.info(f"GPU subprocess {self.gpu_idx} up and running")
@@ -615,6 +613,7 @@ class GPUTrainingCoordinator(TrainingCoordinator):
 
         for gpu_idx in range(self.gpu_pool.num_gpus):
             schedule(gpu_idx)
+
         while busy_gpus:
             gpu_idx, result = self.gpu_pool.wait_for_next()
             assert gpu_idx == result.gpu_idx
