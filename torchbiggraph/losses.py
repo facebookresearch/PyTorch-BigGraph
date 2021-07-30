@@ -75,7 +75,7 @@ class LogisticLossFunction(AbstractLossFunction):
             neg_scores,
             neg_scores.new_zeros(()).expand(num_pos, num_neg),
             reduction="sum",
-            weight=weight.unsqueeze(-1) if weight is not None else None
+            weight=weight.unsqueeze(-1) if weight is not None else None,
         )
 
         loss = pos_loss + neg_weight * neg_loss
