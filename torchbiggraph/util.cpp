@@ -7,15 +7,18 @@
 namespace py = pybind11;
 
 namespace at {
-  class CPUGenerator;
-  class CPUGeneratorImpl;
-};
+class CPUGenerator;
+class CPUGeneratorImpl; // NOLINT
+}; // namespace at
 
 torch::Tensor randperm(long numItems, int numThreads, int64_t seedIn = -1) {
   // workaround a breaking chang in the name of CPUGenerator in PyTorch 1.5
   // https://github.com/pytorch/pytorch/pull/36027
   // This code will pick whichever class exists
-  typedef std::conditional<std::is_constructible<at::CPUGeneratorImpl, uint64_t>::value, at::CPUGeneratorImpl, at::CPUGenerator>::type CPUGeneratorType;
+  typedef std::conditional< // NOLINT
+      std::is_constructible<at::CPUGeneratorImpl, uint64_t>::value,
+      at::CPUGeneratorImpl,
+      at::CPUGenerator>::type CPUGeneratorType;
 
   auto perm = torch::empty(numItems, torch::kInt64);
   auto permAccessor = perm.accessor<int64_t, 1>();
@@ -24,7 +27,8 @@ torch::Tensor randperm(long numItems, int numThreads, int64_t seedIn = -1) {
   auto chunksAccessor = chunks.accessor<uint8_t, 1>();
   std::vector<std::vector<int>> allCounts(numThreads);
   auto stepOne = [&](int64_t startIdx, int64_t endIdx, int threadIdx) {
-    CPUGeneratorType generator(seedIn >= 0 ? seedIn + threadIdx : at::default_rng_seed_val);
+    CPUGeneratorType generator(
+        seedIn >= 0 ? seedIn + threadIdx : at::default_rng_seed_val);
 
     std::vector<int>& myCounts = allCounts[threadIdx];
     myCounts.assign(numThreads, 0);
@@ -76,7 +80,9 @@ torch::Tensor randperm(long numItems, int numThreads, int64_t seedIn = -1) {
     stepTwoThreads[threadIdx].join();
   }
   auto stepThree = [&](int64_t startIdx, int64_t endIdx, int threadIdx) {
-    CPUGeneratorType generator(seedIn >= 0 ? seedIn + threadIdx + numThreads: at::default_rng_seed_val);
+    CPUGeneratorType generator(
+        seedIn >= 0 ? seedIn + threadIdx + numThreads
+                    : at::default_rng_seed_val);
     for (int idx = startIdx; idx < endIdx - 1; idx += 1) {
       int64_t otherIdx = idx + generator.random() % (endIdx - idx);
       std::swap(permAccessor[idx], permAccessor[otherIdx]);
@@ -213,7 +219,6 @@ void shuffle(
   }
 }
 
-
 /**
  * This function takes an edgelist (representing a bucket) and splits it into
  * N*M sub-edgelists (its subbuckets). The input edgelist is given as three
@@ -273,11 +278,9 @@ subBucket(
   int64_t numEdges = relIn.sizes()[0];
   size_t numRelations = lhsPerms.size();
 
-  if (
-      rhsPerms.size() != numRelations ||
+  if (rhsPerms.size() != numRelations ||
       lhsEntityCounts.size() != numRelations ||
-      rhsEntityCounts.size() != numRelations
-  ) {
+      rhsEntityCounts.size() != numRelations) {
     throw std::runtime_error("Inconsistent num_relations");
   }
 
@@ -420,7 +423,12 @@ subBucket(
 }
 
 PYBIND11_MODULE(_C, m) {
-  m.def("randperm", &randperm, py::arg("num_items"), py::arg("num_threads"), py::arg("seed")=-1);
+  m.def(
+      "randperm",
+      &randperm,
+      py::arg("num_items"),
+      py::arg("num_threads"),
+      py::arg("seed") = -1);
   m.def(
       "reverse_permutation",
       &reversePermutation,
