@@ -86,15 +86,29 @@ class ParquetEdgelistReader(EdgelistReader):
                 "'pip install parquet'"
             )
 
-        with path.open("rb") as tf:
-            columns = [self.lhs_col, self.rhs_col]
-            if self.rel_col is not None:
-                columns.append(self.rel_col)
-            for row in parquet.reader(tf, columns=columns):
+        if path.is_dir():
+            files = [p for p in path.glob('*.parquet')]
+            random.shuffle(files)
+            for pq in files:
+                with pq.open("rb") as tf:
+                    columns = [self.lhs_col, self.rhs_col]
+                    if self.rel_col is not None:
+                        columns.append(self.rel_col)
+                    for row in parquet.reader(tf, columns=columns):
+                        if self.rel_col is not None:
+                            yield row
+                        else:
+                            yield row[0], row[1], None
+        else:
+            with path.open("rb") as tf:
+                columns = [self.lhs_col, self.rhs_col]
                 if self.rel_col is not None:
-                    yield row
-                else:
-                    yield row[0], row[1], None
+                    columns.append(self.rel_col)
+                for row in parquet.reader(tf, columns=columns):
+                    if self.rel_col is not None:
+                        yield row
+                    else:
+                        yield row[0], row[1], None
 
 
 def collect_relation_types(

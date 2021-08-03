@@ -417,8 +417,9 @@ class CheckpointManager:
 
     def remove_old_version(self, config: ConfigSchema) -> None:
         old_version = self.checkpoint_version - 1
-        # We never create a v0 checkpoint, so if there is one we leave it there.
-        if old_version == 0:
+        # We almost never create a v0 checkpoint, so if there is one we leave it there.
+        # Checkpoint of version 0 will be created in incremental training, so need to remove it
+        if old_version == 0 and config.init_entity_path is None:
             return
         for entity, econf in config.entities.items():
             for part in range(self.rank, econf.num_partitions, self.num_machines):
@@ -470,7 +471,11 @@ class CheckpointManager:
         @return: None
         """
         logger.debug(f"Enlarging checkpoint from {config.init_path} to {config.checkpoint_path}")
-        # TODO
+        # Checkpoint exist, not going to enlarge
+        if self.checkpoint_version > 0:
+            logger.info(f"Checkpoint with version {self.checkpoint_version} found at {config.checkpoint_path}"
+                        f", not enlarging")
+            return
         init_entity_offsets: Dict[str, List[str]] = {}
         init_entity_counts: Dict[str, List[int]] = {}
         init_checkpoint_storage: AbstractCheckpointStorage = CHECKPOINT_STORAGES.make_instance(config.init_path)
@@ -497,29 +502,20 @@ class CheckpointManager:
 
                 new_embs = torch.randn((new_count, dimension))
 
-                logger.debug(f"Loaded old {entity} embeddings of shape {embs.shape}")
                 logger.debug(f"Loading {entity} embeddings of shape {new_embs.shape}")
-                logger.debug(f"Old embeddings {entity}{embs[0]}")
 
                 # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
                 init_names: Dict = {j: init_name for (j, init_name) in enumerate(init_entity_offsets[entity][part])}
                 new_names: List = entity_storage.load_names(entity, part)
                 subset_idxs = {name: None for (_, name) in init_names.items()}
 
-                logger.debug(f"{list(init_names.values())[:100]}")
-                logger.debug(f"{new_names[:100]}")
-
-                init_name_set = set(init_names.values())
+                init_names_set = set(init_names.values())
 
                 for i, new_name in enumerate(new_names):
-                    if new_name in init_name_set:
+                    if new_name in init_names_set:
                         subset_idxs[new_name] = i
 
-                    if (i + 1) % 1000000 == 0:
-                        logger.debug(f"Mapped {i + 1} entities...")
-
                 subset_idxs = list(subset_idxs.values())
-                logger.debug(f"{subset_idxs[:100]}")
 
                 # Enlarged embeddings with the offsets obtained from previous training
                 # Initialize new embeddings with random numbers
@@ -527,13 +523,12 @@ class CheckpointManager:
                 new_embs[subset_idxs, :] = embs.clone()
 
                 # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
-                logger.debug(f"New embs at index {0} \n {new_embs[0, :]}")
-
                 assert torch.equal(new_embs[subset_idxs, :], old_embs)
 
                 embs = new_embs
                 optim_state = None
 
+                # Save the previous embeddings as the first version (v0)
                 self.storage.save_entity_partition(0, entity, part, embs, optim_state, metadata)
 
     def close(self) -> None:
