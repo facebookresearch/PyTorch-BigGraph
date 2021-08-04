@@ -509,6 +509,10 @@ class GPUTrainingCoordinator(TrainingCoordinator):
                 f"Time spent removing eval edges: {tk.stop('remove_eval'):.4f} s"
             )
 
+        # edges_lhs = edges_lhs[torch.randperm(edges_lhs.size()[0])]
+        # edges_rhs = edges_rhs[torch.randperm(edges_rhs.size()[0])]
+        # edges_rel = edges_rel[torch.randperm(edges_rel.size()[0])]
+
         bucket_logger.debug("Splitting edges into sub-buckets")
         tk.start("mapping_edges")
         # randomly permute the entities, to get a random subbucketing

@@ -505,22 +505,25 @@ class CheckpointManager:
                 logger.debug(f"Loading {entity} embeddings of shape {new_embs.shape}")
 
                 # Initialize an (N + M) X (emb_dim) enlarged embeddings storage
-                init_names: Dict = {j: init_name for (j, init_name) in enumerate(init_entity_offsets[entity][part])}
+                init_names: Dict = {init_name: j for (j, init_name) in enumerate(init_entity_offsets[entity][part])}
                 new_names: List = entity_storage.load_names(entity, part)
-                subset_idxs = {name: None for (_, name) in init_names.items()}
+                subset_idxs = {name: None for name in init_names.keys()}
+                old_subset_idxs = {name: None for name in init_names.keys()}
 
-                init_names_set = set(init_names.values())
+                init_names_set = set(init_names.keys())
 
                 for i, new_name in enumerate(new_names):
                     if new_name in init_names_set:
                         subset_idxs[new_name] = i
+                        old_subset_idxs[new_name] = init_names[new_name]
 
-                subset_idxs = list(subset_idxs.values())
+                subset_idxs = [v for v in subset_idxs.values() if v is not None]
+                old_subset_idxs = [v for v in old_subset_idxs.values() if v is not None]
 
                 # Enlarged embeddings with the offsets obtained from previous training
                 # Initialize new embeddings with random numbers
-                old_embs = embs.clone()
-                new_embs[subset_idxs, :] = embs.clone()
+                old_embs = embs[old_subset_idxs].clone()
+                new_embs[subset_idxs, :] = embs[old_subset_idxs].clone()
 
                 # Test case 1: Whether the embeddings are correctly mapped into the new embeddings
                 assert torch.equal(new_embs[subset_idxs, :], old_embs)
