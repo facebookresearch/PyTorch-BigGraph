@@ -46,8 +46,8 @@ class TSVEdgelistReader(EdgelistReader):
         self,
         lhs_col: int,
         rhs_col: int,
-        rel_col: Optional[int],
-        weight_col: Optional[int],
+        rel_col: Optional[int] = None,
+        weight_col: Optional[int] = None,
         delimiter: Optional[str] = None,
     ):
         self.lhs_col = lhs_col
