@@ -79,7 +79,7 @@ class EdgeList:
                 "%d != %d" % (rel.shape[0], len(lhs))
             )
 
-        if weight is not None and weight.is_empty():
+        if weight is not None and (weight.nelement() == 0):
             weight = None
 
         if weight is not None:
