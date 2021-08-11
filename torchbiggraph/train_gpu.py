@@ -495,23 +495,31 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         edges_lhs = edges.lhs.tensor
         edges_rhs = edges.rhs.tensor
         edges_rel = edges.rel
+        eval_edges_lhs = None
+        eval_edges_rhs = None
+        eval_edges_rel = None
+        full_edges_lhs = None
+        full_edges_rhs = None
+        full_edges_rel = None
         if eval_edge_idxs is not None:
             bucket_logger.debug("Removing eval edges")
             tk.start("remove_eval")
             num_eval_edges = len(eval_edge_idxs)
+            eval_edges_lhs = edges_lhs[eval_edge_idxs]
+            eval_edges_rhs = edges_rhs[eval_edge_idxs]
+            eval_edges_rel = edges_rel[eval_edge_idxs]
             edges_lhs[eval_edge_idxs] = edges_lhs[-num_eval_edges:].clone()
             edges_rhs[eval_edge_idxs] = edges_rhs[-num_eval_edges:].clone()
             edges_rel[eval_edge_idxs] = edges_rel[-num_eval_edges:].clone()
+            full_edges_lhs = edges_lhs
+            full_edges_rhs = edges_rhs
+            full_edges_rel = edges_rel
             edges_lhs = edges_lhs[:-num_eval_edges]
             edges_rhs = edges_rhs[:-num_eval_edges]
             edges_rel = edges_rel[:-num_eval_edges]
             bucket_logger.debug(
                 f"Time spent removing eval edges: {tk.stop('remove_eval'):.4f} s"
             )
-
-        # edges_lhs = edges_lhs[torch.randperm(edges_lhs.size()[0])]
-        # edges_rhs = edges_rhs[torch.randperm(edges_rhs.size()[0])]
-        # edges_rel = edges_rel[torch.randperm(edges_rel.size()[0])]
 
         bucket_logger.debug("Splitting edges into sub-buckets")
         tk.start("mapping_edges")
@@ -656,6 +664,11 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         bucket_logger.debug(
             f"Time spent mapping embeddings back from sub-buckets: {tk.stop('rev_perm'):.4f} s"
         )
+
+        if eval_edge_idxs is not None:
+            full_edges_lhs[eval_edge_idxs] = eval_edges_lhs
+            full_edges_rhs[eval_edge_idxs] = eval_edges_rhs
+            full_edges_rel[eval_edge_idxs] = eval_edges_rel
 
         logger.debug(
             f"_coordinate_train: Time unaccounted for: {tk.unaccounted():.4f} s"
