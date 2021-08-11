@@ -492,11 +492,17 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         edges_lhs = edges.lhs.tensor
         edges_rhs = edges.rhs.tensor
         edges_rel = edges.rel
+        eval_edges_lhs = None
+        eval_edges_rhs = None
+        eval_edges_rel = None
         assert edges.weight is None, "Edge weights not implemented in GPU mode yet"
         if eval_edge_idxs is not None:
             bucket_logger.debug("Removing eval edges")
             tk.start("remove_eval")
             num_eval_edges = len(eval_edge_idxs)
+            eval_edges_lhs = edges_lhs[eval_edge_idxs]
+            eval_edges_rhs = edges_rhs[eval_edge_idxs]
+            eval_edges_rel = edges_rel[eval_edge_idxs]
             edges_lhs[eval_edge_idxs] = edges_lhs[-num_eval_edges:].clone()
             edges_rhs[eval_edge_idxs] = edges_rhs[-num_eval_edges:].clone()
             edges_rel[eval_edge_idxs] = edges_rel[-num_eval_edges:].clone()
@@ -651,6 +657,16 @@ class GPUTrainingCoordinator(TrainingCoordinator):
         bucket_logger.debug(
             f"Time spent mapping embeddings back from sub-buckets: {tk.stop('rev_perm'):.4f} s"
         )
+
+        if eval_edge_idxs is not None:
+            bucket_logger.debug("Restoring eval edges")
+            tk.start("restore_eval")
+            edges.lhs.tensor[eval_edge_idxs] = eval_edges_lhs
+            edges.rhs.tensor[eval_edge_idxs] = eval_edges_rhs
+            edges.rel[eval_edge_idxs] = eval_edges_rel
+            bucket_logger.debug(
+                f"Time spent restoring eval edges: {tk.stop('restore_eval'):.4f} s"
+            )
 
         logger.debug(
             f"_coordinate_train: Time unaccounted for: {tk.unaccounted():.4f} s"
