@@ -46,8 +46,8 @@ class TSVEdgelistReader(EdgelistReader):
         self,
         lhs_col: int,
         rhs_col: int,
-        rel_col: Optional[int],
-        weight_col: Optional[int],
+        rel_col: Optional[int] = None,
+        weight_col: Optional[int] = None,
         delimiter: Optional[str] = None,
     ):
         self.lhs_col = lhs_col
@@ -65,7 +65,9 @@ class TSVEdgelistReader(EdgelistReader):
                     rhs_word = words[self.rhs_col]
                     rel_word = words[self.rel_col] if self.rel_col is not None else None
                     weight_word = (
-                        words[self.weight_col] if self.weight_word is not None else None
+                        float(words[self.weight_col])
+                        if self.weight_word is not None
+                        else None
                     )
                     yield lhs_word, rhs_word, rel_word, weight_word
                 except IndexError:
@@ -128,7 +130,9 @@ def collect_relation_types(
         log("Looking up relation types in the edge files...")
         counter: Counter[str] = Counter()
         for edgepath in edge_paths:
-            for _lhs_word, _rhs_word, rel_word in edgelist_reader.read(edgepath):
+            for _lhs_word, _rhs_word, rel_word, _weight_word in edgelist_reader.read(
+                edgepath
+            ):
                 if rel_word is None:
                     raise RuntimeError("Need to specify rel_col in dynamic mode.")
                 counter[rel_word] += 1
