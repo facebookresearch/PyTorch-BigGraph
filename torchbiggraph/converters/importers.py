@@ -66,7 +66,7 @@ class TSVEdgelistReader(EdgelistReader):
                     rel_word = words[self.rel_col] if self.rel_col is not None else None
                     weight_word = (
                         float(words[self.weight_col])
-                        if self.weight_word is not None
+                        if self.weight_col is not None
                         else None
                     )
                     yield lhs_word, rhs_word, rel_word, weight_word
