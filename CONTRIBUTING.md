@@ -14,7 +14,7 @@ copied over using ImportIt (a companion tool for ShipIt).
 
 We actively welcome your pull requests.
 
-1. Fork the repo and create your branch from `master`.
+1. Fork the repo and create your branch from `main`.
 2. If you've added code that should be tested, add tests.
 3. If you've changed APIs, update the documentation.
 4. Ensure the test suite passes.
@@ -37,7 +37,7 @@ Facebook has a [bounty program](https://www.facebook.com/whitehat/) for the safe
 disclosure of security bugs. In those cases, please go through the process
 outlined on that page and do not file a public issue.
 
-## Coding Style  
+## Coding Style
 
 This project adheres to the [PEP 8](https://www.python.org/dev/peps/pep-0008/)
 style guidelines. It is linted using [Flake8](https://pypi.org/project/flake8/).
