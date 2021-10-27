@@ -32,3 +32,10 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+
+Legal
+=====
+
+* `Terms of Use <https://opensource.facebook.com/legal/terms>`_
+* `Privacy Policy <https://opensource.facebook.com/legal/privacy>`_
