@@ -4,10 +4,31 @@
 
 PyTorch-BigGraph (PBG) is a distributed system for learning graph embeddings for large graphs, particularly big web interaction graphs with up to billions of entities and trillions of edges.
 
-**Update:** *PBG now supports GPU training. Check out the [GPU Training](#gpu-training) section below!*
 
 PBG was introduced in the [PyTorch-BigGraph: A Large-scale Graph Embedding Framework](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) paper, presented at the [SysML conference](https://mlsys.org/) in 2019.
 
+**Update:** *PBG now supports GPU training. Check out the [GPU Training](#gpu-training) section below!*
+
+<!-- toc -->
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Getting Started](#getting-started)
+  - [Downloading the data](#downloading-the-data)
+  - [Preparing the data](#preparing-the-data)
+  - [Training](#training)
+    - [GPU Training](#gpu-training)
+  - [Evaluation](#evaluation)
+  - [Converting the output](#converting-the-output)
+- [Pre-trained embeddings](#pre-trained-embeddings)
+- [Documentation](#documentation)
+- [Communication](#communication)
+- [Citation](#citation)
+- [License](#license)
+
+<!-- tocstop -->
+
+## Overview 
 PBG trains on an input graph by ingesting its list of edges, each identified by its source and target entities and, possibly, a relation type. It outputs a feature vector (embedding) for each entity, trying to place adjacent entities close to each other in the vector space, while pushing unconnected entities apart. Therefore, entities that have a similar distribution of neighbors will end up being nearby.
 
 It is possible to configure each relation type to calculate this "proximity score" in a different way, with the parameters (if any) learned during training. This allows the same underlying entity embeddings to be shared among multiple relation types.
@@ -21,7 +42,6 @@ PBG is designed with scale in mind, and achieves it through:
 - *batched negative sampling*, allowing for processing >1 million edges/sec/machine with 100 negatives per edge
 
 PBG is not optimized for small graphs. If your graph has fewer than 100,000 nodes, consider using [KBC](https://github.com/facebookresearch/kbc) with the ComplEx model and N3 regularizer. KBC produces state-of-the-art embeddings for graphs that can fit on a single GPU. Compared to KBC, PyTorch-BigGraph enables learning on very large graphs whose embeddings wouldn't fit in a single GPU or a single machine, but may not produce high-quality embeddings for small graphs without careful tuning.
-
 
 ## Requirements
 
@@ -47,8 +67,6 @@ PBG_INSTALL_CPP=1 pip install .
 Everything will work identically except that you will be able to run GPU training (`torchbiggraph_train_gpu`).
 
 
-## Getting started
-
 The results of [the paper](https://mlsys.org/Conferences/2019/doc/2019/71.pdf) can easily be reproduced by running the following command (which executes [this script](torchbiggraph/examples/fb15k.py)):
 ```bash
 torchbiggraph_example_fb15k
@@ -56,6 +74,8 @@ torchbiggraph_example_fb15k
 This will download the Freebase 15k knowledge base dataset, put it into the right format, train on it using the ComplEx model and finally perform an evaluation of the learned embeddings that calculates the MRR and other metrics that should match the paper. Another command, `torchbiggraph_example_livejournal`, does the same for the LiveJournal interaction graph dataset.
 
 To learn how to use PBG, let us walk through what the FB15k script does.
+
+## Getting started
 
 ### Downloading the data
 
@@ -192,13 +212,19 @@ bar	rhs	complex_diagonal	real	200	-2.350617170	0.529571176	0.521403074	...
 bar	rhs	complex_diagonal	imag	200	0.692483306	0.446569800	0.235914066	...
 ```
 
+## Pre-trained embeddings
+
+We trained a PBG model on the full [Wikidata](https://www.wikidata.org/) graph, using a [translation operator](https://torchbiggraph.readthedocs.io/en/latest/scoring.html#operators) to represent relations. It can be downloaded [here](https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz) (36GiB, gzip-compressed). We used the truthy version of data from [here](https://dumps.wikimedia.org/wikidatawiki/entities/) to train our model. The model file is in TSV format as described in the above section. Note that the first line of the file contains the number of entities, the number of relations and the dimension of the embeddings, separated by tabs. The model contains 78 million entities, 4,131 relations and the dimension of the embeddings is 200.
+
+
 ## Documentation
 
 More information can be found in [the full documentation](https://torchbiggraph.readthedocs.io/).
 
-## Pre-trained embeddings
+## Communication
 
-We trained a PBG model on the full [Wikidata](https://www.wikidata.org/) graph, using a [translation operator](https://torchbiggraph.readthedocs.io/en/latest/scoring.html#operators) to represent relations. It can be downloaded [here](https://dl.fbaipublicfiles.com/torchbiggraph/wikidata_translation_v1.tsv.gz) (36GiB, gzip-compressed). We used the truthy version of data from [here](https://dumps.wikimedia.org/wikidatawiki/entities/) to train our model. The model file is in TSV format as described in the above section. Note that the first line of the file contains the number of entities, the number of relations and the dimension of the embeddings, separated by tabs. The model contains 78 million entities, 4,131 relations and the dimension of the embeddings is 200.
+- GitHub Issues: Bug reports, feature requests, install issues, etc.
+- The [PyTorch-BigGraph Slack](https://join.slack.com/t/pytorchbiggraph/shared_invite/zt-yxy7zl41-37ypKwOqLHhmMSac5XOh2w) is a forum for online discussion between developers and users, discussing features, collaboration, etc.
 
 ## Citation
 
