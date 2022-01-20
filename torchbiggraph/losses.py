@@ -147,7 +147,7 @@ class SoftmaxLossFunction(AbstractLossFunction):
         if weight is not None:
             loss_per_sample = F.cross_entropy(
                 scores,
-                torch.zeros((num_pos, ), dtype=torch.long, device=scores.device),
+                pos_scores.new_zeros((num_pos, ), dtype=torch.long, device=scores.device),
                 reduction="none",
             )
             match_shape(weight, num_pos)
@@ -155,7 +155,7 @@ class SoftmaxLossFunction(AbstractLossFunction):
         else:
             loss_per_sample = F.cross_entropy(
                 scores,
-                torch.zeros((num_pos, ), dtype=torch.long, device=scores.device),
+                pos_scores.new_zeros((num_pos, ), dtype=torch.long, device=scores.device),
                 reduction="sum",
             )
 
