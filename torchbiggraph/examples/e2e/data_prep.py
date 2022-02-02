@@ -24,6 +24,26 @@ logging.basicConfig(
     level=logging.DEBUG
 )
 
+"""
+This is intended as a simple end-to-end example of how to get your data into
+the format that PyTorch BigGraph expects using SQL. It's implemented in SQLite
+for portability, but similar techniques scale to 100bn edges using cloud
+databases such as BigQuery. This pipeline can be split into three different
+components:
+
+1. Data preparation
+2. Data verification/checking
+3. Training
+
+To run the pipeline, you'll first need to download the edges.csv file,
+available HERE (TODO: INSERT LINK). This graph was constructed by
+taking the [ogbl-citation2](https://github.com/snap-stanford/ogb) graph, and
+adding edges for both paper-citations and years-published. While this graph
+might not make a huge amount of sense, it's intended to largely fulfill a
+pedagogical purpose. In the data preparation stage, we first load the graph
+into a SQLite database, and then we transform and partition it.
+"""
+
 def remap_relationships(conn):
     """
     A function to remap relationships using SQL queries.
@@ -286,7 +306,7 @@ def write_training_data(outdir, rels, entity2partitions, conn):
 
 def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/'):
     conn = sqlite3.connect("citationv2.db")
-    load_edges(edge_file_name, conn)
+    # load_edges(edge_file_name, conn)
 
     entity2partitions = {
         'paper': NPARTS,
@@ -294,9 +314,10 @@ def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/'):
     }
 
     rels = remap_relationships(conn)
-    remap_entities(conn, entity2partitions)
-    remap_edges(conn, rels, entity2partitions)
-    out = Path(outdir).mkdir(parents=True, exist_ok=True)
+    # remap_entities(conn, entity2partitions)
+    # remap_edges(conn, rels, entity2partitions)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    out = Path(outdir)
     write_training_data(out, rels, entity2partitions, conn)
 
 
