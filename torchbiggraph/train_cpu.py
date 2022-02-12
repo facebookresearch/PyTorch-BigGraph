@@ -553,7 +553,7 @@ class TrainingCoordinator:
                     eval_stats_after,
                     eval_stats_chunk_avg,
                 )
-
+        FIRST = True
         for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
             logger.info(
                 f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
@@ -600,7 +600,10 @@ class TrainingCoordinator:
                 bucket_logger = BucketLogger(logger, bucket=cur_b)
                 self.bucket_logger = bucket_logger
 
-                io_bytes = self._swap_partitioned_embeddings(old_b, cur_b, old_stats)
+                io_bytes = 0
+                if FIRST:
+                    io_bytes = self._swap_partitioned_embeddings(old_b, cur_b, old_stats)
+                    FIRST = False
                 self.model.set_all_embeddings(holder, cur_b)
 
                 current_index = (
@@ -686,7 +689,9 @@ class TrainingCoordinator:
                     f"io: {io_time:.2f} s for {io_bytes:,} bytes ( {io_bytes / io_time / 1e6:.2f} MB/sec )"
                 )
 
-                self.model.clear_all_embeddings()
+                if total_buckets > 1:
+                    logging.info("Clearing all embeddings")
+                    self.model.clear_all_embeddings()
 
                 cur_stats = BucketStats(
                     lhs_partition=cur_b.lhs,
@@ -698,13 +703,21 @@ class TrainingCoordinator:
                 )
 
             # release the final bucket
-            self._swap_partitioned_embeddings(cur_b, None, cur_stats)
+            
+            final: bool = (epoch_idx + 1 == iteration_manager.num_epochs) \
+                      and (edge_path_idx + 1 == iteration_manager.num_edge_paths) \
+                      and (edge_chunk_idx + 1 == iteration_manager.num_edge_chunks)
+            to_write: bool = (final == True) or ((epoch_idx + 1) % 10 == 0 and edge_chunk_idx == 0)
+            if to_write:
+                logging.debug("Nondestructively writing the embeddings")
+                self._nondestructive_write_embedding(cur_b)
+            self._write_stats(cur_b, cur_stats)
+            # self._swap_partitioned_embeddings(cur_b, None, cur_stats, to_write)
 
             # Distributed Processing: all machines can leave the barrier now.
             self._barrier()
 
             current_index = (iteration_manager.iteration_idx + 1) * total_buckets - 1
-
             self._maybe_write_checkpoint(
                 epoch_idx, edge_path_idx, edge_chunk_idx, current_index
             )
@@ -770,11 +783,35 @@ class TrainingCoordinator:
             optimizer.load_state_dict(optim_state)
         return embs, optimizer
 
+    def _write_single_embedding(
+        self,
+        holder: EmbeddingHolder,
+        entity: EntityName,
+        part: Partition):
+        embs = holder.partitioned_embeddings[(entity, part)]
+        optimizer = self.trainer.partitioned_optimizers[(entity, part)]
+        self.checkpoint_manager.write(
+            entity, part, embs.detach(), optimizer.state_dict()
+        )
+
+    def _nondestructive_write_embedding(self, bucket: Bucket):
+        parts: Set[Tuple[EntityName, Partition]] = set()
+        parts.update((e, bucket.lhs) for e in self.holder.lhs_partitioned_types)
+        parts.update((e, bucket.rhs) for e in self.holder.rhs_partitioned_types)
+        for entity, part in parts:
+            self._write_single_embedding(self.holder, entity, part)
+    
+    def _write_stats(self, bucket: Optional[Bucket], stats: Optional[BucketStats]):
+        if bucket is not None:
+            if stats is not None:
+                self.bucket_scheduler.release_bucket(bucket, stats)
+
     def _swap_partitioned_embeddings(
         self,
         old_b: Optional[Bucket],
         new_b: Optional[Bucket],
         old_stats: Optional[BucketStats],
+        write: bool = True,
     ) -> int:
         io_bytes = 0
         logger.info(f"Swapping partitioned embeddings {old_b} {new_b}")
@@ -797,18 +834,12 @@ class TrainingCoordinator:
             logger.info("Saving partitioned embeddings to checkpoint")
             for entity, part in old_parts - new_parts:
                 logger.debug(f"Saving ({entity} {part})")
-                embs = holder.partitioned_embeddings.pop((entity, part))
-                optimizer = self.trainer.partitioned_optimizers.pop((entity, part))
-                self.checkpoint_manager.write(
-                    entity, part, embs.detach(), optimizer.state_dict()
-                )
+                self._write_single_embedding(holder, entity, part)
                 self.embedding_storage_freelist[entity].add(embs.storage())
                 io_bytes += embs.numel() * embs.element_size()  # ignore optim state
                 # these variables are holding large objects; let them be freed
                 del embs
                 del optimizer
-
-            self.bucket_scheduler.release_bucket(old_b, old_stats)
 
         if new_b is not None:
             logger.info("Loading partitioned embeddings from checkpoint")
