@@ -7,13 +7,13 @@ import pandas as pd
 from pathlib import Path
 import sqlite3
 
-from sklearn.multiclass import OutputCodeClassifier
+from config_template import CONFIG_TEMPLATE
 from sql_templates import (
     edges_partitioned,
     edgelist_cte_mapper,
     remap_relns,
     partitioned_mapped_entities,
-    type_tmp_table
+    QUERY_MAKE_ID2PART_TBL
 )
 import sys
 import time
@@ -35,7 +35,7 @@ def remap_relationships(conn):
 
     query = """
     select *
-    from reln_map
+    from tmp_reln_map
     """
     logging.debug(f"Running query: {query}\n")
     rels = pd.read_sql_query(query, conn)
@@ -58,7 +58,7 @@ def remap_entities(conn, entity2partitions):
     start=time.time()
     query = ""
     for entity, npartitions in entity2partitions.items():
-        query = type_tmp_table.format(type=entity, nparts=npartitions)
+        query = QUERY_MAKE_ID2PART_TBL.format(type=entity, nparts=npartitions)
 
         for i in range(npartitions):
             query += partitioned_mapped_entities.format(type=entity, n=i)
@@ -148,7 +148,7 @@ def remap_edges(conn, rels, entity2partitions):
     for lhs_part in range(NPARTS):
         for rhs_part in range(NPARTS):
             nentities_postmap += conn.execute(f"""
-            select count(*) from edges_{lhs_part}_{rhs_part}
+            select count(*) from tmp_edges_{lhs_part}_{rhs_part}
             """).fetchall()[0][0]
     
     if nentities_postmap != nentities_premap:
@@ -163,7 +163,9 @@ def load_edges(fname, conn):
     """
     A simple function to load the edges into the SQL table. It is
     assumed that we will have a file of the form:
-    | source_id | source_type | relationship_name | destination_id | destination_type |
+    | source_id | source_type | relationship_name | destination_id | destination_type |.
+
+    For production applications you wouldn't use this step; it's just for our example.    
     """
     logging.info("Loading edges")
     start = time.time()
@@ -201,7 +203,7 @@ def write_relations(outdir, rels, conn):
     logging.info(f"Wrote relations in {end - start}s")
 
 
-def write_single_edge(work_packet):
+def write_single_bucket(work_packet):
     """
     A function to write out a single edge-lists in the format that
     PyTorch BigGraph expects.
@@ -214,7 +216,7 @@ def write_single_edge(work_packet):
     lhs_part, rhs_part, outdir, conn = work_packet
     query = f"""
     select *
-    from edges_{lhs_part}_{rhs_part}
+    from tmp_edges_{lhs_part}_{rhs_part}
     ;
     """
     df = pd.read_sql_query(query, conn)
@@ -228,19 +230,19 @@ def write_single_edge(work_packet):
             f[dset][0 : len(df)] = df[colname].tolist()
 
 
-def write_edges(outdir, LHS_PARTS, RHS_PARTS, conn):
+def write_all_buckets(outdir, lhs_parts, rhs_parts, conn):
     """
     A function to write out all edge-lists in the format
     that PyTorch BigGraph expects.
     """
-    logging.info(f"Writing edges, {LHS_PARTS}, {RHS_PARTS}")
+    logging.info(f"Writing edges, {lhs_parts}, {rhs_parts}")
     start = time.time()
 
     # I would write these using multiprocessing but SQLite connections
     # aren't pickelable, and I'd like to keep this simple
-    worklist = list(itertools.product(range(LHS_PARTS), range(RHS_PARTS), ['training_data'], [conn]))
+    worklist = list(itertools.product(range(lhs_parts), range(rhs_parts), ['training_data'], [conn]))
     for w in worklist:
-        write_single_edge(w)
+        write_single_bucket(w)
 
     end = time.time()
     logging.info(f"Wrote edges in {end - start}s")
@@ -271,20 +273,19 @@ def write_training_data(outdir, rels, entity2partitions, conn):
     A function to write out all of the training relevant
     information that PyTorch BigGraph expects
     """
-    LHS_PARTS = 1
-    RHS_PARTS = 1
+    lhs_parts = 1
+    rhs_parts = 1
     for i, r in rels.iterrows():
-        if entity2partitions[r['source_type']] > LHS_PARTS:
-            LHS_PARTS = entity2partitions[r['source_type']]
-        if entity2partitions[r['destination_type']] > RHS_PARTS:
-            RHS_PARTS = entity2partitions[r['destination_type']]
+        if entity2partitions[r['source_type']] > lhs_parts:
+            lhs_parts = entity2partitions[r['source_type']]
+        if entity2partitions[r['destination_type']] > rhs_parts:
+            rhs_parts = entity2partitions[r['destination_type']]
 
     write_relations(outdir, rels, conn)
-    write_edges(rels, LHS_PARTS, RHS_PARTS, conn)
+    write_all_buckets(rels, lhs_parts, rhs_parts, conn)
     write_entities(outdir, entity2partitions, conn)
 
 
-def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/'):
     conn = sqlite3.connect("citationv2.db")
     # load_edges(edge_file_name, conn)
 
