@@ -1,3 +1,5 @@
+# SQL End to End Example
+
 This is intended as a simple end-to-end example of how to get your data into
 the format that PyTorch BigGraph expects using SQL. It's implemented in SQLite
 for portability, but similar techniques scale to billions of edges using cloud
@@ -38,3 +40,17 @@ available shared memory, you'll need to regenerate your data with more partition
 than what you currently have. If you're seeing either a bus error or a OOM kill
 message in the kernel ring buffer but your machine has enough ram, you'll want to
 verify that `/dev/shm` is large enough to accomodate your embedding table.
+
+# Extensions
+
+A few changes will need to be made to use this at scale in production environment.
+First, this pipeline is brittle and simplistic. For production workloads it's
+probably better to use a tool like DBT or dataflow to create independent tables
+in parallel. It's also important to be careful with our indices to make our joins
+performant.
+
+When it comes time to map your buckets to hdf5 files it's almost certainly more
+performant to dump them to chunked parquet/avro files and merge those files together
+in parallel. Every company's compute infrastructure is going to be different
+enough that this piece of code will have to be custom written. Fortunately, this
+code can be written once and reused.
