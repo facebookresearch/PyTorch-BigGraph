@@ -259,7 +259,7 @@ def write_entities(outdir, entity2partitions, conn):
         for i in range(nparts):
             query = f"""
                 select count(*)
-                from {entity_type}_ids_map_{i}
+                from tmp_{entity_type}_ids_map_{i}
             """
             sz = conn.execute(query).fetchall()[0][0]
             with open(f'{outdir}/entity_count_{entity_type}_id_{i}.txt', mode='w') as f:
@@ -281,8 +281,8 @@ def write_training_data(outdir, rels, entity2partitions, conn):
         if entity2partitions[r['destination_type']] > rhs_parts:
             rhs_parts = entity2partitions[r['destination_type']]
 
-    write_relations(outdir, rels, conn)
-    write_all_buckets(rels, lhs_parts, rhs_parts, conn)
+    # write_relations(outdir, rels, conn)
+    # write_all_buckets(rels, lhs_parts, rhs_parts, conn)
     write_entities(outdir, entity2partitions, conn)
 
 
@@ -290,7 +290,7 @@ def write_rels_dict(rels):
   my_rels = ""
   for _, row in rels.sort_values(by="graph_id").iterrows():
     r = "{"
-    r += f"'name': '{row['id']}', 'lhs': '{row['source_type']}', 'rhs': '{row['destination_type']}', 'operator': op"
+    r += f"'name': '{row['id']}', 'lhs': '{row['source_type']}', 'rhs': '{row['destination_type']}', 'operator': 'translation'"
     r += "},\n"
     my_rels += r
   return my_rels
@@ -299,13 +299,14 @@ def write_rels_dict(rels):
 def write_entities_dict(entity2partitions):
     my_entities = "{\n"
     for name, part in entity2partitions.items():
-        my_entities += '{ "{name}": {"num_partitions": {part}} }'.format(name=name, part=part)
+        my_entities += '{{ "{name}": {{"num_partitions": {part} }} }},\n'.format(name=name, part=part)
     my_entities += "}\n"
     return my_entities
 
 
 def write_config(rels, entity2partitions, config_out, train_out, model_out):
-    with open(config_out, mode='w') as f:
+    outname = Path(config_out) / 'config.py'
+    with open(outname, mode='w') as f:
         f.write(
             CONFIG_TEMPLATE.format(
                 RELN_DICT=write_rels_dict(rels),
@@ -332,9 +333,9 @@ def compute_memory_usage(entity2partitions, conn, NDIM=200):
     logging.info(f"I need {mem} GBs of ram for embedding table for {NDIM} Dimensions")
 
 
-def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir='model/', config_dir='.'):
+def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir='model/', config_dir=''):
     conn = sqlite3.connect("citationv2.db")
-    load_edges(edge_file_name, conn)
+    # load_edges(edge_file_name, conn)
 
     entity2partitions = {
         'paper': NPARTS,
@@ -342,9 +343,9 @@ def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir
     }
 
     rels = remap_relationships(conn)
-    remap_entities(conn, entity2partitions)
-    remap_edges(conn, rels, entity2partitions)
-    Path(outdir).mkdir(parents=True, exist_ok=True)
+    # remap_entities(conn, entity2partitions)
+    # remap_edges(conn, rels, entity2partitions)
+    # Path(outdir).mkdir(parents=True, exist_ok=True)
     out = Path(outdir)
     write_training_data(out, rels, entity2partitions, conn)
     write_config(rels, entity2partitions, config_dir, out, modeldir)
