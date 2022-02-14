@@ -286,8 +286,55 @@ def write_training_data(outdir, rels, entity2partitions, conn):
     write_entities(outdir, entity2partitions, conn)
 
 
+def write_rels_dict(rels):
+  my_rels = ""
+  for _, row in rels.sort_values(by="graph_id").iterrows():
+    r = "{"
+    r += f"'name': '{row['id']}', 'lhs': '{row['source_type']}', 'rhs': '{row['destination_type']}', 'operator': op"
+    r += "},\n"
+    my_rels += r
+  return my_rels
+
+
+def write_entities_dict(entity2partitions):
+    my_entities = "{\n"
+    for name, part in entity2partitions.items():
+        my_entities += '{ "{name}": {"num_partitions": {part}} }'.format(name=name, part=part)
+    my_entities += "}\n"
+    return my_entities
+
+
+def write_config(rels, entity2partitions, config_out, train_out, model_out):
+    with open(config_out, mode='w') as f:
+        f.write(
+            CONFIG_TEMPLATE.format(
+                RELN_DICT=write_rels_dict(rels),
+                ENTITIES_DICT=write_entities_dict(entity2partitions),
+                TRAINING_DIR=train_out,
+                MODEL_PATH=model_out,
+            )
+        )
+
+
+def compute_memory_usage(entity2partitions, conn, NDIM=200):
+    nentities = 0
+    for _type, parts in entity2partitions.items():
+        ntype = 0
+        for i in range(parts):
+            query = f"""
+                select count(*) as cnt
+                from `tmp_{_type}_ids_map_{i}`
+                """
+            ntype = max(ntype, conn.executequery(query).fetchall()[0][0])
+        nentities += ntype
+
+    mem = 1.5 * nentities * NDIM * 8 / 1024 / 1024 / 1024
+    logging.info(f"I need {mem} GBs of ram for embedding table for {NDIM} Dimensions")
+
+
+def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir='model/', config_dir='.'):
     conn = sqlite3.connect("citationv2.db")
-    # load_edges(edge_file_name, conn)
+    load_edges(edge_file_name, conn)
 
     entity2partitions = {
         'paper': NPARTS,
@@ -295,11 +342,12 @@ def write_training_data(outdir, rels, entity2partitions, conn):
     }
 
     rels = remap_relationships(conn)
-    # remap_entities(conn, entity2partitions)
-    # remap_edges(conn, rels, entity2partitions)
+    remap_entities(conn, entity2partitions)
+    remap_edges(conn, rels, entity2partitions)
     Path(outdir).mkdir(parents=True, exist_ok=True)
     out = Path(outdir)
     write_training_data(out, rels, entity2partitions, conn)
+    write_config(rels, entity2partitions, config_dir, out, modeldir)
 
 
 if __name__ == '__main__':
