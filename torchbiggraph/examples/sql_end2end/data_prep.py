@@ -9,10 +9,10 @@ import sqlite3
 
 from config_template import CONFIG_TEMPLATE
 from sql_templates import (
-    edges_partitioned,
-    edgelist_cte_mapper,
-    remap_relns,
-    partitioned_mapped_entities,
+    EDGES_PARTITIONED,
+    EDGELIST_CTE_MAPPER,
+    REMAP_RELNS,
+    PARTITIONED_MAPPED_ENTITIES,
     QUERY_MAKE_ID2PART_TBL
 )
 import sys
@@ -30,8 +30,8 @@ def remap_relationships(conn):
     """
     logging.info("Remapping relationships")
     start = time.time()
-    logging.debug(f"Running query: {remap_relns}\n")
-    conn.executescript(remap_relns)
+    logging.debug(f"Running query: {REMAP_RELNS}\n")
+    conn.executescript(REMAP_RELNS)
 
     query = """
     select *
@@ -61,7 +61,7 @@ def remap_entities(conn, entity2partitions):
         query = QUERY_MAKE_ID2PART_TBL.format(type=entity, nparts=npartitions)
 
         for i in range(npartitions):
-            query += partitioned_mapped_entities.format(type=entity, n=i)
+            query += PARTITIONED_MAPPED_ENTITIES.format(type=entity, n=i)
         logging.debug(f"Running query: {query}")
         conn.executescript(query)
     end = time.time()
@@ -85,7 +85,7 @@ def generate_ctes(lhs_part, rhs_part, rels, entity2partitions):
             continue
         if not first:
             ctes += f", cte_{nctes} as ("
-        ctes += edgelist_cte_mapper.format(
+        ctes += EDGELIST_CTE_MAPPER.format(
             rel_name=r['id'],
             lhs_type=r['source_type'],
             rhs_type=r['destination_type'],
@@ -133,7 +133,7 @@ def remap_edges(conn, rels, entity2partitions):
         for rhs_part in range(NPARTS):
             nctes, ctes = generate_ctes(lhs_part, rhs_part, rels, entity2partitions)
             subquery = generate_unions(nctes)
-            query += edges_partitioned.format(
+            query += EDGES_PARTITIONED.format(
                 i = lhs_part,
                 j = rhs_part,
                 ctes=ctes,

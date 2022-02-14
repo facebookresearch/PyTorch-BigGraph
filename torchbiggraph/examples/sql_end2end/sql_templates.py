@@ -13,7 +13,7 @@ create temporary table tmp_{type}_id2part as
 ;
 """
 
-partitioned_mapped_entities = """
+PARTITIONED_MAPPED_ENTITIES = """
 DROP TABLE IF EXISTS tmp_{type}_ids_map_{n}
 ;
 
@@ -29,7 +29,7 @@ order by 2 desc, 1 asc
 ;
 """
 
-remap_relns = """
+REMAP_RELNS = """
 DROP TABLE IF EXISTS tmp_reln_map
 ;
 
@@ -41,7 +41,7 @@ from (
 ) f
 """
 
-edgelist_cte_mapper = """
+EDGELIST_CTE_MAPPER = """
     select lhs.graph_id as source_id, rel.graph_id as rel_id, rhs.graph_id as destination_id
     from edges g
     join tmp_reln_map rel on (rel.id = g.rel)
@@ -58,7 +58,7 @@ edgelist_cte_mapper = """
     where g.rel = '{rel_name}'
 """
 
-edges_partitioned = """
+EDGES_PARTITIONED = """
 DROP TABLE IF EXISTS tmp_edges_{i}_{j}
 ;
 
