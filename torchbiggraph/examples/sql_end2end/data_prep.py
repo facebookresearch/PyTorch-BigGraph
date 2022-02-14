@@ -262,7 +262,7 @@ def write_entities(outdir, entity2partitions, conn):
                 from tmp_{entity_type}_ids_map_{i}
             """
             sz = conn.execute(query).fetchall()[0][0]
-            with open(f'{outdir}/entity_count_{entity_type}_id_{i}.txt', mode='w') as f:
+            with open(f'{outdir}/entity_count_{entity_type}_{i}.txt', mode='w') as f:
                 f.write(f"{sz}\n")
     end = time.time()
     logging.info(f"Wrote entites in {end - start}s")
@@ -299,7 +299,7 @@ def write_rels_dict(rels):
 def write_entities_dict(entity2partitions):
     my_entities = "{\n"
     for name, part in entity2partitions.items():
-        my_entities += '{{ "{name}": {{"num_partitions": {part} }} }},\n'.format(name=name, part=part)
+        my_entities += '\t"{name}": {{"num_partitions": {part} }},\n'.format(name=name, part=part)
     my_entities += "}\n"
     return my_entities
 

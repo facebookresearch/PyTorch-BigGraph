@@ -18,9 +18,7 @@ def get_torchbiggraph_config():
         ],
         checkpoint_path="{MODEL_PATH}",
         # Graph structure
-        entities={{
-            {ENTITIES_DICT}
-        }},
+        entities={ENTITIES_DICT},
         relations=[
             {RELN_DICT}
         ],
