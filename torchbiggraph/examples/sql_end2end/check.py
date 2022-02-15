@@ -46,7 +46,7 @@ class Checker:
             for lhs in range(self.holder.nparts_lhs):
                 for rhs in range(self.holder.nparts_rhs):
                     cur_b = Bucket(lhs, rhs)
-                    logging.info("Checking edge chunk: {edge_chunk_idx} for edges_{cur_b.lhs}_{cur_b.rhs}.h5")
+                    logging.info(f"Checking edge chunk: {edge_chunk_idx} for edges_{cur_b.lhs}_{cur_b.rhs}.h5")
                     edges = edge_storage.load_chunk_of_edges(
                         cur_b.lhs,
                         cur_b.rhs,
@@ -54,18 +54,21 @@ class Checker:
                         iteration_manager.num_edge_chunks,
                         shared=True,
                     )
+                    self.check_edge_chunk(cur_b, edges)
 
     def check_edge_chunk(self, cur_b, edges):
+        rhs = edges.rhs.to_tensor()
+        lhs = edges.lhs.to_tensor()
         rel_lhs_entity_counts = torch.tensor(
             [self.entity_counts[r.lhs][cur_b.lhs] for r in self.config.relations]
         )
         #Check LHS         
         edge_lhs_entity_count = rel_lhs_entity_counts[edges.rel]
 
-        if any(edges.lhs >= edge_lhs_entity_count):
-            _, worst_edge_idx = (edges.lhs - edge_lhs_entity_count).max(0)
+        if any(lhs >= edge_lhs_entity_count):
+            _, worst_edge_idx = (lhs - edge_lhs_entity_count).max(0)
             raise RuntimeError(f"edge {worst_edge_idx} has LHS entity of "
-                                f"{edges.lhs[worst_edge_idx]} but rel "
+                                f"{lhs[worst_edge_idx]} but rel "
                                 f"{edges.rel[worst_edge_idx]} only has "
                                 f"{edge_lhs_entity_count[worst_edge_idx]} "
                                 "entities "
@@ -76,10 +79,10 @@ class Checker:
             [self.entity_counts[r.rhs][cur_b.rhs] for r in self.config.relations]
         )
         edge_rhs_entity_count = rel_rhs_entity_counts[edges.rel]
-        if any(edges.rhs >= edge_rhs_entity_count):
-            _, worst_edge_idx = (edges.rhs - edge_rhs_entity_count).max(0)
+        if any(rhs >= edge_rhs_entity_count):
+            _, worst_edge_idx = (rhs - edge_rhs_entity_count).max(0)
             raise RuntimeError(f"edge {worst_edge_idx} has RHS entity of "
-                                f"{edges.rhs[worst_edge_idx]} but rel "
+                                f"{rhs[worst_edge_idx]} but rel "
                                 f"{edges.rel[worst_edge_idx]} only has "
                                 f"{edge_rhs_entity_count[worst_edge_idx]} "
                                 "entities "
