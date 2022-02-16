@@ -335,7 +335,7 @@ def compute_memory_usage(entity2partitions, conn, NDIM=200):
 
 def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir='model/', config_dir=''):
     conn = sqlite3.connect("citationv2.db")
-    # load_edges(edge_file_name, conn)
+    load_edges(edge_file_name, conn)
 
     entity2partitions = {
         'paper': NPARTS,
@@ -343,9 +343,9 @@ def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir
     }
 
     rels = remap_relationships(conn)
-    # remap_entities(conn, entity2partitions)
-    # remap_edges(conn, rels, entity2partitions)
-    # Path(outdir).mkdir(parents=True, exist_ok=True)
+    remap_entities(conn, entity2partitions)
+    remap_edges(conn, rels, entity2partitions)
+    Path(outdir).mkdir(parents=True, exist_ok=True)
     out = Path(outdir)
     write_training_data(out, rels, entity2partitions, conn)
     write_config(rels, entity2partitions, config_dir, out, modeldir)
