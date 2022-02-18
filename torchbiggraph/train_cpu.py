@@ -553,8 +553,9 @@ class TrainingCoordinator:
                     eval_stats_after,
                     eval_stats_chunk_avg,
                 )
-        FIRST = True
+        first = True
         for epoch_idx, edge_path_idx, edge_chunk_idx in iteration_manager:
+            epoch_start = time.perf_counter()
             logger.info(
                 f"Starting epoch {epoch_idx + 1} / {iteration_manager.num_epochs}, "
                 f"edge path {edge_path_idx + 1} / {iteration_manager.num_edge_paths}, "
@@ -601,10 +602,16 @@ class TrainingCoordinator:
                 self.bucket_logger = bucket_logger
 
                 io_bytes = 0
-                if FIRST:
+                if first:
+                    start = time.perf_counter()
                     io_bytes = self._swap_partitioned_embeddings(old_b, cur_b, old_stats)
-                    FIRST = False
+                    end = time.perf_counter()
+                    logger.debug(f"Loading embedings took {(end - start):.2f} seconds")
+                    first = False
+                start = time.perf_counter()
                 self.model.set_all_embeddings(holder, cur_b)
+                end = time.perf_counter()
+                logger.debug(f"Setting all embeddings took {(end - start):.2f} seconds")
 
                 current_index = (
                     (iteration_manager.iteration_idx + 1) * total_buckets
@@ -613,6 +620,7 @@ class TrainingCoordinator:
                 )
 
                 bucket_logger.debug("Loading edges")
+                start = time.perf_counter()
                 edges = edge_storage.load_chunk_of_edges(
                     cur_b.lhs,
                     cur_b.rhs,
@@ -620,6 +628,8 @@ class TrainingCoordinator:
                     iteration_manager.num_edge_chunks,
                     shared=True,
                 )
+                end = time.perf_counter()
+                logger.debug(f"Loading edges took {(end - start):.2f} seconds")
                 num_edges = len(edges)
 
                 # this might be off in the case of tensorlist or extra edge fields
@@ -690,7 +700,7 @@ class TrainingCoordinator:
                 )
 
                 if total_buckets > 1:
-                    logging.info("Clearing all embeddings")
+                    logger.info("Clearing all embeddings")
                     self.model.clear_all_embeddings()
 
                 cur_stats = BucketStats(
@@ -707,10 +717,14 @@ class TrainingCoordinator:
             final: bool = (epoch_idx + 1 == iteration_manager.num_epochs) \
                       and (edge_path_idx + 1 == iteration_manager.num_edge_paths) \
                       and (edge_chunk_idx + 1 == iteration_manager.num_edge_chunks)
-            to_write: bool = (final == True) or ((epoch_idx + 1) % 10 == 0 and edge_chunk_idx == 0)
+            to_write: bool = (final == True) or ((epoch_idx + 1) % 5 == 0 and edge_chunk_idx == 0)
             if to_write:
-                logging.debug("Nondestructively writing the embeddings")
+                logger.debug("Nondestructively writing the embeddings")
+                start = time.perf_counter()
                 self._nondestructive_write_embedding(cur_b)
+                end = time.perf_counter()
+                logger.debug(f"Writing embeddings took {(end - start):.2f} seconds")
+
             self._write_stats(cur_b, cur_stats)
             # self._swap_partitioned_embeddings(cur_b, None, cur_stats, to_write)
 
@@ -718,9 +732,13 @@ class TrainingCoordinator:
             self._barrier()
 
             current_index = (iteration_manager.iteration_idx + 1) * total_buckets - 1
+            start = time.perf_counter()
             self._maybe_write_checkpoint(
                 epoch_idx, edge_path_idx, edge_chunk_idx, current_index
             )
+            end = time.perf_counter()
+            logger.debug(f"Writing checkpoint took {(end - start):.2f} seconds")
+            logger.debug(f"Epoch took {(end - start):.2f} seconds")
 
             # now we're sure that all partition files exist,
             # so be strict about loading them
