@@ -12,11 +12,7 @@ from torchbiggraph.config import ConfigFileLoader, ConfigSchema
 from torchbiggraph.types import Bucket
 from torchbiggraph.util import EmbeddingHolder
 
-logging.basicConfig(
-    format='%(process)d-%(levelname)s-%(message)s',
-    stream = sys.stdout,
-    level=logging.DEBUG
-)
+logger = logging.getLogger("torchbiggraph")
 
 class Checker:
     def __init__(self, config):
