@@ -11,6 +11,11 @@ from torchbiggraph.graph_storages import EDGE_STORAGES, ENTITY_STORAGES
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema
 from torchbiggraph.types import Bucket
 from torchbiggraph.util import EmbeddingHolder
+from torchbiggraph.util import (
+    set_logging_verbosity,
+    setup_logging,
+)
+
 
 logger = logging.getLogger("torchbiggraph")
 
@@ -94,6 +99,8 @@ if __name__ == '__main__':
     loader = ConfigFileLoader()
     config = loader.load_config(opt.config, opt.param)
 
+    set_logging_verbosity(config.verbose)
+    setup_logging(config.verbose)
 
     Checker(config).check_all_edges()
     logging.info("Found no errors in the input directory")
