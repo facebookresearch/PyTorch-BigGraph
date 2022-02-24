@@ -103,4 +103,4 @@ if __name__ == '__main__':
     setup_logging(config.verbose)
 
     Checker(config).check_all_edges()
-    logging.info("Found no errors in the input directory")
+    logging.info("Found no errors in the input")
