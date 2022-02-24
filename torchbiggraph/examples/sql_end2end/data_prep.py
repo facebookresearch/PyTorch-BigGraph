@@ -1,3 +1,4 @@
+import argparse
 import itertools
 import h5py
 import json
@@ -128,9 +129,9 @@ def remap_edges(conn, rels, entity2partitions):
     """).fetchall()[0][0]
 
     query = ""
-    NPARTS = max(entity2partitions.values())
-    for lhs_part in range(NPARTS):
-        for rhs_part in range(NPARTS):
+    nparts = max(entity2partitions.values())
+    for lhs_part in range(nparts):
+        for rhs_part in range(nparts):
             nctes, ctes = generate_ctes(lhs_part, rhs_part, rels, entity2partitions)
             subquery = generate_unions(nctes)
             query += EDGES_PARTITIONED.format(
@@ -145,8 +146,8 @@ def remap_edges(conn, rels, entity2partitions):
 
     logging.debug("Confirming that we didn't drop any edges.")
     nentities_postmap = 0
-    for lhs_part in range(NPARTS):
-        for rhs_part in range(NPARTS):
+    for lhs_part in range(nparts):
+        for rhs_part in range(nparts):
             nentities_postmap += conn.execute(f"""
             select count(*) from tmp_edges_{lhs_part}_{rhs_part}
             """).fetchall()[0][0]
@@ -333,12 +334,12 @@ def compute_memory_usage(entity2partitions, conn, NDIM=200):
     logging.info(f"I need {mem} GBs of ram for embedding table for {NDIM} Dimensions")
 
 
-def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir='model/', config_dir=''):
+def main(nparts=2, edge_file_name='edges.csv', outdir='training_data/', modeldir='model/', config_dir=''):
     conn = sqlite3.connect("citationv2.db")
     load_edges(edge_file_name, conn)
 
     entity2partitions = {
-        'paper': NPARTS,
+        'paper': nparts,
         'year': 1,
     }
 
@@ -352,4 +353,18 @@ def main(NPARTS=2, edge_file_name='edges.csv', outdir='training_data/', modeldir
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("npart", help="The number of partitions to split the paper_ids into")
+    parser.add_argument("e", help="The edges file to load in")
+    parser.add_argument("o", help="The directory where the training data should be stored")
+    parser.add_argument("m", help="The directory where the model artifacts should be stored")
+    parser.add_argument("c", help="The location where the generated config file will be stored")
+    opt = parser.parse_args()
+
+    main(
+        nparts=opt.npart,
+        edge_file_name=opt.e,
+        outdir=opt.o,
+        modeldir=opt.m,
+        config_dir=opt.c
+    )
