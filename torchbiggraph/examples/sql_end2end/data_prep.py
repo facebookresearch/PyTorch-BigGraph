@@ -224,7 +224,6 @@ def write_relations(outdir: Path, rels: pd.DataFrame, conn: Connection) -> None:
     logging.info("Writing relations for training")
     start = time.time()
 
-    outdir.mkdir(parents=True, exists_ok=True)
     out = rels.sort_values('graph_id')['id'].to_list()
     with open(f'{outdir}/dynamic_rel_names.json', mode='w') as f:
         json.dump(out, f, indent=4)
@@ -269,7 +268,7 @@ def write_all_buckets(outdir: Path, lhs_parts: int, rhs_parts: int, conn: Connec
 
     # I would write these using multiprocessing but SQLite connections
     # aren't pickelable, and I'd like to keep this simple
-    worklist = list(itertools.product(range(lhs_parts), range(rhs_parts), ['training_data'], [conn]))
+    worklist = list(itertools.product(range(lhs_parts), range(rhs_parts), [outdir], [conn]))
     for w in worklist:
         write_single_bucket(w)
 
@@ -315,12 +314,15 @@ def write_training_data(
     rhs_parts = 1
     for _, r in rels.iterrows():
         if entity2partitions[r['source_type']]['num_partitions'] > lhs_parts:
-            lhs_parts = entity2partitions[r['source_type']]
+            lhs_parts = entity2partitions[r['source_type']]['num_partitions']
         if entity2partitions[r['destination_type']]['num_partitions'] > rhs_parts:
-            rhs_parts = entity2partitions[r['destination_type']]
+            rhs_parts = entity2partitions[r['destination_type']]['num_partitions']
+
+    print("LHS_PARTS: ", lhs_parts)
+    print("RHS_PARTS: ", rhs_parts)
 
     write_relations(outdir, rels, conn)
-    write_all_buckets(rels, lhs_parts, rhs_parts, conn)
+    write_all_buckets(outdir, lhs_parts, rhs_parts, conn)
     write_entities(outdir, entity2partitions, conn)
 
 
@@ -333,15 +335,14 @@ def write_config(
     ndim: int = 200,
     ngpus:int = 2
     ) -> None:
-    config_out.mkdir(parents=True, exists_ok=True)
     outname = config_out / 'config.py'
     rels['operator'] = 'translation'
     rels = rels.rename({'id': 'name', 'source_type': 'lhs', 'destination_type': 'rhs'}, axis=1)
 
     cfg = copy.deepcopy(DEFAULT_CFG)
-    cfg['edge_paths'] = [ train_out ]
-    cfg['entity_path'] = train_out
-    cfg['checkpoint_path'] = model_out
+    cfg['edge_paths'] = [ train_out.as_posix() ]
+    cfg['entity_path'] = train_out.as_posix()
+    cfg['checkpoint_path'] = model_out.as_posix()
     cfg['entites'] = entity2partitions
     cfg['relations'] = rels[['name', 'lhs', 'rhs', 'operator']].to_dict(orient='records')
 
@@ -363,7 +364,9 @@ def compute_memory_usage(
                 select count(*) as cnt
                 from `tmp_{_type}_ids_map_{i}`
                 """
-            ntype = max(ntype, conn.executequery(query).fetchall()[0][0])
+            res = pd.read_sql_query(query, conn)
+            res = conn.execute(query).fetchall()
+            ntype = max(ntype, res[0][0])
         nentities += ntype
 
     # 1.2 here is an empirical safety factor.
@@ -390,11 +393,11 @@ def main(
     # remap_entities(conn, entity2partitions)
     # remap_edges(conn, rels, entity2partitions)
 
-    outdir.mkdir(parents=True, exists_ok=True)
-    config_dir.mkdir(parents=True, exists_ok=True)
-    modeldir.mkdir(parents=True, exists_ok=True)
+    outdir.mkdir(parents=True, exist_ok=True)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    modeldir.mkdir(parents=True, exist_ok=True)
 
-    write_training_data(outdir, rels, entity2partitions, conn)
+    # write_training_data(outdir, rels, entity2partitions, conn)
     write_config(rels, entity2partitions, config_dir, outdir, modeldir)
     compute_memory_usage(entity2partitions, conn, 200)
 
@@ -403,9 +406,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-npart", help="The number of partitions to split the paper_ids into", type=int)
     parser.add_argument("-e", help="The edges file to load in")
-    parser.add_argument("-o", help="The directory where the training data should be stored", default='training_data/', required=False)
-    parser.add_argument("-m", help="The directory where the model artifacts should be stored", default='model', required=False)
-    parser.add_argument("-c", help="The location where the generated config file will be stored", default='.', required=False)
+    parser.add_argument("-o", help="The directory where the training data should be stored", required=False)
+    parser.add_argument("-m", help="The directory where the model artifacts should be stored", required=False)
+    parser.add_argument("-c", help="The location where the generated config file will be stored", required=False)
     opt = parser.parse_args()
 
     main(
