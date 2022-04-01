@@ -91,7 +91,11 @@ class Checker:
                                 "Preprocessing bug?")       
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser("""Script to check for user errors in a PBG input config and data.
+    
+This script checks that each entity index is within range for the entity type specified by the config relation.
+Preprocessing or config bugs can break this assumption, and may lead to errors or crashes during training.
+""")
     parser.add_argument("config", help="Path to config file")
     parser.add_argument("-p", "--param", action="append", nargs="*")
     opt = parser.parse_args()
