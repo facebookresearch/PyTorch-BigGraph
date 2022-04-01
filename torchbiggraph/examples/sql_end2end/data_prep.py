@@ -51,7 +51,7 @@ logging.basicConfig(
     level=logging.DEBUG
 )
 
-def remap_relationships(conn: Connection):
+def remap_relationships(conn: Connection) -> pd.DataFrame:
     """
     A function to remap relationships using SQL queries.
     """
@@ -71,7 +71,7 @@ def remap_relationships(conn: Connection):
     return rels
 
 
-def remap_entities(conn: Connection, entity2partitions:  Dict[str, Dict[str, int]]):
+def remap_entities(conn: Connection, entity2partitions:  Dict[str, Dict[str, int]]) -> None:
     """
     A function to remap entities with partitioning using SQL queries.
 
@@ -95,7 +95,7 @@ def remap_entities(conn: Connection, entity2partitions:  Dict[str, Dict[str, int
     logging.info(f"Remapped entities in {end - start}s")
 
 
-def generate_ctes(lhs_part: int, rhs_part: int, rels: int, entity2partitions:  Dict[str, Dict[str, int]]):
+def generate_ctes(lhs_part: int, rhs_part: int, rels: int, entity2partitions:  Dict[str, Dict[str, int]]) -> Tuple[int, str]:
     """
     This function generates the sub-table Common Table Expressions (CTES)
     that help us generate the completed edgelist.
@@ -126,7 +126,7 @@ def generate_ctes(lhs_part: int, rhs_part: int, rels: int, entity2partitions:  D
     return nctes, ctes
 
 
-def generate_unions(nctes: int):
+def generate_unions(nctes: int) -> str:
     """
     This function is just a helper function for
     generating the final edge list tables.
@@ -141,7 +141,7 @@ def generate_unions(nctes: int):
     return subquery
 
 
-def remap_edges(conn: Connection, rels: pd.DataFrame, entity2partitions:  Dict[str, Dict[str, int]]):
+def remap_edges(conn: Connection, rels: pd.DataFrame, entity2partitions:  Dict[str, Dict[str, int]]) -> None:
     """
     A function to remap all edges to ordinal IDs
     according to their type.
@@ -186,7 +186,7 @@ def remap_edges(conn: Connection, rels: pd.DataFrame, entity2partitions:  Dict[s
     logging.info(f"Remapped edges in {end - start}s")
 
 
-def load_edges(fname: str, conn: Connection):
+def load_edges(fname: str, conn: Connection) -> None:
     """
     A simple function to load the edges into the SQL table. It is
     assumed that we will have a file of the form:
@@ -216,7 +216,7 @@ def load_edges(fname: str, conn: Connection):
     logging.info(f"Loading edges in {end - start}s")
 
 
-def write_relations(outdir: Path, rels: pd.DataFrame, conn: Connection):
+def write_relations(outdir: Path, rels: pd.DataFrame, conn: Connection) -> None:
     """
     A simple function to write the relevant relationship information out
     for training.
@@ -232,7 +232,7 @@ def write_relations(outdir: Path, rels: pd.DataFrame, conn: Connection):
     logging.info(f"Wrote relations in {end - start}s")
 
 
-def write_single_bucket(work_packet: Tuple[int, int, Path, Connection]):
+def write_single_bucket(work_packet: Tuple[int, int, Path, Connection]) -> None:
     """
     A function to write out a single edge-lists in the format that
     PyTorch BigGraph expects.
@@ -259,7 +259,7 @@ def write_single_bucket(work_packet: Tuple[int, int, Path, Connection]):
             f[dset][0 : len(df)] = df[colname].tolist()
 
 
-def write_all_buckets(outdir: Path, lhs_parts: int, rhs_parts: int, conn: Connection):
+def write_all_buckets(outdir: Path, lhs_parts: int, rhs_parts: int, conn: Connection) -> None:
     """
     A function to write out all edge-lists in the format
     that PyTorch BigGraph expects.
@@ -280,7 +280,7 @@ def write_all_buckets(outdir: Path, lhs_parts: int, rhs_parts: int, conn: Connec
 def write_entities(
     outdir: Path,
     entity2partitions:  Dict[str, Dict[str, int]],
-    conn: Connection):
+    conn: Connection) -> None:
     """
     A function to write out all of the training relevant
     entity information that PyTorch BigGraph expects
@@ -306,7 +306,7 @@ def write_training_data(
     rels: pd.DataFrame,
     entity2partitions:  Dict[str, Dict[str, int]],
     conn: Connection
-    ):
+    ) -> None:
     """
     A function to write out all of the training relevant
     information that PyTorch BigGraph expects
@@ -332,7 +332,7 @@ def write_config(
     model_out: Path,
     ndim: int = 200,
     ngpus:int = 2
-    ):
+    ) -> None:
     config_out.mkdir(parents=True, exists_ok=True)
     outname = config_out / 'config.py'
     rels['operator'] = 'translation'
@@ -354,7 +354,7 @@ def write_config(
 def compute_memory_usage(
     entity2partitions: Dict[str, Dict[str, int]],
     conn: Connection,
-    ndim: int):
+    ndim: int) -> None:
     nentities = 0
     for _type, parts in entity2partitions.items():
         ntype = 0
@@ -387,8 +387,8 @@ def main(
     }
 
     rels = remap_relationships(conn)
-    remap_entities(conn, entity2partitions)
-    remap_edges(conn, rels, entity2partitions)
+    # remap_entities(conn, entity2partitions)
+    # remap_edges(conn, rels, entity2partitions)
 
     outdir.mkdir(parents=True, exists_ok=True)
     config_dir.mkdir(parents=True, exists_ok=True)
