@@ -25,8 +25,8 @@ import time
 DEFAULT_CFG = dict(
     # Scoring model
     dimension=200,
-    comparator="dot",
-    loss_fn="softmax",
+    comparator="cosine",
+    loss_fn="ranking",
     # Training
     num_epochs=50,
     num_uniform_negs=1000,
