@@ -382,7 +382,7 @@ def main(
     config_dir: Path = Path(''),
     dbname: str = 'citationv2.db') -> None:
     conn = sqlite3.connect(dbname)
-    # load_edges(edge_file_name, conn)
+    load_edges(edge_file_name, conn)
 
     entity2partitions = {
         'paper': {'num_partitions': nparts},
@@ -390,14 +390,14 @@ def main(
     }
 
     rels = remap_relationships(conn)
-    # remap_entities(conn, entity2partitions)
-    # remap_edges(conn, rels, entity2partitions)
+    remap_entities(conn, entity2partitions)
+    remap_edges(conn, rels, entity2partitions)
 
     outdir.mkdir(parents=True, exist_ok=True)
     config_dir.mkdir(parents=True, exist_ok=True)
     modeldir.mkdir(parents=True, exist_ok=True)
 
-    # write_training_data(outdir, rels, entity2partitions, conn)
+    write_training_data(outdir, rels, entity2partitions, conn)
     write_config(rels, entity2partitions, config_dir, outdir, modeldir)
     compute_memory_usage(entity2partitions, conn, 200)
 
