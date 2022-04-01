@@ -113,12 +113,10 @@ This simple utility is only suitable for small graphs that fit entirely in memor
 
 ### Checking the data
 
-It is advised that you check your using PBG's checking script. It catches common errors that our developers have run into before,
-and can be hard to debug. This command is run by invoking the following:
+It is advised that you check the edgelist files using PBG's checking script. It catches common errors that our developers have run into before that can be hard to debug. This command is run by invoking the following:
 
 ```bash
 torchbiggraph_check \
-  --lhs-col=0 --rel-col=1 --rhs-col=2 \
   torchbiggraph/examples/configs/fb15k_config_cpu.py
 ```
 

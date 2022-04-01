@@ -1,10 +1,10 @@
 # SQL End to End Example
 
-This is intended as a simple end-to-end example of how to get your data into
-the format that PyTorch BigGraph expects using SQL. It's implemented in SQLite
-for portability, but similar techniques scale to billions of edges using cloud
-databases such as BigQuery or SnowFlake. This pipeline can be split into three
-different components:
+This is intended as a simple end-to-end example of how to get your a SQL edgelist
+table into the format that PyTorch BigGraph expects using SQL queries. It's
+implemented in SQLite for portability, but similar techniques scale to billions
+of edges using cloud databases such as BigQuery or SnowFlake. This pipeline
+can be split into three different components:
 
 1. Data preparation
 2. Data verification/checking
