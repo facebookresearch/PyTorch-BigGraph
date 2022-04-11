@@ -11,7 +11,7 @@ from typing import Optional
 
 import torch
 from torchbiggraph.entitylist import EntityList
-from torchbiggraph.types import LongTensorType
+from torchbiggraph.types import FloatTensorType, LongTensorType
 
 
 class EdgeList:
@@ -54,7 +54,7 @@ class EdgeList:
         lhs: EntityList,
         rhs: EntityList,
         rel: LongTensorType,
-        weight: Optional[LongTensorType] = None,
+        weight: Optional[FloatTensorType] = None,
     ) -> None:
         if not isinstance(lhs, EntityList) or not isinstance(rhs, EntityList):
             raise TypeError(
