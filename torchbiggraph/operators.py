@@ -110,13 +110,10 @@ class AffineOperator(AbstractOperator):
     def forward(self, embeddings: FloatTensorType) -> FloatTensorType:
         match_shape(embeddings, ..., self.dim)
         # We add a dimension so that matmul performs a matrix-vector product.
-        return (
-            torch.matmul(
-                self.linear_transformation.to(device=embeddings.device),
-                embeddings.unsqueeze(-1),
-            ).squeeze(-1)
-            + self.translation.to(device=embeddings.device)
-        )
+        return torch.matmul(
+            self.linear_transformation.to(device=embeddings.device),
+            embeddings.unsqueeze(-1),
+        ).squeeze(-1) + self.translation.to(device=embeddings.device)
 
     # FIXME This adapts from the pre-D14024710 format; remove eventually.
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
@@ -153,12 +150,12 @@ class ComplexDiagonalOperator(AbstractOperator):
         return prod
 
     def get_operator_params_for_reg(self) -> Optional[FloatTensorType]:
-        return torch.sqrt(self.real ** 2 + self.imag ** 2)
+        return torch.sqrt(self.real**2 + self.imag**2)
 
     def prepare_embs_for_reg(self, embs: FloatTensorType) -> FloatTensorType:
         assert embs.shape[-1] == self.dim
         real, imag = embs[..., : self.dim // 2], embs[..., self.dim // 2 :]
-        return torch.sqrt(real ** 2 + imag ** 2)
+        return torch.sqrt(real**2 + imag**2)
 
 
 class AbstractDynamicOperator(nn.Module, ABC):
@@ -340,7 +337,7 @@ class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
     def prepare_embs_for_reg(self, embs: FloatTensorType) -> FloatTensorType:
         assert embs.shape[-1] == self.dim
         real, imag = embs[..., : self.dim // 2], embs[..., self.dim // 2 :]
-        return torch.sqrt(real ** 2 + imag ** 2)
+        return torch.sqrt(real**2 + imag**2)
 
 
 def instantiate_operator(
