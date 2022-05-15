@@ -15,7 +15,7 @@ import unittest
 from functools import partial
 from tempfile import TemporaryDirectory
 from typing import Dict, Iterable, List, Mapping, NamedTuple, Tuple, Union
-from unittest import TestCase, main
+from unittest import main, TestCase
 
 import attr
 import h5py
@@ -29,9 +29,9 @@ from torchbiggraph.stats import SerializedStats
 from torchbiggraph.train import train
 from torchbiggraph.train_gpu import CPP_INSTALLED
 from torchbiggraph.util import (
-    SubprocessInitializer,
     call_one_after_the_other,
     setup_logging,
+    SubprocessInitializer,
 )
 
 

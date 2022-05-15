@@ -16,7 +16,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 import torch
 import torch.distributed as td
 import torch.multiprocessing
-from torchbiggraph.distributed import Startable, init_process_group
+from torchbiggraph.distributed import init_process_group, Startable
 from torchbiggraph.types import CharTensorType, Rank
 from torchbiggraph.util import (
     allocate_shared_tensor,

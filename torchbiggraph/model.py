@@ -25,7 +25,7 @@ from torchbiggraph.operators import (
     instantiate_operator,
 )
 from torchbiggraph.plugin import PluginRegistry
-from torchbiggraph.regularizers import REGULARIZERS, AbstractRegularizer
+from torchbiggraph.regularizers import AbstractRegularizer, REGULARIZERS
 from torchbiggraph.tensorlist import TensorList
 from torchbiggraph.types import Bucket, FloatTensorType, LongTensorType, Side
 from torchbiggraph.util import CouldNotLoadData, EmbeddingHolder, match_shape

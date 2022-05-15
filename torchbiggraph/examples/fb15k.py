@@ -12,16 +12,16 @@ from pathlib import Path
 import attr
 import pkg_resources
 import torch
-from torchbiggraph.config import ConfigFileLoader, add_to_sys_path
-from torchbiggraph.converters.importers import TSVEdgelistReader, convert_input_data
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader
+from torchbiggraph.converters.importers import convert_input_data, TSVEdgelistReader
 from torchbiggraph.converters.utils import download_url, extract_tar
 from torchbiggraph.eval import do_eval
 from torchbiggraph.filtered_eval import FilteredRankingEvaluator
 from torchbiggraph.train import train
 from torchbiggraph.util import (
-    SubprocessInitializer,
     set_logging_verbosity,
     setup_logging,
+    SubprocessInitializer,
 )
 
 

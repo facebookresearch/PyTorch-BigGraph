@@ -8,7 +8,7 @@
 
 import random
 from itertools import product
-from unittest import TestCase, main
+from unittest import main, TestCase
 
 from torchbiggraph.bucket_scheduling import create_ordered_buckets
 from torchbiggraph.config import BucketOrder

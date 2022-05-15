@@ -11,14 +11,14 @@ import logging
 from typing import Callable, List, Optional
 
 import torch.distributed as td
-from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
-from torchbiggraph.distributed import ProcessRanks, init_process_group
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
+from torchbiggraph.distributed import init_process_group, ProcessRanks
 from torchbiggraph.parameter_sharing import ParameterServer
-from torchbiggraph.types import SINGLE_TRAINER, Rank
+from torchbiggraph.types import Rank, SINGLE_TRAINER
 from torchbiggraph.util import (
-    SubprocessInitializer,
     set_logging_verbosity,
     setup_logging,
+    SubprocessInitializer,
     tag_logs_with_process_name,
 )
 

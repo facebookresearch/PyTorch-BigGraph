@@ -8,15 +8,15 @@
 
 from enum import Enum
 from typing import ClassVar, Dict, List, Optional, Union
-from unittest import TestCase, main
+from unittest import main, TestCase
 
 import attr
 from torchbiggraph.schema import (
     Dumper,
-    Loader,
-    Schema,
     extract_nested_type,
     inject_nested_value,
+    Loader,
+    Schema,
     schema,
     unpack_optional,
 )

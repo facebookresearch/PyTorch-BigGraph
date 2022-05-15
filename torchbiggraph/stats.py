@@ -8,7 +8,7 @@
 
 from collections import defaultdict
 from statistics import mean
-from typing import Dict, Iterable, Optional, Type, Union, cast
+from typing import cast, Dict, Iterable, Optional, Type, Union
 
 from torchbiggraph.types import FloatTensorType
 

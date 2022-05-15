@@ -12,12 +12,12 @@ from typing import Iterable, TextIO
 from torchbiggraph.checkpoint_manager import CheckpointManager
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema
 from torchbiggraph.graph_storages import (
-    ENTITY_STORAGES,
-    RELATION_TYPE_STORAGES,
     AbstractEntityStorage,
     AbstractRelationTypeStorage,
+    ENTITY_STORAGES,
+    RELATION_TYPE_STORAGES,
 )
-from torchbiggraph.model import MultiRelationEmbedder, make_model
+from torchbiggraph.model import make_model, MultiRelationEmbedder
 
 
 def write(outf: TextIO, key: Iterable[str], value: Iterable[float]) -> None:

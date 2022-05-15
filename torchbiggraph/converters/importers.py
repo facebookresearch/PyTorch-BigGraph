@@ -19,13 +19,13 @@ from torchbiggraph.converters.dictionary import Dictionary
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import (
-    EDGE_STORAGES,
-    ENTITY_STORAGES,
-    RELATION_TYPE_STORAGES,
     AbstractEdgeAppender,
     AbstractEdgeStorage,
     AbstractEntityStorage,
     AbstractRelationTypeStorage,
+    EDGE_STORAGES,
+    ENTITY_STORAGES,
+    RELATION_TYPE_STORAGES,
 )
 from torchbiggraph.types import UNPARTITIONED
 

@@ -11,8 +11,8 @@ from pathlib import Path
 
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema
 from torchbiggraph.converters.importers import (
-    ParquetEdgelistReader,
     convert_input_data,
+    ParquetEdgelistReader,
     parse_config_partial,
 )
 

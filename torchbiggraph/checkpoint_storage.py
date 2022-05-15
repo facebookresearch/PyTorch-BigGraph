@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.types import EntityName, FloatTensorType, ModuleStateDict, Partition
-from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor
+from torchbiggraph.util import allocate_shared_tensor, CouldNotLoadData
 
 
 logger = logging.getLogger("torchbiggraph")

@@ -16,23 +16,23 @@ import torch
 from torchbiggraph.batching import AbstractBatchProcessor, call, process_in_batches
 from torchbiggraph.bucket_scheduling import create_buckets_ordered_lexicographically
 from torchbiggraph.checkpoint_manager import CheckpointManager
-from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.losses import LOSS_FUNCTIONS
-from torchbiggraph.model import MultiRelationEmbedder, Scores, make_model
-from torchbiggraph.stats import Stats, average_of_sums
-from torchbiggraph.types import UNPARTITIONED, Bucket, EntityName, Partition
+from torchbiggraph.model import make_model, MultiRelationEmbedder, Scores
+from torchbiggraph.stats import average_of_sums, Stats
+from torchbiggraph.types import Bucket, EntityName, Partition, UNPARTITIONED
 from torchbiggraph.util import (
-    EmbeddingHolder,
-    SubprocessInitializer,
     compute_randomized_auc,
     create_pool,
+    EmbeddingHolder,
     get_async_result,
     get_num_workers,
     set_logging_verbosity,
     setup_logging,
     split_almost_equally,
+    SubprocessInitializer,
     tag_logs_with_process_name,
 )
 

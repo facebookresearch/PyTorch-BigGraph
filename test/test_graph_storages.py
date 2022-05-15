@@ -7,7 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import tempfile
-from unittest import TestCase, main
+from unittest import main, TestCase
 
 import h5py
 import numpy as np

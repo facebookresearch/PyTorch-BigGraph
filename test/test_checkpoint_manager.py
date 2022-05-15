@@ -7,7 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 import json
-from unittest import TestCase, main
+from unittest import main, TestCase
 
 from torchbiggraph.checkpoint_manager import ConfigMetadataProvider, TwoWayMapping
 from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema

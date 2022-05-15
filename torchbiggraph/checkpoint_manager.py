@@ -18,15 +18,14 @@ import torch
 import torch.distributed as td
 import torch.multiprocessing
 from torchbiggraph.checkpoint_storage import (
-    CHECKPOINT_STORAGES,
     AbstractCheckpointStorage,
+    CHECKPOINT_STORAGES,
     ModelParameter,
 )
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.parameter_sharing import ParameterClient
 from torchbiggraph.stats import SerializedStats
 from torchbiggraph.types import (
-    SINGLE_TRAINER,
     ByteTensorType,
     EntityName,
     FloatTensorType,
@@ -34,6 +33,7 @@ from torchbiggraph.types import (
     OptimizerStateDict,
     Partition,
     Rank,
+    SINGLE_TRAINER,
 )
 from torchbiggraph.util import CouldNotLoadData
 

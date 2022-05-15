@@ -11,9 +11,9 @@ from pathlib import Path
 
 from torchbiggraph.config import ConfigFileLoader, ConfigSchema
 from torchbiggraph.converters.importers import (
-    TSVEdgelistReader,
     convert_input_data,
     parse_config_partial,
+    TSVEdgelistReader,
 )
 
 

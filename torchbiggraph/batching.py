@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 import torch
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.losses import AbstractLossFunction
-from torchbiggraph.model import MultiRelationEmbedder, Scores, override_model
+from torchbiggraph.model import MultiRelationEmbedder, override_model, Scores
 from torchbiggraph.stats import Stats
 from torchbiggraph.types import LongTensorType
 

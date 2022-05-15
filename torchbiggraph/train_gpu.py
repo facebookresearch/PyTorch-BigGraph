@@ -18,7 +18,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 import torch
 import torch.multiprocessing as mp
 from torchbiggraph.batching import AbstractBatchProcessor, process_in_batches
-from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
 from torchbiggraph.graph_storages import EDGE_STORAGES, ENTITY_STORAGES
@@ -28,7 +28,6 @@ from torchbiggraph.row_adagrad import RowAdagrad
 from torchbiggraph.stats import Stats, StatsHandler
 from torchbiggraph.train_cpu import Trainer, TrainingCoordinator
 from torchbiggraph.types import (
-    SINGLE_TRAINER,
     Bucket,
     EntityName,
     FloatTensorType,
@@ -39,16 +38,16 @@ from torchbiggraph.types import (
     Partition,
     Rank,
     Side,
+    SINGLE_TRAINER,
     SubPartition,
 )
 from torchbiggraph.util import (
-    BucketLogger,
-    DummyOptimizer,
-    EmbeddingHolder,
-    SubprocessInitializer,
     allocate_shared_tensor,
+    BucketLogger,
     create_pool,
     div_roundup,
+    DummyOptimizer,
+    EmbeddingHolder,
     fast_approx_rand,
     get_async_result,
     get_num_workers,
@@ -57,6 +56,7 @@ from torchbiggraph.util import (
     set_logging_verbosity,
     setup_logging,
     split_almost_equally,
+    SubprocessInitializer,
     tag_logs_with_process_name,
 )
 

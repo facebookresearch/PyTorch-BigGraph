@@ -31,31 +31,31 @@ from torchbiggraph.checkpoint_manager import (
     PartitionClient,
 )
 from torchbiggraph.config import ConfigSchema
-from torchbiggraph.distributed import ProcessRanks, init_process_group, start_server
+from torchbiggraph.distributed import init_process_group, ProcessRanks, start_server
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.graph_storages import EDGE_STORAGES, ENTITY_STORAGES
-from torchbiggraph.losses import LOSS_FUNCTIONS, AbstractLossFunction
-from torchbiggraph.model import MultiRelationEmbedder, make_model
+from torchbiggraph.losses import AbstractLossFunction, LOSS_FUNCTIONS
+from torchbiggraph.model import make_model, MultiRelationEmbedder
 from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
 from torchbiggraph.row_adagrad import RowAdagrad
 from torchbiggraph.stats import Stats, StatsHandler
 from torchbiggraph.types import (
-    SINGLE_TRAINER,
-    UNPARTITIONED,
     Bucket,
     EntityName,
     FloatTensorType,
     ModuleStateDict,
     Partition,
     Rank,
+    SINGLE_TRAINER,
+    UNPARTITIONED,
 )
 from torchbiggraph.util import (
+    allocate_shared_tensor,
     BucketLogger,
+    create_pool,
     DummyOptimizer,
     EmbeddingHolder,
-    allocate_shared_tensor,
-    create_pool,
     fast_approx_rand,
     get_async_result,
     get_num_workers,

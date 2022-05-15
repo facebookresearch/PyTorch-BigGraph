@@ -23,7 +23,7 @@ from torchbiggraph.entitylist import EntityList
 from torchbiggraph.plugin import URLPluginRegistry
 from torchbiggraph.tensorlist import TensorList
 from torchbiggraph.types import Partition
-from torchbiggraph.util import CouldNotLoadData, allocate_shared_tensor, div_roundup
+from torchbiggraph.util import allocate_shared_tensor, CouldNotLoadData, div_roundup
 
 
 logger = logging.getLogger("torchbiggraph")

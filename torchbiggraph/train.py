@@ -11,15 +11,15 @@ import logging
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from torchbiggraph.batching import AbstractBatchProcessor
-from torchbiggraph.config import ConfigFileLoader, ConfigSchema, add_to_sys_path
+from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
 from torchbiggraph.model import MultiRelationEmbedder
 from torchbiggraph.train_cpu import TrainingCoordinator
 from torchbiggraph.train_gpu import GPUTrainingCoordinator
-from torchbiggraph.types import SINGLE_TRAINER, Rank
+from torchbiggraph.types import Rank, SINGLE_TRAINER
 from torchbiggraph.util import (
-    SubprocessInitializer,
     set_logging_verbosity,
     setup_logging,
+    SubprocessInitializer,
 )
 
 

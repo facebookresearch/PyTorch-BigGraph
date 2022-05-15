@@ -6,8 +6,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-from typing import Any, Sequence, Union
-from typing import Optional
+from typing import Any, Optional, Sequence, Union
 
 import torch
 from torchbiggraph.entitylist import EntityList

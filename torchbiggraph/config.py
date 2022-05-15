@@ -22,13 +22,13 @@ import attr
 from attr.validators import optional
 from torchbiggraph.schema import (
     DeepTypeError,
-    Schema,
     extract_nested_type,
     has_origin,
     inject_nested_value,
     non_empty,
     non_negative,
     positive,
+    Schema,
     schema,
 )
 

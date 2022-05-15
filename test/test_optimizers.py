@@ -14,7 +14,7 @@
 import logging
 import os
 import unittest
-from unittest import TestCase, main
+from unittest import main, TestCase
 
 import torch
 import torch.multiprocessing as mp
