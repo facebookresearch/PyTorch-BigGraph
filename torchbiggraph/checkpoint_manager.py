@@ -6,10 +6,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
+import concurrent
 import io
 import json
 import logging
 import re
+import threading
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple, Union
 
@@ -22,8 +25,8 @@ from torchbiggraph.checkpoint_storage import (
     CHECKPOINT_STORAGES,
     ModelParameter,
 )
-from torchbiggraph.config import ConfigSchema
-from torchbiggraph.parameter_sharing import ParameterClient
+from torchbiggraph.config import ConfigSchema, EntitySchema
+from torchbiggraph.parameter_sharing import ParameterClient, ShardedParameterClient
 from torchbiggraph.stats import SerializedStats
 from torchbiggraph.types import (
     ByteTensorType,
@@ -37,6 +40,8 @@ from torchbiggraph.types import (
 )
 from torchbiggraph.util import CouldNotLoadData
 
+
+BYTES_PER_MiB = 1024 * 1024
 
 logger = logging.getLogger("torchbiggraph")
 
@@ -175,6 +180,229 @@ class PartitionClient:
         else:
             optim_state = None
         return embs, optim_state
+
+    def join(self) -> None:
+        for client in self._clients:
+            client.join(do_barrier=True)
+        logger.info("PartitionClient join barrier start")
+        td.barrier(self.groups[0])
+        logger.info("PartitionClient join barrier end")
+
+
+class ShardedPartitionClient:
+    """
+    A wrapper around ShardedParameterClient that knows how to read and write
+    partitions (i.e. pairs (embs, optim_state)) to the multiple ShardedParameterServers
+    in parallel using multiple threads. This is useful when number of partition servers
+    > number of trainers and when trainer machines' NICs support higher bandwidths than
+    partition server machines.
+
+    When storing or getting a partition, the partition is first divided into shards of
+    size shard_size. This is in contrast to simply sharding each partition across all
+    partition servers. This approach is advantageous as smaller tensors do not have to
+    be split amongst all machines. Rather, they are split over a smaller subset,
+    reducing the number of machines to communicate with which improves the latency of
+    the store / get.
+    """
+
+    def __init__(
+        self,
+        server_ranks: List[Rank],
+        num_data_pgs: int,
+        shard_size: int,  # in MiB
+        entities: Dict[str, EntitySchema],
+        groups: Optional[List["td.ProcessGroup"]] = None,
+        log_stats: bool = False,
+    ) -> None:
+        assert groups is not None, "groups must be non-None for ShardedPartitionClient."
+        self.groups = groups
+        self._clients = [
+            ShardedParameterClient(rank, num_data_pgs, groups, log_stats)
+            for rank in server_ranks
+        ]
+        self.log_stats = log_stats
+        # Locks are used to make stores and gets to each server atomic. It's not clear
+        # from the ThreadPoolExecutor docs if a single thread in the pool can multiplex
+        # amongst multiple jobs. Such multiplexing is undesireable because each server
+        # is single threaded. To avoid assuming underlying behavior, we explicitly
+        # use locks.
+        self._locks = [threading.Lock() for _rank in server_ranks]
+        # A 1-thread ThreadPoolExecutor per server is used. This is in contrast to a
+        # single len(server_ranks)-thread ThreadPoolExecutor because it would not make
+        # sense to have two threads in that thread pool trying to read/write to the
+        # same server due to the server being single-threaded.
+        self._tpes = [
+            concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            for _rank in server_ranks
+        ]
+        self.shard_size = shard_size * BYTES_PER_MiB
+        self.entities = entities
+
+    def _async_store(
+        self,
+        client_idx: int,
+        key: str,
+        src: torch.Tensor,
+        accum: bool = False,
+        overwrite: bool = True,
+    ) -> concurrent.futures.Future:
+        def func():
+            nonlocal client_idx, key, src, accum, overwrite
+            with self._locks[client_idx]:
+                self._clients[client_idx].store(
+                    key, src, accum=accum, overwrite=overwrite
+                )
+
+        return self._tpes[client_idx].submit(func)
+
+    def store(
+        self,
+        entity: EntityName,
+        part: Partition,
+        embs: FloatTensorType,
+        optim_state: Optional[bytes],
+    ) -> None:
+        key = "%s_%s" % (entity, part)
+        futs = []
+
+        # embs sharded across all servers.
+        num_clients = len(self._clients)
+        flattened_embs = embs.flatten()
+        numel_per_shard = self.shard_size // flattened_embs.element_size()
+        # Space out the start of each partition's chunks of servers evenly.
+        offset = (part * num_clients) // self.entities[entity].num_partitions
+        for (idx, flattened_embs_shard) in enumerate(
+            torch.split(flattened_embs, numel_per_shard)
+        ):
+            client_idx = (idx + offset) % num_clients
+            shard_key = key + f"__embs_{idx}"
+            fut = self._async_store(client_idx, shard_key, flattened_embs_shard)
+            futs.append(fut)
+
+        # optim_state unsharded due to its smaller size.
+        if optim_state is not None:
+            client_idx = offset % num_clients
+            optim_key = key + "__optim"
+            optim_state_tensor = bytes_to_bytetensor(optim_state)
+            optim_state_fut = self._async_store(
+                client_idx, optim_key, optim_state_tensor
+            )
+
+        t0 = time.monotonic()
+
+        for fut in futs:
+            fut.result()
+
+        t1 = time.monotonic()
+
+        if optim_state is not None:
+            optim_state_fut.result()
+
+        t2 = time.monotonic()
+
+        if self.log_stats:
+            embs_size = embs.numel() * embs.element_size()
+            embs_time = t1 - t0
+            embs_speed = embs_size / embs_time
+            message = (
+                f"Stored (entity {entity}, partition {part}). Embs of size {embs_size} "
+                f"bytes stored in {embs_time} seconds ({embs_speed:,.0f} B/s)."
+            )
+
+            if optim_state is not None:
+                optim_state_size = (
+                    optim_state_tensor.numel() * optim_state_tensor.element_size()
+                )
+                optim_state_time = t2 - t1
+                optim_state_speed = optim_state_size / optim_state_time
+                message += (
+                    f"optim_state of size {optim_state_size} bytes stored in "
+                    f"{optim_state_time} seconds ({optim_state_speed:,.0f} B/s)."
+                )
+
+            logger.info(message)
+
+    def _async_get(
+        self,
+        client_idx: int,
+        key: str,
+        dst: Optional[torch.Tensor] = None,
+        shared: bool = False,
+    ) -> concurrent.futures.Future:
+        def func():
+            nonlocal client_idx, key, dst, shared
+            with self._locks[client_idx]:
+                return self._clients[client_idx].get(key, dst=dst, shared=shared)
+
+        return self._tpes[client_idx].submit(func)
+
+    def get(
+        self, entity: EntityName, part: Partition, out: Optional[FloatTensorType] = None
+    ) -> Tuple[FloatTensorType, Optional[bytes]]:
+        assert (
+            out is not None
+        ), "ShardedPartitionClient expects `out` to be non-None for `get` function."
+
+        key = "%s_%s" % (entity, part)
+        futs = []
+
+        # embs sharded across all servers.
+        num_clients = len(self._clients)
+        flattened_out = out.flatten()
+        numel_per_shard = self.shard_size // flattened_out.element_size()
+        # Space out the start of each partition's chunks of servers evenly.
+        offset = (part * num_clients) // self.entities[entity].num_partitions
+        for (idx, flattened_out_shard) in enumerate(
+            torch.split(flattened_out, numel_per_shard)
+        ):
+            client_idx = (idx + offset) % num_clients
+            shard_key = key + f"__embs_{idx}"
+            fut = self._async_get(client_idx, shard_key, dst=flattened_out_shard)
+            futs.append(fut)
+
+        # optim_state unsharded due to its smaller size.
+        client_idx = offset % num_clients
+        optim_key = key + "__optim"
+        optim_state_tensor_fut = self._async_get(client_idx, optim_key)
+
+        t0 = time.monotonic()
+
+        for fut in futs:
+            fut.result()
+
+        t1 = time.monotonic()
+
+        optim_state_tensor = optim_state_tensor_fut.result()
+        if optim_state_tensor is not None:
+            optim_state = bytetensor_to_bytes(optim_state_tensor)
+        else:
+            optim_state = None
+
+        t2 = time.monotonic()
+
+        if self.log_stats:
+            embs_size = out.numel() * out.element_size()
+            embs_time = t1 - t0
+            embs_speed = embs_size / embs_time
+            message = (
+                f"Got (entity {entity}, partition {part}). Embs of size {embs_size} "
+                f"bytes gotten in {embs_time} seconds ({embs_speed:,.0f} B/s)."
+            )
+
+            if optim_state_tensor is not None:
+                optim_state_size = (
+                    optim_state_tensor.numel() * optim_state_tensor.element_size()
+                )
+                optim_state_time = t2 - t1
+                optim_state_speed = optim_state_size / optim_state_time
+                message += (
+                    f"optim_state of size {optim_state_size} bytes gotten in "
+                    f"{optim_state_time} seconds ({optim_state_speed:,.0f} B/s)."
+                )
+
+            logger.info(message)
+
+        return out, optim_state
 
     def join(self) -> None:
         for client in self._clients:

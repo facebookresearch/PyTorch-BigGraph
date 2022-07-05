@@ -467,9 +467,30 @@ class ConfigSchema(Schema):
     num_groups_for_partition_server: int = attr.ib(
         default=16,
         metadata={
-            "help": "Number of td.distributed 'groups' to use. Setting "
+            "help": "Number of torch distributed 'groups' to use. Setting "
             "this to a value around 16 typically increases "
             "communication bandwidth."
+        },
+    )
+    num_groups_per_sharded_partition_server: int = attr.ib(
+        default=1,
+        metadata={
+            "help": "The number of torch distributed 'groups' to use for the data "
+            "process groups (num_data_pgs) per sharded partition server (note: sharded "
+            "partition server is used when num_partition_servers > num_machines; "
+            "otherwise num_groups_for_partition_server and standard unsharded "
+            "partition server is used). Optimal value will depend on the bandwidth "
+            "supported by the NICs of the partition server machines."
+        },
+    )
+    partition_shard_size: int = attr.ib(
+        default=250,
+        metadata={
+            "help": "When num_partition_servers > num_machines, each partition is "
+            "sharded into smaller pieces and stored across multiple partition servers "
+            "(i.e. sharded partition server). This value is the size of each shard in "
+            "MiB. Sharding into fixed size pieces is generally faster than sharding "
+            "across all servers for every partition."
         },
     )
     half_precision: bool = attr.ib(

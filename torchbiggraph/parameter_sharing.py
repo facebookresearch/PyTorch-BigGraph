@@ -11,6 +11,7 @@ import multiprocessing as mp
 import queue
 import time
 import traceback
+from functools import lru_cache
 from typing import Callable, Dict, List, Optional, Sequence
 
 import torch
@@ -84,6 +85,22 @@ class ParameterServer(Startable):
         self.groups: Optional[List["td.ProcessGroup"]] = None
         self.log_stats = log_stats
 
+    def _metadata_pg(self) -> Optional["td.ProcessGroup"]:
+        """
+        ProcessGroup to use for communicating metadata (e.g. cmds, keys, shapes) while
+        tensor data is communicated over self._data_pgs().
+        """
+        return None
+
+    def _data_pgs(self) -> Optional[List["td.ProcessGroup"]]:
+        """
+        ProcessGroup to use for communicating tensor data while metadata (e.g. cmds,
+        keys, shapes) is communicated over self._metadata_pg(). In other words, these
+        pgs handle most of the data transfer volume. Multiple pgs are used in order to
+        max out the NIC.
+        """
+        return self.groups
+
     def start(self, groups: List["td.ProcessGroup"]) -> None:
         self.groups = (
             [groups[idx] for idx in self.group_idxs]
@@ -91,14 +108,15 @@ class ParameterServer(Startable):
             else None
         )
         join_count = 0
+        metadata_pg = self._metadata_pg()
         while True:
             # 1. receive the command
             cmd_buffer = torch.full((6,), -1, dtype=torch.long)
-            rank = td.recv(cmd_buffer)
+            rank = td.recv(cmd_buffer, group=metadata_pg)
             cmd = cmd_buffer[0].item()
 
             if cmd == STORE_CMD:
-                key = self._recv_key(rank, cmd_buffer[1].item())
+                key = self._recv_key(rank, cmd_buffer[1].item(), group=metadata_pg)
                 self.handle_store(
                     rank,
                     key,
@@ -108,9 +126,10 @@ class ParameterServer(Startable):
                     cmd_buffer[5].item(),
                 )
             elif cmd == GET_CMD:
-                key = self._recv_key(rank, cmd_buffer[1].item())
+                key = self._recv_key(rank, cmd_buffer[1].item(), group=metadata_pg)
                 self.handle_get(rank, key, cmd_buffer[2].item())
             elif cmd == SWAP_CMD:
+                assert metadata_pg is None, "Swap is not used for partition servers."
                 key = self._recv_key(rank, cmd_buffer[1].item())
                 self.handle_store(
                     rank,
@@ -142,10 +161,12 @@ class ParameterServer(Startable):
                 )
 
     @staticmethod
-    def _recv_key(rank: int, keylen: int) -> str:
+    def _recv_key(
+        rank: int, keylen: int, group: Optional["td.ProcessGroup"] = None
+    ) -> str:
         """Receive a string tensor key from a client node."""
         key_buffer = torch.zeros((keylen,), dtype=torch.int8)
-        td.recv(key_buffer, src=rank)
+        td.recv(key_buffer, src=rank, group=group)
         return _tostring(key_buffer)
 
     def handle_store(
@@ -156,7 +177,7 @@ class ParameterServer(Startable):
             size = self.parameters[key].size()
         else:
             size = torch.empty((ndim,), dtype=torch.long)
-            td.recv(size, src=rank)
+            td.recv(size, src=rank, group=self._metadata_pg())
             size = size.tolist()
         dtype = _dtypes[ttype]
         if not accum and overwrite and key in self.parameters:
@@ -165,7 +186,8 @@ class ParameterServer(Startable):
         data = torch.empty(size, dtype=dtype)
 
         start_t = time.monotonic()
-        if self.groups is None:
+        data_pgs = self._data_pgs()
+        if data_pgs is None:
             td.recv(tensor=data, src=rank)
         else:
             outstanding_work = []
@@ -173,8 +195,8 @@ class ParameterServer(Startable):
             flattened_size = flattened_data.shape[0]
             for idx, (pg, slice_) in enumerate(
                 zip(
-                    self.groups,
-                    split_almost_equally(flattened_size, num_parts=len(self.groups)),
+                    data_pgs,
+                    split_almost_equally(flattened_size, num_parts=len(data_pgs)),
                 )
             ):
                 outstanding_work.append(
@@ -199,19 +221,29 @@ class ParameterServer(Startable):
             self.parameters[key] = data
 
     def handle_get(self, rank: int, key: str, send_size: int) -> None:
+        metadata_pg = self._metadata_pg()
         if key not in self.parameters:
             assert send_size, "Key %s not found" % key
-            td.send(torch.tensor([-1, -1], dtype=torch.long), rank)
+            td.send(torch.tensor([-1, -1], dtype=torch.long), rank, group=metadata_pg)
             return
 
         data = self.parameters[key]
         if send_size:
             type_idx = _dtypes.index(data.dtype)
-            td.send(torch.tensor([data.ndimension(), type_idx], dtype=torch.long), rank)
-            td.send(torch.tensor(list(data.size()), dtype=torch.long), rank)
+            td.send(
+                torch.tensor([data.ndimension(), type_idx], dtype=torch.long),
+                rank,
+                group=metadata_pg,
+            )
+            td.send(
+                torch.tensor(list(data.size()), dtype=torch.long),
+                rank,
+                group=metadata_pg,
+            )
 
         start_t = time.monotonic()
-        if self.groups is None:
+        data_pgs = self._data_pgs()
+        if data_pgs is None:
             td.send(data, dst=rank)
         else:
             outstanding_work = []
@@ -219,8 +251,8 @@ class ParameterServer(Startable):
             flattened_size = flattened_data.shape[0]
             for idx, (pg, slice_) in enumerate(
                 zip(
-                    self.groups,
-                    split_almost_equally(flattened_size, num_parts=len(self.groups)),
+                    data_pgs,
+                    split_almost_equally(flattened_size, num_parts=len(data_pgs)),
                 )
             ):
                 outstanding_work.append(
@@ -240,6 +272,81 @@ class ParameterServer(Startable):
             )
 
 
+def _metadata_pg(
+    groups: List["td.ProcessGroup"], num_data_pgs: int, server_rank: int
+) -> "td.ProcessGroup":
+    """
+    Example: If num_data_pgs is 3, then one of the following groups with a ^
+        underneath is chosen.
+
+        groups: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, ...]
+                 ^           ^           ^
+    """
+    pgs_per_server = num_data_pgs + 1
+    num_servers = len(groups) // pgs_per_server
+    server_rank = server_rank % num_servers
+    return groups[server_rank * pgs_per_server]
+
+
+def _data_pgs(
+    groups: List["td.ProcessGroup"], num_data_pgs: int, server_rank: int
+) -> List["td.ProcessGroup"]:
+    """
+    Example: If num_data_pgs is 3, then one of the following list of groups with a
+        ^ ^ ^ underneath is chosen.
+
+        groups: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, ...]
+                    ^  ^  ^     ^  ^  ^     ^   ^   ^
+    """
+    pgs_per_server = num_data_pgs + 1
+    num_servers = len(groups) // pgs_per_server
+    server_rank = server_rank % num_servers
+    server_rank_plus_1 = (server_rank + 1) % num_servers
+    if server_rank_plus_1 == 0:
+        server_rank_plus_1 += num_servers
+    return groups[
+        (server_rank * pgs_per_server + 1) : server_rank_plus_1 * pgs_per_server
+    ]
+
+
+class ShardedParameterServer(ParameterServer):
+    """
+    A ParameterServer that uses specific process groups for communications.
+
+    All ShardedParameterClients that want to talk to a ShardedParameterServer s must
+    use the metadata and data pgs assigned to be used by s. s will be assigned 1
+    metadata pg and self.num_data_pgs data pgs that are not used by any other
+    ShardedParameterServers. Having distinct pgs used for comms to each
+    ShardedParameterServer in combination with multiple threads on the client side
+    avoids blocking comms calls that prevent clients from talking to multiple
+    servers in parallel.
+
+    For example, if the number of ShardedParameterServers = 2 and num_data_pgs = 3,
+    then self.groups will have num_servers * (num_data_pgs + 1) = 8 ProcessGroups.
+    When any client wants to talk to server 0, they will use self.groups[0] for
+    metadata and self.groups[1:4] for data. When any client wants to talk to server
+    1, they will use self.groups[4] for metadata and self.groups[5:8] for data.
+    """
+
+    def __init__(
+        self,
+        num_clients: int,
+        num_data_pgs: int,
+        group_idxs: Optional[Sequence[int]] = None,
+        log_stats: bool = False,
+    ) -> None:
+        self.num_data_pgs = num_data_pgs
+        super().__init__(num_clients, group_idxs=group_idxs, log_stats=log_stats)
+
+    @lru_cache()
+    def _metadata_pg(self) -> "td.ProcessGroup":
+        return _metadata_pg(self.groups, self.num_data_pgs, td.get_rank())
+
+    @lru_cache()
+    def _data_pgs(self) -> List["td.ProcessGroup"]:
+        return _data_pgs(self.groups, self.num_data_pgs, td.get_rank())
+
+
 class ParameterClient:
     """Client for ParameterServer.
     Supports store, accumulate, swap, swap-accumulate, and get operations."""
@@ -254,10 +361,32 @@ class ParameterClient:
         self.groups = groups
         self.log_stats = log_stats
 
+    def _metadata_pg(self) -> Optional["td.ProcessGroup"]:
+        """
+        ProcessGroup to use for communicating metadata (e.g. cmds, keys, shapes) while
+        tensor data is communicated over self._data_pgs().
+        """
+        return None
+
+    def _data_pgs(self) -> Optional[List["td.ProcessGroup"]]:
+        """
+        ProcessGroup to use for communicating tensor data while metadata (e.g. cmds,
+        keys, shapes) is communicated over self._metadata_pg(). In other words, these
+        pgs handle most of the data transfer volume. Multiple pgs are used in order to
+        max out the NIC.
+        """
+        return self.groups
+
+    def _validate_store(
+        self, key: str, src: torch.Tensor, accum: bool = False, overwrite: bool = True
+    ) -> None:
+        pass
+
     def store(
         self, key: str, src: torch.Tensor, accum: bool = False, overwrite: bool = True
     ) -> None:
         """Store or accumulate a tensor on the server."""
+        self._validate_store(key, src, accum=accum, overwrite=overwrite)
         cmd_rpc = torch.tensor(
             [
                 STORE_CMD,
@@ -269,12 +398,18 @@ class ParameterClient:
             ],
             dtype=torch.long,
         )
-        td.send(cmd_rpc, self.server_rank)
-        td.send(_fromstring(key), self.server_rank)
+        metadata_pg = self._metadata_pg()
+        td.send(cmd_rpc, self.server_rank, group=metadata_pg)
+        td.send(_fromstring(key), self.server_rank, group=metadata_pg)
         if not accum:
-            td.send(torch.tensor(list(src.size()), dtype=torch.long), self.server_rank)
+            td.send(
+                torch.tensor(list(src.size()), dtype=torch.long),
+                self.server_rank,
+                group=metadata_pg,
+            )
         start_t = time.monotonic()
-        if self.groups is None:
+        data_pgs = self._data_pgs()
+        if data_pgs is None:
             td.send(src, dst=self.server_rank)
         else:
             outstanding_work = []
@@ -282,8 +417,8 @@ class ParameterClient:
             flattened_size = flattened_src.shape[0]
             for idx, (pg, slice_) in enumerate(
                 zip(
-                    self.groups,
-                    split_almost_equally(flattened_size, num_parts=len(self.groups)),
+                    data_pgs,
+                    split_almost_equally(flattened_size, num_parts=len(data_pgs)),
                 )
             ):
                 outstanding_work.append(
@@ -307,30 +442,38 @@ class ParameterClient:
                 f"=> {stats_size / stats_time:,.0f} B/s"
             )
 
+    def _validate_get(
+        self, key: str, dst: Optional[torch.Tensor] = None, shared: bool = False
+    ) -> None:
+        pass
+
     def get(
         self, key: str, dst: Optional[torch.Tensor] = None, shared: bool = False
     ) -> Optional[torch.Tensor]:
         """Get a tensor from the server."""
+        self._validate_get(key, dst=dst, shared=shared)
         cmd_rpc = torch.tensor(
             [GET_CMD, len(key), dst is None, 0, 0, 0], dtype=torch.long
         )
-        td.send(cmd_rpc, self.server_rank)
-        td.send(_fromstring(key), self.server_rank)
+        metadata_pg = self._metadata_pg()
+        td.send(cmd_rpc, self.server_rank, group=metadata_pg)
+        td.send(_fromstring(key), self.server_rank, group=metadata_pg)
         if dst is None:
             meta = torch.full((2,), -1, dtype=torch.long)
-            td.recv(meta, src=self.server_rank)
+            td.recv(meta, src=self.server_rank, group=metadata_pg)
             ndim, ttype = meta
             if ndim.item() == -1:
                 return None
             size = torch.full((ndim.item(),), -1, dtype=torch.long)
-            td.recv(size, src=self.server_rank)
+            td.recv(size, src=self.server_rank, group=metadata_pg)
             dtype = _dtypes[ttype.item()]
             if shared:
                 dst = allocate_shared_tensor(size.tolist(), dtype=dtype)
             else:
                 dst = torch.empty(size.tolist(), dtype=dtype)
         start_t = time.monotonic()
-        if self.groups is None:
+        data_pgs = self._data_pgs()
+        if data_pgs is None:
             td.recv(dst, src=self.server_rank)
         else:
             outstanding_work = []
@@ -338,8 +481,8 @@ class ParameterClient:
             flattened_size = flattened_dst.shape[0]
             for idx, (pg, slice_) in enumerate(
                 zip(
-                    self.groups,
-                    split_almost_equally(flattened_size, num_parts=len(self.groups)),
+                    data_pgs,
+                    split_almost_equally(flattened_size, num_parts=len(data_pgs)),
                 )
             ):
                 outstanding_work.append(
@@ -364,6 +507,16 @@ class ParameterClient:
             )
         return dst
 
+    def _validate_swap(
+        self,
+        key: str,
+        src: torch.Tensor,
+        dst: Optional[torch.Tensor] = None,
+        accum: bool = False,
+        overwrite: bool = False,
+    ) -> None:
+        pass
+
     def swap(
         self,
         key: str,
@@ -375,6 +528,7 @@ class ParameterClient:
         """Store or accumulate a tensor on the server,
         and then get its current value.
         """
+        self._validate_swap(key, src, dst=dst, accum=accum, overwrite=overwrite)
         if dst is None:
             dst = torch.zeros_like(src)
 
@@ -419,10 +573,59 @@ class ParameterClient:
             [JOIN_CMD, do_barrier and 1 or 0, 0, 0, 0, 0], dtype=torch.long
         )
         logger.info("ParameterClient join start")
-        td.send(cmd_rpc, self.server_rank)
+        td.send(cmd_rpc, self.server_rank, group=self._metadata_pg())
         ack = torch.empty((1,))
         td.recv(ack, src=self.server_rank)
         logger.info("ParameterClient join end")
+
+
+class ShardedParameterClient(ParameterClient):
+    """
+    A ParameterClient that uses specific process groups for communications. Please
+    see ShardedParameterServer docstring for more details. ShardedParameterClient is
+    used only by ShardedPartitionClient.
+    """
+
+    def __init__(
+        self,
+        server_rank: int,
+        num_data_pgs: int,
+        groups: Optional[List["td.ProcessGroup"]] = None,
+        log_stats: bool = False,
+    ) -> None:
+        assert groups is not None, "groups cannot be None for ShardedParameterClient."
+        self.num_data_pgs = num_data_pgs
+        super().__init__(server_rank, groups=groups, log_stats=log_stats)
+
+    @lru_cache()
+    def _metadata_pg(self) -> "td.ProcessGroup":
+        return _metadata_pg(self.groups, self.num_data_pgs, self.server_rank)
+
+    @lru_cache()
+    def _data_pgs(self) -> List["td.ProcessGroup"]:
+        return _data_pgs(self.groups, self.num_data_pgs, self.server_rank)
+
+    def _validate_store(
+        self, key: str, src: torch.Tensor, accum: bool = False, overwrite: bool = True
+    ) -> None:
+        assert (
+            not accum
+        ), "accum must be False because partition servers do not accumulate."
+
+    def _validate_get(
+        self, key: str, dst: Optional[torch.Tensor] = None, shared: bool = False
+    ) -> None:
+        pass
+
+    def _validate_swap(
+        self,
+        key: str,
+        src: torch.Tensor,
+        dst: Optional[torch.Tensor] = None,
+        accum: bool = False,
+        overwrite: bool = False,
+    ) -> None:
+        raise Exception("Partition servers do not swap.")
 
 
 class GradientParameterClient:

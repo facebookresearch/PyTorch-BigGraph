@@ -617,7 +617,12 @@ class TestFunctional(TestCase):
     def test_distributed_unpartitioned(self):
         self._test_distributed(num_partitions=1)
 
-    def test_distributed_with_partition_servers(self):
+    def _test_distributed_with_partition_servers(
+        self,
+        num_trainers,
+        num_partition_servers,
+        num_groups_per_sharded_partition_server=1,
+    ):
         sync_path = TemporaryDirectory()
         self.addCleanup(sync_path.cleanup)
         entity_name = "e"
@@ -625,14 +630,15 @@ class TestFunctional(TestCase):
         base_config = ConfigSchema(
             dimension=10,
             relations=[relation_config],
-            entities={entity_name: EntitySchema(num_partitions=4)},
+            entities={entity_name: EntitySchema(num_partitions=2 * num_trainers)},
             entity_path=None,  # filled in later
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
-            num_machines=2,
-            num_partition_servers=2,
+            num_machines=num_trainers,
+            num_partition_servers=num_partition_servers,
             distributed_init_method="file://%s" % os.path.join(sync_path.name, "sync"),
             workers=2,
+            num_groups_per_sharded_partition_server=num_groups_per_sharded_partition_server,
         )
         dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4])
         self.addCleanup(dataset.cleanup)
@@ -641,80 +647,80 @@ class TestFunctional(TestCase):
             entity_path=dataset.entity_path.name,
             edge_paths=[dataset.relation_paths[0].name],
         )
+
         # Just make sure no exceptions are raised and nothing crashes.
-        trainer0 = mp.get_context("spawn").Process(
-            name="Trainer-0",
-            target=partial(
-                call_one_after_the_other,
-                self.subprocess_init,
-                partial(
-                    train, train_config, rank=0, subprocess_init=self.subprocess_init
-                ),
-            ),
-        )
-        trainer1 = mp.get_context("spawn").Process(
-            name="Trainer-1",
-            target=partial(
-                call_one_after_the_other,
-                self.subprocess_init,
-                partial(
-                    train, train_config, rank=1, subprocess_init=self.subprocess_init
-                ),
-            ),
-        )
-        partition_server0 = mp.get_context("spawn").Process(
-            name="PartitionServer-0",
-            target=partial(
-                call_one_after_the_other,
-                self.subprocess_init,
-                partial(
-                    run_partition_server,
-                    train_config,
-                    rank=0,
-                    subprocess_init=self.subprocess_init,
-                ),
-            ),
-        )
-        partition_server1 = mp.get_context("spawn").Process(
-            name="PartitionServer-1",
-            target=partial(
-                call_one_after_the_other,
-                self.subprocess_init,
-                partial(
-                    run_partition_server,
-                    train_config,
-                    rank=1,
-                    subprocess_init=self.subprocess_init,
-                ),
-            ),
-        )
+        trainers = []
+        for rank in range(num_trainers):
+            trainers.append(
+                mp.get_context("spawn").Process(
+                    name=f"Trainer-{rank}",
+                    target=partial(
+                        call_one_after_the_other,
+                        self.subprocess_init,
+                        partial(
+                            train,
+                            train_config,
+                            rank=rank,
+                            subprocess_init=self.subprocess_init,
+                        ),
+                    ),
+                )
+            )
+
+        partition_servers = []
+        for rank in range(num_partition_servers):
+            partition_servers.append(
+                mp.get_context("spawn").Process(
+                    name=f"PartitionServer-{rank}",
+                    target=partial(
+                        call_one_after_the_other,
+                        self.subprocess_init,
+                        partial(
+                            run_partition_server,
+                            train_config,
+                            rank=rank,
+                            subprocess_init=self.subprocess_init,
+                        ),
+                    ),
+                )
+            )
+
         # FIXME In Python 3.7 use kill here.
-        self.addCleanup(trainer0.terminate)
-        self.addCleanup(trainer1.terminate)
-        self.addCleanup(partition_server0.terminate)
-        self.addCleanup(partition_server1.terminate)
-        trainer0.start()
-        trainer1.start()
-        partition_server0.start()
-        partition_server1.start()
-        done = [False, False]
+        for proc in trainers + partition_servers:
+            self.addCleanup(proc.terminate)
+
+        for proc in trainers + partition_servers:
+            proc.start()
+
+        done = [False] * num_trainers
         while not all(done):
             time.sleep(1)
-            if not trainer0.is_alive() and not done[0]:
-                self.assertEqual(trainer0.exitcode, 0)
-                done[0] = True
-            if not trainer1.is_alive() and not done[1]:
-                self.assertEqual(trainer1.exitcode, 0)
-                done[1] = True
-        partition_server0.join()
-        partition_server1.join()
-        logger.info(
-            f"Partition server 0 died with exit code {partition_server0.exitcode}"
-        )
-        logger.info(
-            f"Partition server 0 died with exit code {partition_server1.exitcode}"
-        )
+            for (rank, trainer) in enumerate(trainers):
+                if not trainer.is_alive() and not done[rank]:
+                    self.assertEqual(trainer.exitcode, 0)
+                    done[rank] = True
+
+        for partition_server in partition_servers:
+            partition_server.join()
+
+        for (rank, partition_server) in enumerate(partition_servers):
+            logger.info(
+                f"Partition server {rank} died with exit code {partition_server.exitcode}"
+            )
+
         self.assertCheckpointWritten(train_config, version=1)
+
+    def test_distributed_with_partition_servers(self):
+        self._test_distributed_with_partition_servers(
+            num_trainers=2, num_partition_servers=2
+        )
+
+    def test_distributed_with_more_partition_servers_than_trainers(self):
+        self._test_distributed_with_partition_servers(
+            num_trainers=2,
+            num_partition_servers=3,
+            num_groups_per_sharded_partition_server=2,
+        )
 
     def test_dynamic_relations(self):
         relation_config = RelationSchema(name="r", lhs="el", rhs="er")

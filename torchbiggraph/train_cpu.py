@@ -29,6 +29,7 @@ from torchbiggraph.checkpoint_manager import (
     ConfigMetadataProvider,
     MetadataProvider,
     PartitionClient,
+    ShardedPartitionClient,
 )
 from torchbiggraph.config import ConfigSchema
 from torchbiggraph.distributed import init_process_group, ProcessRanks, start_server
@@ -316,7 +317,12 @@ class TrainingCoordinator:
                 config.num_machines, config.num_partition_servers
             )
 
-            num_ps_groups = config.num_groups_for_partition_server
+            if config.num_partition_servers > config.num_machines:
+                num_ps_groups = config.num_partition_servers * (
+                    config.num_groups_per_sharded_partition_server + 1
+                )
+            else:
+                num_ps_groups = config.num_groups_for_partition_server
             groups: List[List[int]] = [ranks.trainers]  # barrier group
             groups += [
                 ranks.trainers + ranks.partition_servers
@@ -394,11 +400,21 @@ class TrainingCoordinator:
             self.barrier_group = trainer_group
 
             if len(ranks.partition_servers) > 0:
-                partition_client = PartitionClient(
-                    ranks.partition_servers,
-                    groups=groups_for_partition_servers,
-                    log_stats=True,
-                )
+                if config.num_partition_servers > config.num_machines:
+                    partition_client = ShardedPartitionClient(
+                        ranks.partition_servers,
+                        config.num_groups_per_sharded_partition_server,
+                        config.partition_shard_size,
+                        config.entities,
+                        groups=groups_for_partition_servers,
+                        log_stats=True,
+                    )
+                else:
+                    partition_client = PartitionClient(
+                        ranks.partition_servers,
+                        groups=groups_for_partition_servers,
+                        log_stats=True,
+                    )
             else:
                 partition_client = None
         else:
