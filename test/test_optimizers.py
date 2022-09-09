@@ -54,14 +54,14 @@ def do_optim(model, optimizer, N, rank):
 
 
 class TestOptimizers(TensorTestCase):
-    def _stress_optimizer(self, model, optimizer, num_processes=1):
+    def _stress_optimizer(self, model, optimizer, num_processes=1, iterations=100):
         logger.info("_stress_optimizer begin")
         processes = []
         for rank in range(num_processes):
             p = mp.get_context("spawn").Process(
                 name=f"Process-{rank}",
                 target=do_optim,
-                args=(model, optimizer, 100, rank),
+                args=(model, optimizer, iterations, rank),
             )
             p.start()
             self.addCleanup(p.terminate)
@@ -88,7 +88,9 @@ class TestOptimizers(TensorTestCase):
         model = nn.Embedding(NE, 100)
         optimizer = AsyncAdagrad(model.parameters())
         num_processes = mp.cpu_count() // 2 + 1
-        self._stress_optimizer(model, optimizer, num_processes=num_processes)
+        self._stress_optimizer(
+            model, optimizer, num_processes=num_processes, iterations=50
+        )
 
         self.assertLess(model.weight.abs().max(), 1000)
 
@@ -98,24 +100,31 @@ class TestOptimizers(TensorTestCase):
         model = nn.Embedding(NE, 100)
         optimizer = RowAdagrad(model.parameters())
         num_processes = mp.cpu_count() // 2 + 1
-        self._stress_optimizer(model, optimizer, num_processes=num_processes)
+        self._stress_optimizer(
+            model, optimizer, num_processes=num_processes, iterations=50
+        )
 
         # This fails for Adagrad because it's not stable
         self.assertLess(model.weight.abs().max(), 1000)
 
-    def testAccuracy_AsyncAdagrad(self):
-        for sparse in (True, False):
-            # testing that Adagrad = AsyncAdagrad with 1 process
-            NE = 10000
-            golden_model = nn.Embedding(NE, 100, sparse=sparse)
-            test_model = nn.Embedding(NE, 100, sparse=sparse)
-            test_model.load_state_dict(golden_model.state_dict())
+    def _assert_testAccuracy_AsyncAdagrad(self, sparse):
+        # testing that Adagrad = AsyncAdagrad with 1 process
+        NE = 10000
+        golden_model = nn.Embedding(NE, 100, sparse=sparse)
+        test_model = nn.Embedding(NE, 100, sparse=sparse)
+        test_model.load_state_dict(golden_model.state_dict())
 
-            golden_optimizer = Adagrad(golden_model.parameters())
-            self._stress_optimizer(golden_model, golden_optimizer, num_processes=1)
+        golden_optimizer = Adagrad(golden_model.parameters())
+        self._stress_optimizer(golden_model, golden_optimizer, num_processes=1)
 
-            test_optimizer = AsyncAdagrad(test_model.parameters())
-            self._stress_optimizer(test_model, test_optimizer, num_processes=1)
+        test_optimizer = AsyncAdagrad(test_model.parameters())
+        self._stress_optimizer(test_model, test_optimizer, num_processes=1)
 
-            # This fails for Adagrad because it's not stable
-            self.assertTensorEqual(golden_model.weight, test_model.weight)
+        # This fails for Adagrad because it's not stable
+        self.assertTensorEqual(golden_model.weight, test_model.weight)
+
+    def testAccuracy_AsyncAdagrad_sprase_true(self):
+        self._assert_testAccuracy_AsyncAdagrad(sparse=True)
+
+    def testAccuracy_AsyncAdagrad_sprase_false(self):
+        self._assert_testAccuracy_AsyncAdagrad(sparse=False)
