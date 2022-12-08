@@ -8,6 +8,7 @@
 
 import logging
 import multiprocessing as mp
+import os
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from typing import Callable, List, NamedTuple, Optional
@@ -82,6 +83,28 @@ def init_process_group(
     # the old behavior we use a ridiculously high default timeout.
     timeout = timedelta(days=365)
     logger.info("init_process_group start")
+
+    # Adding code block below to route ftw region traffic to new
+    # ensembles - T132536412; Easy to extend to other regions and
+    # handle more traffics by adding more ensembles
+    try:
+        # fetch run time trainer cluster which contains region information
+        runtime_cluster = os.environ["BUMBLEBEE_CLUSTER"]
+        cluster_region = runtime_cluster.split("-")[1]
+        filamentZeusMap = {"ftw": ("zelos.8fc7", "zelos.5f14")}
+        if cluster_region in filamentZeusMap:
+            logger.info(f"Run time cluster region is: {cluster_region}")
+            regionList = filamentZeusMap[cluster_region]
+            parent_flow_id = init_method.split("f")[-1]
+            zeus_endpoint = regionList[int(parent_flow_id) % len(regionList)]
+            init_method = f"elasticzeus://{zeus_endpoint}/f{parent_flow_id}"
+            logger.info("The updated init_method: {}".format(init_method))
+        else:
+            logger.info("Run time cluster region not in Filament ensemble map")
+
+    except Exception as e:
+        logger.info(f"List BUMBLEBEE_CLUSTER test FAILED due to: {e}")
+
     if init_method is None:
         raise RuntimeError("distributed_init_method must be set when num_machines > 1")
     td.init_process_group(
