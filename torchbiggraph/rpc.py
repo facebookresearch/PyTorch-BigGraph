@@ -71,7 +71,7 @@ def recv(src=None):
 _JOIN_KEY = "seU17sb9nwqDZhsH9AyW"
 
 
-class Server(object):
+class Server:
     """Base class for an RPC server using `torch.distributed`.
     Users should subclass this class and add the server methods.
 
@@ -125,7 +125,7 @@ class Server(object):
                     send((True, (e, exc_str)), src)
 
 
-class Client(object):
+class Client:
     """A client for connecting to a subclass of `rpc.Server`.
 
     Example:
