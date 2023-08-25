@@ -45,7 +45,7 @@ def _extract_intervals(offsets, sizes, data):
     return new_offsets, res
 
 
-class TensorList(object):
+class TensorList:
     """A list of tensors of different sizes, backed by a (offset, size, data)
     tuple.
 
