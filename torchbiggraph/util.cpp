@@ -9,7 +9,7 @@ namespace py = pybind11;
 namespace at {
 class CPUGenerator;
 class CPUGeneratorImpl; // NOLINT
-} // namespace at
+}; // namespace at
 
 torch::Tensor randperm(long numItems, int numThreads, int64_t seedIn = -1) {
   // workaround a breaking chang in the name of CPUGenerator in PyTorch 1.5
