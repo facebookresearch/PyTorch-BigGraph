@@ -14,7 +14,7 @@ from torchbiggraph.entitylist import EntityList
 
 
 class TestEdgeList(TestCase):
-    def test_empty(self):
+    def test_empty(self) -> None:
         self.assertEqual(
             EdgeList.empty(),
             EdgeList(
@@ -24,7 +24,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_cat_scalar_same(self):
+    def test_cat_scalar_same(self) -> None:
         self.assertEqual(
             EdgeList.cat(
                 [
@@ -47,7 +47,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_cat_scalar_different(self):
+    def test_cat_scalar_different(self) -> None:
         self.assertEqual(
             EdgeList.cat(
                 [
@@ -70,7 +70,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_cat_vector(self):
+    def test_cat_vector(self) -> None:
         self.assertEqual(
             EdgeList.cat(
                 [
@@ -93,7 +93,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_cat_mixed(self):
+    def test_cat_mixed(self) -> None:
         self.assertEqual(
             EdgeList.cat(
                 [
@@ -116,7 +116,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_constructor_checks(self):
+    def test_constructor_checks(self) -> None:
         with self.assertRaises(ValueError):
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4, 0], dtype=torch.long)),
@@ -136,7 +136,7 @@ class TestEdgeList(TestCase):
                 torch.tensor([[1]], dtype=torch.long),
             )
 
-    def test_has_scalar_relation_type(self):
+    def test_has_scalar_relation_type(self) -> None:
         self.assertTrue(
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
@@ -152,7 +152,7 @@ class TestEdgeList(TestCase):
             ).has_scalar_relation_type()
         )
 
-    def test_get_relation_type_as_scalar(self):
+    def test_get_relation_type_as_scalar(self) -> None:
         self.assertEqual(
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
@@ -162,7 +162,7 @@ class TestEdgeList(TestCase):
             3,
         )
 
-    def test_get_relation_type_as_vector(self):
+    def test_get_relation_type_as_vector(self) -> None:
         self.assertTrue(
             torch.equal(
                 EdgeList(
@@ -174,7 +174,7 @@ class TestEdgeList(TestCase):
             )
         )
 
-    def test_get_relation_type(self):
+    def test_get_relation_type(self) -> None:
         self.assertEqual(
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
@@ -194,7 +194,7 @@ class TestEdgeList(TestCase):
             )
         )
 
-    def test_equal(self):
+    def test_equal(self) -> None:
         el = EdgeList(
             EntityList.from_tensor(torch.tensor([3, 4], dtype=torch.long)),
             EntityList.from_tensor(torch.tensor([0, 2], dtype=torch.long)),
@@ -218,7 +218,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_len(self):
+    def test_len(self) -> None:
         self.assertEqual(
             len(
                 EdgeList(
@@ -230,7 +230,7 @@ class TestEdgeList(TestCase):
             2,
         )
 
-    def test_getitem_int(self):
+    def test_getitem_int(self) -> None:
         self.assertEqual(
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4, 1, 0], dtype=torch.long)),
@@ -244,7 +244,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_getitem_slice(self):
+    def test_getitem_slice(self) -> None:
         self.assertEqual(
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4, 1, 0], dtype=torch.long)),
@@ -258,7 +258,7 @@ class TestEdgeList(TestCase):
             ),
         )
 
-    def test_getitem_longtensor(self):
+    def test_getitem_longtensor(self) -> None:
         self.assertEqual(
             EdgeList(
                 EntityList.from_tensor(torch.tensor([3, 4, 1, 0], dtype=torch.long)),

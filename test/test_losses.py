@@ -36,7 +36,7 @@ class TensorTestCase(TestCase):
 
 
 class TestLogisticLossFunction(TensorTestCase):
-    def test_forward(self):
+    def test_forward(self) -> None:
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
         neg_scores = torch.tensor(
             [
@@ -53,7 +53,7 @@ class TestLogisticLossFunction(TensorTestCase):
         self.assertTrue((pos_scores.grad != 0).any())
         self.assertTrue((neg_scores.grad != 0).any())
 
-    def test_forward_weight(self):
+    def test_forward_weight(self) -> None:
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
         neg_scores = torch.tensor(
             [
@@ -75,7 +75,7 @@ class TestLogisticLossFunction(TensorTestCase):
         loss = loss_fn(pos_scores, neg_scores, weight)
         self.assertTensorEqual(loss, torch.tensor(0.8302))
 
-    def test_forward_good(self):
+    def test_forward_good(self) -> None:
         pos_scores = torch.full((3,), +1e9, requires_grad=True)
         neg_scores = torch.full((3, 5), -1e9, requires_grad=True)
         loss_fn = LogisticLossFunction()
@@ -83,7 +83,7 @@ class TestLogisticLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
 
-    def test_forward_bad(self):
+    def test_forward_bad(self) -> None:
         pos_scores = torch.full((3,), -1e9, requires_grad=True)
         neg_scores = torch.full((3, 5), +1e9, requires_grad=True)
         loss_fn = LogisticLossFunction()
@@ -91,7 +91,7 @@ class TestLogisticLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.tensor(6e9))
         loss.backward()
 
-    def test_no_neg(self):
+    def test_no_neg(self) -> None:
         pos_scores = torch.zeros((3,), requires_grad=True)
         neg_scores = torch.empty((3, 0), requires_grad=True)
         loss_fn = LogisticLossFunction()
@@ -99,7 +99,7 @@ class TestLogisticLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.tensor(2.0794))
         loss.backward()
 
-    def test_no_pos(self):
+    def test_no_pos(self) -> None:
         pos_scores = torch.empty((0,), requires_grad=True)
         neg_scores = torch.empty((0, 0), requires_grad=True)
         loss_fn = LogisticLossFunction()
@@ -109,7 +109,7 @@ class TestLogisticLossFunction(TensorTestCase):
 
 
 class TestRankingLossFunction(TensorTestCase):
-    def test_forward(self):
+    def test_forward(self) -> None:
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
         neg_scores = torch.tensor(
             [
@@ -126,7 +126,7 @@ class TestRankingLossFunction(TensorTestCase):
         self.assertTrue((pos_scores.grad != 0).any())
         self.assertTrue((neg_scores.grad != 0).any())
 
-    def test_forward_weight(self):
+    def test_forward_weight(self) -> None:
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
         neg_scores = torch.tensor(
             [
@@ -148,7 +148,7 @@ class TestRankingLossFunction(TensorTestCase):
         loss = loss_fn(pos_scores, neg_scores, weight)
         self.assertTensorEqual(loss, torch.tensor(2.4658))
 
-    def test_forward_good(self):
+    def test_forward_good(self) -> None:
         pos_scores = torch.full((3,), 2.0, requires_grad=True)
         neg_scores = torch.full((3, 5), 1.0, requires_grad=True)
         loss_fn = RankingLossFunction(margin=1.0)
@@ -156,7 +156,7 @@ class TestRankingLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
 
-    def test_forward_bad(self):
+    def test_forward_bad(self) -> None:
         pos_scores = torch.full((3,), -1.0, requires_grad=True)
         neg_scores = torch.zeros((3, 5), requires_grad=True)
         loss_fn = RankingLossFunction(margin=1.0)
@@ -164,7 +164,7 @@ class TestRankingLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.tensor(30.0))
         loss.backward()
 
-    def test_no_neg(self):
+    def test_no_neg(self) -> None:
         pos_scores = torch.zeros((3,), requires_grad=True)
         neg_scores = torch.empty((3, 0), requires_grad=True)
         loss_fn = RankingLossFunction(margin=1.0)
@@ -172,7 +172,7 @@ class TestRankingLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
 
-    def test_no_pos(self):
+    def test_no_pos(self) -> None:
         pos_scores = torch.empty((0,), requires_grad=True)
         neg_scores = torch.empty((0, 3), requires_grad=True)
         loss_fn = RankingLossFunction(margin=1.0)
@@ -182,7 +182,7 @@ class TestRankingLossFunction(TensorTestCase):
 
 
 class TestSoftmaxLossFunction(TensorTestCase):
-    def test_forward(self):
+    def test_forward(self) -> None:
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
         neg_scores = torch.tensor(
             [
@@ -199,7 +199,7 @@ class TestSoftmaxLossFunction(TensorTestCase):
         self.assertTrue((pos_scores.grad != 0).any())
         self.assertTrue((neg_scores.grad != 0).any())
 
-    def test_forward_weight(self):
+    def test_forward_weight(self) -> None:
         pos_scores = torch.tensor([0.8181, 0.5700, 0.3506], requires_grad=True)
         neg_scores = torch.tensor(
             [
@@ -221,7 +221,7 @@ class TestSoftmaxLossFunction(TensorTestCase):
         loss = loss_fn(pos_scores, neg_scores, weight)
         self.assertTensorEqual(loss, torch.tensor(0.9978))
 
-    def test_forward_good(self):
+    def test_forward_good(self) -> None:
         pos_scores = torch.full((3,), +1e9, requires_grad=True)
         neg_scores = torch.full((3, 5), -1e9, requires_grad=True)
         loss_fn = SoftmaxLossFunction()
@@ -229,7 +229,7 @@ class TestSoftmaxLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
 
-    def test_forward_bad(self):
+    def test_forward_bad(self) -> None:
         pos_scores = torch.full((3,), -1e9, requires_grad=True)
         neg_scores = torch.full((3, 5), +1e9, requires_grad=True)
         loss_fn = SoftmaxLossFunction()
@@ -237,7 +237,7 @@ class TestSoftmaxLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.tensor(6e9))
         loss.backward()
 
-    def test_no_neg(self):
+    def test_no_neg(self) -> None:
         pos_scores = torch.zeros((3,), requires_grad=True)
         neg_scores = torch.empty((3, 0), requires_grad=True)
         loss_fn = SoftmaxLossFunction()
@@ -245,7 +245,7 @@ class TestSoftmaxLossFunction(TensorTestCase):
         self.assertTensorEqual(loss, torch.zeros(()))
         loss.backward()
 
-    def test_no_pos(self):
+    def test_no_pos(self) -> None:
         pos_scores = torch.empty((0,), requires_grad=True)
         neg_scores = torch.empty((0, 3), requires_grad=True)
         loss_fn = SoftmaxLossFunction()

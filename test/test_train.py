@@ -13,13 +13,13 @@ from torchbiggraph.train_cpu import IterationManager
 
 
 class TestIterationManager(TestCase):
-    def test_full(self):
+    def test_full(self) -> None:
         im = IterationManager(
             num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4
         )
         self.assertEqual(list(im), list(product(range(2), range(3), range(4))))
 
-    def test_partial(self):
+    def test_partial(self) -> None:
         im = IterationManager(
             num_epochs=2,
             edge_paths=["A", "B", "C"],
@@ -28,7 +28,7 @@ class TestIterationManager(TestCase):
         )
         self.assertEqual(list(im), [(1, 2, 3)])
 
-    def test_tampering(self):
+    def test_tampering(self) -> None:
         im = IterationManager(
             num_epochs=2, edge_paths=["A", "B", "C"], num_edge_chunks=4
         )
@@ -44,7 +44,7 @@ class TestIterationManager(TestCase):
         with self.assertRaises(StopIteration):
             next(it)
 
-    def test_properties(self):
+    def test_properties(self) -> None:
         im = IterationManager(
             num_epochs=2,
             edge_paths=["A", "B", "C"],

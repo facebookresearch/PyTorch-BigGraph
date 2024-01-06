@@ -14,7 +14,7 @@ from torchbiggraph.config import ConfigSchema, EntitySchema, RelationSchema
 
 
 class TestTwoWayMapping(TestCase):
-    def test_one_field(self):
+    def test_one_field(self) -> None:
         m = TwoWayMapping("foo.bar.{field}", "{field}/ham/eggs", fields=["field"])
         self.assertEqual(m.private_to_public.map("foo.bar.baz"), "baz/ham/eggs")
         self.assertEqual(m.public_to_private.map("spam/ham/eggs"), "foo.bar.spam")
@@ -39,7 +39,7 @@ class TestTwoWayMapping(TestCase):
         with self.assertRaises(ValueError):
             m.public_to_private.map("spam/ham/eggs/2")
 
-    def test_many_field(self):
+    def test_many_field(self) -> None:
         m = TwoWayMapping(
             "fo{field1}.{field2}ar.b{field3}z",
             "sp{field3}m/{field2}am/egg{field1}",
@@ -50,7 +50,7 @@ class TestTwoWayMapping(TestCase):
 
 
 class TestConfigMetadataProvider(TestCase):
-    def test_basic(self):
+    def test_basic(self) -> None:
         config = ConfigSchema(
             entities={"e": EntitySchema(num_partitions=1)},
             relations=[RelationSchema(name="r", lhs="e", rhs="e")],

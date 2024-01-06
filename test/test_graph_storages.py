@@ -17,7 +17,7 @@ from torchbiggraph.tensorlist import TensorList
 
 
 class TestFileEdgeAppender(TestCase):
-    def test_tensors(self):
+    def test_tensors(self) -> None:
         with tempfile.NamedTemporaryFile() as bf:
             with h5py.File(bf.name, "w") as hf, FileEdgeAppender(hf) as buffered_hf:
                 buffered_hf.append_tensor(
@@ -41,7 +41,7 @@ class TestFileEdgeAppender(TestCase):
                     hf["bar"], np.arange(10, 1_000_000, dtype=np.int64)
                 )
 
-    def test_tensor_list(self):
+    def test_tensor_list(self) -> None:
         with tempfile.NamedTemporaryFile() as bf:
             with h5py.File(bf.name, "w") as hf, FileEdgeAppender(hf) as buffered_hf:
                 buffered_hf.append_tensor_list(

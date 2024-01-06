@@ -15,7 +15,7 @@ from torchbiggraph.config import BucketOrder
 
 
 class TestCreateOrderedBuckets(TestCase):
-    def test_valid(self):
+    def test_valid(self) -> None:
         """Ensure every method produces a valid order (contain all pairs once).
 
         Even if it may not be the intended order.

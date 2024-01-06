@@ -17,25 +17,25 @@ from torchbiggraph.util import (
 
 
 class TestSplitAlmostEqually(TestCase):
-    def test_exact(self):
+    def test_exact(self) -> None:
         self.assertEqual(
             list(split_almost_equally(24, num_parts=4)),
             [slice(0, 6), slice(6, 12), slice(12, 18), slice(18, 24)],
         )
 
-    def test_more(self):
+    def test_more(self) -> None:
         self.assertEqual(
             list(split_almost_equally(25, num_parts=4)),
             [slice(0, 7), slice(7, 14), slice(14, 21), slice(21, 25)],
         )
 
-    def test_fewer(self):
+    def test_fewer(self) -> None:
         self.assertEqual(
             list(split_almost_equally(23, num_parts=4)),
             [slice(0, 6), slice(6, 12), slice(12, 18), slice(18, 23)],
         )
 
-    def test_so_few_that_last_slice_would_underflow(self):
+    def test_so_few_that_last_slice_would_underflow(self) -> None:
         # All slices have the same size, which is the ratio size/num_parts
         # rounded up. This however may cause earlier slices to get so many
         # elements that later ones end up being empty. We need to be careful
@@ -51,18 +51,18 @@ class TestSplitAlmostEqually(TestCase):
 
 
 class TestRoundUpToNearestMultiple(TestCase):
-    def test_exact(self):
+    def test_exact(self) -> None:
         self.assertEqual(round_up_to_nearest_multiple(24, 4), 24)
 
-    def test_more(self):
+    def test_more(self) -> None:
         self.assertEqual(round_up_to_nearest_multiple(25, 4), 28)
 
-    def test_fewer(self):
+    def test_fewer(self) -> None:
         self.assertEqual(round_up_to_nearest_multiple(23, 4), 24)
 
 
 class TestMatchShape(TestCase):
-    def test_zero_dimensions(self):
+    def test_zero_dimensions(self) -> None:
         t = torch.zeros(())
         self.assertIsNone(match_shape(t))
         self.assertIsNone(match_shape(t, ...))
@@ -73,7 +73,7 @@ class TestMatchShape(TestCase):
         with self.assertRaises(TypeError):
             match_shape(t, -1)
 
-    def test_one_dimension(self):
+    def test_one_dimension(self) -> None:
         t = torch.zeros((3,))
         self.assertIsNone(match_shape(t, 3))
         self.assertIsNone(match_shape(t, ...))
@@ -87,7 +87,7 @@ class TestMatchShape(TestCase):
         with self.assertRaises(TypeError):
             match_shape(t, 3, ..., 3)
 
-    def test_many_dimension(self):
+    def test_many_dimension(self) -> None:
         t = torch.zeros((3, 4, 5))
         self.assertIsNone(match_shape(t, 3, 4, 5))
         self.assertIsNone(match_shape(t, ...))
@@ -115,7 +115,7 @@ class TestMatchShape(TestCase):
         with self.assertRaises(TypeError):
             match_shape(t, 3, 4, ..., 4, 5)
 
-    def test_bad_args(self):
+    def test_bad_args(self) -> None:
         t = torch.empty((0,))
         with self.assertRaises(RuntimeError):
             match_shape(t, ..., ...)

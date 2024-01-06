@@ -23,7 +23,7 @@ from torchbiggraph.schema import (
 
 
 class TestUnpackOptional(TestCase):
-    def test_has_no_args(self):
+    def test_has_no_args(self) -> None:
         with self.assertRaises(TypeError):
             unpack_optional(None)
         with self.assertRaises(TypeError):
@@ -35,19 +35,19 @@ class TestUnpackOptional(TestCase):
         with self.assertRaises(TypeError):
             unpack_optional(float)
 
-    def test_is_no_union(self):
+    def test_is_no_union(self) -> None:
         with self.assertRaises(TypeError):
             unpack_optional(List[int])
         with self.assertRaises(TypeError):
             unpack_optional(Dict[str, str])
 
-    def test_is_no_optional(self):
+    def test_is_no_optional(self) -> None:
         with self.assertRaises(TypeError):
             unpack_optional(Union[int])  # In fact this is int.
         with self.assertRaises(TypeError):
             unpack_optional(Union[int, str])
 
-    def test_is_optional(self):
+    def test_is_optional(self) -> None:
         self.assertIs(unpack_optional(Optional[int]), int)
         self.assertIs(unpack_optional(Optional[str]), str)
         self.assertIs(unpack_optional(Union[None, str]), str)
@@ -103,7 +103,7 @@ class SampleOuterConfig(Schema):
 
 
 class BaseMapperMixin:
-    def test_map_bool(self):
+    def test_map_bool(self) -> None:
         self.assertIs(self.mapper.map_with_type(False, bool), False)
         self.assertIs(self.mapper.map_with_type(True, bool), True)
         with self.assertRaises(TypeError):
@@ -111,34 +111,34 @@ class BaseMapperMixin:
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(0xF00, bool)
 
-    def test_map_int(self):
+    def test_map_int(self) -> None:
         self.assertEqual(self.mapper.map_with_type(0xF00, int), 0xF00)
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(None, int)
         with self.assertRaises(TypeError):
             self.mapper.map_with_type("foo", int)
 
-    def test_map_float(self):
+    def test_map_float(self) -> None:
         self.assertEqual(self.mapper.map_with_type(4.2, float), 4.2)
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(None, float)
         with self.assertRaises(TypeError):
             self.mapper.map_with_type("foo", float)
 
-    def test_map_str(self):
+    def test_map_str(self) -> None:
         self.assertEqual(self.mapper.map_with_type("foo", str), "foo")
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(None, str)
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(0xF00, str)
 
-    def test_map_optional_str(self):
+    def test_map_optional_str(self) -> None:
         self.assertEqual(self.mapper.map_with_type(None, Optional[str]), None)
         self.assertEqual(self.mapper.map_with_type("foo", Optional[str]), "foo")
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(0xF00, Optional[str])
 
-    def test_map_list_of_basic(self):
+    def test_map_list_of_basic(self) -> None:
         self.assertEqual(self.mapper.map_with_type([], List[str]), [])
         self.assertEqual(
             self.mapper.map_with_type(["foo", "bar"], List[str]), ["foo", "bar"]
@@ -148,7 +148,7 @@ class BaseMapperMixin:
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(["foo", 0xBA2], List[str])
 
-    def test_map_dict_of_basic(self):
+    def test_map_dict_of_basic(self) -> None:
         self.assertEqual(self.mapper.map_with_type({}, Dict[str, int]), {})
         self.assertEqual(
             self.mapper.map_with_type({"foo": 42}, Dict[str, int]), {"foo": 42}
@@ -162,10 +162,10 @@ class BaseMapperMixin:
 
 
 class TestLoader(BaseMapperMixin, TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.mapper = Loader()
 
-    def test_load_enum(self):
+    def test_load_enum(self) -> None:
         self.assertEqual(self.mapper.map_with_type("spam", SampleEnum), SampleEnum.SPAM)
         self.assertEqual(
             self.mapper.map_with_type("spam_alias", SampleEnum), SampleEnum.SPAM
@@ -176,7 +176,7 @@ class TestLoader(BaseMapperMixin, TestCase):
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(0xF00, SampleEnum)
 
-    def test_load_schema_bad_type(self):
+    def test_load_schema_bad_type(self) -> None:
         with self.assertRaises(TypeError):
             self.mapper.map_with_type("{}", Schema)
         with self.assertRaises(TypeError):
@@ -184,10 +184,10 @@ class TestLoader(BaseMapperMixin, TestCase):
         with self.assertRaises(TypeError):
             self.mapper.map_with_type({"foo": "bar"}, Schema)
 
-    def test_load_schema_empty(self):
+    def test_load_schema_empty(self) -> None:
         self.assertEqual(self.mapper.map_with_type({}, Schema), Schema())
 
-    def test_load_schema(self):
+    def test_load_schema(self) -> None:
         self.assertEqual(
             self.mapper.map_with_type(
                 {
@@ -225,17 +225,17 @@ class TestLoader(BaseMapperMixin, TestCase):
             ),
         )
 
-    def test_load_schema_missing_no_default(self):
+    def test_load_schema_missing_no_default(self) -> None:
         with self.assertRaises(TypeError):
             self.mapper.map_with_type({}, SampleConfigTypes)
 
-    def test_load_schema_excess_field(self):
+    def test_load_schema_excess_field(self) -> None:
         with self.assertRaisesRegex(TypeError, "something completely different"):
             self.mapper.map_with_type(
                 {"something completely differenty": None}, SampleConfigDefault
             )
 
-    def test_load_schema_bad_types(self):
+    def test_load_schema_bad_types(self) -> None:
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(
                 {
@@ -251,7 +251,7 @@ class TestLoader(BaseMapperMixin, TestCase):
                 SampleConfigTypes,
             )
 
-    def test_load_schema_optional_types_are_not_optional_fields(self):
+    def test_load_schema_optional_types_are_not_optional_fields(self) -> None:
         with self.assertRaisesRegex(TypeError, "my_optional_str"):
             self.mapper.map_with_type(
                 {
@@ -268,10 +268,10 @@ class TestLoader(BaseMapperMixin, TestCase):
 
 
 class TestDumper(BaseMapperMixin, TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.mapper = Dumper()
 
-    def test_dump_enum(self):
+    def test_dump_enum(self) -> None:
         self.assertEqual(self.mapper.map_with_type(SampleEnum.SPAM, SampleEnum), "spam")
         self.assertEqual(
             self.mapper.map_with_type(SampleEnum.SPAM_ALIAS, SampleEnum), "spam"
@@ -282,7 +282,7 @@ class TestDumper(BaseMapperMixin, TestCase):
         with self.assertRaises(TypeError):
             self.mapper.map_with_type(0xF00, SampleEnum)
 
-    def test_dump_schema(self):
+    def test_dump_schema(self) -> None:
         self.assertEqual(
             self.mapper.map_with_type(
                 SampleOuterConfig(
@@ -321,7 +321,7 @@ class TestDumper(BaseMapperMixin, TestCase):
 
 
 class TestConfig(TestCase):
-    def test_help(self):
+    def test_help(self) -> None:
         self.assertEqual(
             SampleOuterConfig.help(),
             [
@@ -360,16 +360,16 @@ class TestConfig(TestCase):
 
 
 class TestExtractNestedType(TestCase):
-    def test_empty(self):
+    def test_empty(self) -> None:
         self.assertIs(extract_nested_type(SampleConfigTypes, []), SampleConfigTypes)
 
-    def test_optional(self):
+    def test_optional(self) -> None:
         self.assertIs(
             extract_nested_type(SampleOuterConfig, ["my_schema", "my_optional_str"]),
             str,
         )
 
-    def test_list(self):
+    def test_list(self) -> None:
         self.assertIs(
             extract_nested_type(
                 SampleOuterConfig, ["my_dict_of_schemas", "key", "my_help_text"]
@@ -377,7 +377,7 @@ class TestExtractNestedType(TestCase):
             str,
         )
 
-    def test_dict(self):
+    def test_dict(self) -> None:
         self.assertIs(
             extract_nested_type(
                 SampleOuterConfig, ["my_list_of_schemas", "42", "my_default"]
@@ -387,11 +387,11 @@ class TestExtractNestedType(TestCase):
 
 
 class TestInjectNestedValue(TestCase):
-    def test_empty(self):
+    def test_empty(self) -> None:
         with self.assertRaises(ValueError):
             inject_nested_value({"foo": 42}, [], {"bar": 43})
 
-    def test_mixed(self):
+    def test_mixed(self) -> None:
         data = {"foo": [{"bar": True, "baz": [42, 43]}]}
         inject_nested_value(data, ["foo", "0", "baz", "1"], 1)
         self.assertEqual(data, {"foo": [{"bar": True, "baz": [42, 1]}]})

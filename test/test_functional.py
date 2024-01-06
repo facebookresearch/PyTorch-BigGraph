@@ -42,7 +42,7 @@ class Dataset(NamedTuple):
     entity_path: TemporaryDirectory
     relation_paths: List[TemporaryDirectory]
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         self.entity_path.cleanup()
         for path in self.relation_paths:
             path.cleanup()
@@ -339,7 +339,7 @@ class TestFunctional(TestCase):
                     )
                     self.assertIsOptimStateDict(hf["optimizer/state_dict"])
 
-    def test_default(self):
+    def test_default(self) -> None:
         entity_name = "e"
         relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
@@ -370,7 +370,7 @@ class TestFunctional(TestCase):
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
-    def test_resume_from_checkpoint(self):
+    def test_resume_from_checkpoint(self) -> None:
         entity_name = "e"
         relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
@@ -400,7 +400,7 @@ class TestFunctional(TestCase):
             os.path.exists(os.path.join(train_config.checkpoint_path, "model.v6.h5"))
         )
 
-    def test_with_initial_value(self):
+    def test_with_initial_value(self) -> None:
         entity_name = "e"
         relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
@@ -427,7 +427,7 @@ class TestFunctional(TestCase):
         train(train_config, rank=0, subprocess_init=self.subprocess_init)
         self.assertCheckpointWritten(train_config, version=1)
 
-    def test_featurized(self):
+    def test_featurized(self) -> None:
         e1 = EntitySchema(num_partitions=1, featurized=True)
         e2 = EntitySchema(num_partitions=1)
         r1 = RelationSchema(name="r1", lhs="e1", rhs="e2")
@@ -459,7 +459,7 @@ class TestFunctional(TestCase):
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
-    def test_partitioned(self):
+    def test_partitioned(self) -> None:
         e1 = EntitySchema(num_partitions=1)
         e2 = EntitySchema(num_partitions=2)
         e3 = EntitySchema(num_partitions=3)
@@ -493,15 +493,15 @@ class TestFunctional(TestCase):
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
     @unittest.skipIf(not torch.cuda.is_available() or not CPP_INSTALLED, "No GPU")
-    def test_gpu(self):
+    def test_gpu(self) -> None:
         self._test_gpu()
 
     @unittest.skipIf(not torch.cuda.is_available() or not CPP_INSTALLED, "No GPU")
-    def test_gpu_half(self):
+    def test_gpu_half(self) -> None:
         self._test_gpu(do_half_precision=True)
 
     @unittest.skipIf(not torch.cuda.is_available() or not CPP_INSTALLED, "No GPU")
-    def test_gpu_1partition(self):
+    def test_gpu_1partition(self) -> None:
         self._test_gpu(num_partitions=1)
 
     def _test_gpu(self, do_half_precision=False, num_partitions=2):
@@ -611,10 +611,10 @@ class TestFunctional(TestCase):
                 done[1] = True
         self.assertCheckpointWritten(train_config, version=1)
 
-    def test_distributed(self):
+    def test_distributed(self) -> None:
         self._test_distributed(num_partitions=4)
 
-    def test_distributed_unpartitioned(self):
+    def test_distributed_unpartitioned(self) -> None:
         self._test_distributed(num_partitions=1)
 
     def _test_distributed_with_partition_servers(
@@ -710,19 +710,19 @@ class TestFunctional(TestCase):
 
         self.assertCheckpointWritten(train_config, version=1)
 
-    def test_distributed_with_partition_servers(self):
+    def test_distributed_with_partition_servers(self) -> None:
         self._test_distributed_with_partition_servers(
             num_trainers=2, num_partition_servers=2
         )
 
-    def test_distributed_with_more_partition_servers_than_trainers(self):
+    def test_distributed_with_more_partition_servers_than_trainers(self) -> None:
         self._test_distributed_with_partition_servers(
             num_trainers=2,
             num_partition_servers=3,
             num_groups_per_sharded_partition_server=2,
         )
 
-    def test_dynamic_relations(self):
+    def test_dynamic_relations(self) -> None:
         relation_config = RelationSchema(name="r", lhs="el", rhs="er")
         base_config = ConfigSchema(
             dimension=10,
@@ -765,7 +765,7 @@ class TestFunctional(TestCase):
         self.assertCheckpointWritten(train_config, version=1)
         do_eval(eval_config, subprocess_init=self.subprocess_init)
 
-    def test_entity_dimensions(self):
+    def test_entity_dimensions(self) -> None:
         entity_name = "e"
         relation_config = RelationSchema(name="r", lhs=entity_name, rhs=entity_name)
         base_config = ConfigSchema(
