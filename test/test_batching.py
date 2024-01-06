@@ -20,7 +20,7 @@ from torchbiggraph.entitylist import EntityList
 
 
 class TestGroupByRelationType(TestCase):
-    def test_basic(self):
+    def test_basic(self) -> None:
         self.assertEqual(
             group_by_relation_type(
                 EdgeList(
@@ -64,7 +64,7 @@ class TestGroupByRelationType(TestCase):
             ],
         )
 
-    def test_constant(self):
+    def test_constant(self) -> None:
         self.assertEqual(
             group_by_relation_type(
                 EdgeList(
@@ -90,7 +90,7 @@ class TestGroupByRelationType(TestCase):
             ],
         )
 
-    def test_empty(self):
+    def test_empty(self) -> None:
         self.assertEqual(
             group_by_relation_type(
                 EdgeList(
@@ -104,7 +104,7 @@ class TestGroupByRelationType(TestCase):
 
 
 class TestBatchEdgesMixRelationTypes(TestCase):
-    def test_basic(self):
+    def test_basic(self) -> None:
         self.assertEqual(
             list(
                 batch_edges_mix_relation_types(
@@ -154,7 +154,7 @@ class TestBatchEdgesMixRelationTypes(TestCase):
 
 
 class TestBatchEdgesGroupByType(TestCase):
-    def test_basic(self):
+    def test_basic(self) -> None:
         edges = EdgeList(
             EntityList.from_tensor(
                 torch.tensor([93, 24, 13, 31, 70, 66, 77, 38, 5, 5], dtype=torch.long)
