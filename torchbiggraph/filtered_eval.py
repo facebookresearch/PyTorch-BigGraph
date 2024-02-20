@@ -16,7 +16,6 @@ from torchbiggraph.eval import RankingEvaluator
 from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.losses import LOSS_FUNCTIONS
 from torchbiggraph.model import Scores
-from torchbiggraph.stats import Stats
 from torchbiggraph.types import UNPARTITIONED
 
 

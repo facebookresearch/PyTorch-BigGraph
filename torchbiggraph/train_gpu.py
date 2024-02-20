@@ -6,8 +6,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE.txt file in the root directory of this source tree.
 
-import ctypes
-import ctypes.util
 import logging
 import os
 import time
@@ -18,47 +16,26 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 import torch
 import torch.multiprocessing as mp
 from torchbiggraph.batching import AbstractBatchProcessor, process_in_batches
-from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema
+from torchbiggraph.config import ConfigSchema
 from torchbiggraph.edgelist import EdgeList
 from torchbiggraph.entitylist import EntityList
-from torchbiggraph.graph_storages import EDGE_STORAGES, ENTITY_STORAGES
+from torchbiggraph.graph_storages import EDGE_STORAGES
 from torchbiggraph.model import MultiRelationEmbedder
-from torchbiggraph.parameter_sharing import ParameterServer, ParameterSharer
 from torchbiggraph.row_adagrad import RowAdagrad
 from torchbiggraph.stats import Stats, StatsHandler
 from torchbiggraph.train_cpu import Trainer, TrainingCoordinator
 from torchbiggraph.types import (
-    Bucket,
     EntityName,
     FloatTensorType,
     GPURank,
     LongTensorType,
-    ModuleStateDict,
-    OptimizerStateDict,
     Partition,
     Rank,
     Side,
     SINGLE_TRAINER,
     SubPartition,
 )
-from torchbiggraph.util import (
-    allocate_shared_tensor,
-    BucketLogger,
-    create_pool,
-    div_roundup,
-    DummyOptimizer,
-    EmbeddingHolder,
-    fast_approx_rand,
-    get_async_result,
-    get_num_workers,
-    hide_distributed_logging,
-    round_up_to_nearest_multiple,
-    set_logging_verbosity,
-    setup_logging,
-    split_almost_equally,
-    SubprocessInitializer,
-    tag_logs_with_process_name,
-)
+from torchbiggraph.util import allocate_shared_tensor, div_roundup, split_almost_equally
 
 
 try:

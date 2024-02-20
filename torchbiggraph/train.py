@@ -8,7 +8,7 @@
 
 import argparse
 import logging
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Callable, Optional
 
 from torchbiggraph.batching import AbstractBatchProcessor
 from torchbiggraph.config import add_to_sys_path, ConfigFileLoader, ConfigSchema

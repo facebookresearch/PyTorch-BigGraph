@@ -7,7 +7,7 @@
 # LICENSE.txt file in the root directory of this source tree.
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, NamedTuple, Optional, Sequence, Union
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
