@@ -351,6 +351,8 @@ class TestFunctional(TestCase):
             edge_paths=[],  # filled in later
             checkpoint_path=self.checkpoint_path.name,
             workers=2,
+            wd=0.01,
+            wd_interval=2,
         )
         dataset = generate_dataset(base_config, num_entities=100, fractions=[0.4, 0.2])
         self.addCleanup(dataset.cleanup)

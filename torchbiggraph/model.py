@@ -404,6 +404,8 @@ class MultiRelationEmbedder(nn.Module):
         ],
         comparator: AbstractComparator,
         regularizer: AbstractRegularizer,
+        wd: float,
+        wd_interval: int,
         global_emb: bool = False,
         max_norm: Optional[float] = None,
         num_dynamic_rels: int = 0,
@@ -444,6 +446,8 @@ class MultiRelationEmbedder(nn.Module):
         self.max_norm: Optional[float] = max_norm
         self.half_precision = half_precision
         self.regularizer: Optional[AbstractRegularizer] = regularizer
+        self.wd = wd
+        self.wd_interval = wd_interval
 
     def set_embeddings(self, entity: str, side: Side, weights: nn.Parameter) -> None:
         if self.entities[entity].featurized:
@@ -762,6 +766,14 @@ class MultiRelationEmbedder(nn.Module):
             reg,
         )
 
+
+    def l2_norm(self):
+        ret = 0
+        for e in set(self.lhs_embs.values()) | set(self.rhs_embs.values()):
+            ret += e.weight.pow(2).sum()
+        return ret
+
+
     def forward_direction_agnostic(
         self,
         src: EntityList,
@@ -921,6 +933,8 @@ def make_model(config: ConfigSchema) -> MultiRelationEmbedder:
         rhs_operators=rhs_operators,
         comparator=comparator,
         regularizer=regularizer,
+        wd=config.wd,
+        wd_interval=config.wd_interval,
         global_emb=config.global_emb,
         max_norm=config.max_norm,
         num_dynamic_rels=num_dynamic_rels,
