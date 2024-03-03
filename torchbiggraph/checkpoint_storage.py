@@ -209,7 +209,6 @@ def load_model_state_dict(hf: h5py.File) -> Optional[ModuleStateDict]:
 @CHECKPOINT_STORAGES.register_as("")  # No scheme
 @CHECKPOINT_STORAGES.register_as("file")
 class FileCheckpointStorage(AbstractCheckpointStorage):
-
     """Reads and writes checkpoint data to/from disk.
 
     Checkpoints are saved as HDF5 files. The embeddings for an entity partition

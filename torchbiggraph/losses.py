@@ -18,7 +18,6 @@ from torchbiggraph.types import FloatTensorType
 
 
 class AbstractLossFunction(nn.Module, ABC):
-
     """Calculate weighted loss of scores for positive and negative pairs.
 
     The inputs are a 1-D tensor of size P containing scores for positive pairs

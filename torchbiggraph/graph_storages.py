@@ -302,17 +302,17 @@ class BufferedDataset:
             tensor_left = tensor_size - tensor_offset
             buffer_left = self.BUFFER_SIZE - self.buffer_offset
             if tensor_left >= buffer_left:
-                self.buffer[
-                    self.buffer_offset : self.buffer_offset + buffer_left
-                ] = tensor[tensor_offset : tensor_offset + buffer_left]
+                self.buffer[self.buffer_offset : self.buffer_offset + buffer_left] = (
+                    tensor[tensor_offset : tensor_offset + buffer_left]
+                )
                 tensor_offset += buffer_left
                 self.buffer_offset += buffer_left
                 self.flush_buffer()
                 continue
             else:
-                self.buffer[
-                    self.buffer_offset : self.buffer_offset + tensor_left
-                ] = tensor[tensor_offset : tensor_offset + tensor_left]
+                self.buffer[self.buffer_offset : self.buffer_offset + tensor_left] = (
+                    tensor[tensor_offset : tensor_offset + tensor_left]
+                )
                 tensor_offset += tensor_left
                 self.buffer_offset += tensor_left
                 break

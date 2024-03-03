@@ -271,7 +271,7 @@ class ShardedPartitionClient:
         numel_per_shard = self.shard_size // flattened_embs.element_size()
         # Space out the start of each partition's chunks of servers evenly.
         offset = (part * num_clients) // self.entities[entity].num_partitions
-        for (idx, flattened_embs_shard) in enumerate(
+        for idx, flattened_embs_shard in enumerate(
             torch.split(flattened_embs, numel_per_shard)
         ):
             client_idx = (idx + offset) % num_clients
@@ -352,7 +352,7 @@ class ShardedPartitionClient:
         numel_per_shard = self.shard_size // flattened_out.element_size()
         # Space out the start of each partition's chunks of servers evenly.
         offset = (part * num_clients) // self.entities[entity].num_partitions
-        for (idx, flattened_out_shard) in enumerate(
+        for idx, flattened_out_shard in enumerate(
             torch.split(flattened_out, numel_per_shard)
         ):
             client_idx = (idx + offset) % num_clients

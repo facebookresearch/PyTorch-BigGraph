@@ -103,7 +103,6 @@ class FeaturizedEmbedding(AbstractEmbedding):
 
 
 class AbstractComparator(nn.Module, ABC):
-
     """Calculate scores between pairs of given vectors in a certain space.
 
     The input consists of four tensors each representing a set of vectors: one

@@ -695,7 +695,7 @@ class TestFunctional(TestCase):
         done = [False] * num_trainers
         while not all(done):
             time.sleep(1)
-            for (rank, trainer) in enumerate(trainers):
+            for rank, trainer in enumerate(trainers):
                 if not trainer.is_alive() and not done[rank]:
                     self.assertEqual(trainer.exitcode, 0)
                     done[rank] = True
@@ -703,7 +703,7 @@ class TestFunctional(TestCase):
         for partition_server in partition_servers:
             partition_server.join()
 
-        for (rank, partition_server) in enumerate(partition_servers):
+        for rank, partition_server in enumerate(partition_servers):
             logger.info(
                 f"Partition server {rank} died with exit code {partition_server.exitcode}"
             )

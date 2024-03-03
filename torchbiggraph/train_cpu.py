@@ -275,9 +275,9 @@ class TrainingCoordinator:
         # We allocate these storages n advance in `embedding_storage_freelist`.
         # When we need storage for an entity type, we pop it from this free list,
         # and then add it back when we 'delete' the embedding table.
-        embedding_storage_freelist: Dict[
-            EntityName, Set[torch.FloatStorage]
-        ] = defaultdict(set)
+        embedding_storage_freelist: Dict[EntityName, Set[torch.FloatStorage]] = (
+            defaultdict(set)
+        )
         for entity_type, counts in entity_counts.items():
             max_count = max(counts)
             if holder.nparts_lhs == 1 and holder.nparts_rhs == 1:
@@ -869,9 +869,11 @@ class TrainingCoordinator:
                     edges=edges,
                     indices=edge_perm[s],
                     # FIXME should we only delay if iteration_idx == 0?
-                    delay=self.config.hogwild_delay
-                    if epoch_idx == 0 and self.rank > 0
-                    else 0,
+                    delay=(
+                        self.config.hogwild_delay
+                        if epoch_idx == 0 and self.rank > 0
+                        else 0
+                    ),
                 )
                 for rank, s in enumerate(
                     split_almost_equally(edge_perm.size(0), num_parts=self.num_workers)
@@ -986,9 +988,9 @@ class TrainingCoordinator:
                     index=current_index, eval_stats_chunk_avg=eval_stats_chunk_avg
                 )
                 chunk_stats_dict["index"] = current_index
-                chunk_stats_dict[
-                    "eval_stats_chunk_avg"
-                ] = eval_stats_chunk_avg.to_dict()
+                chunk_stats_dict["eval_stats_chunk_avg"] = (
+                    eval_stats_chunk_avg.to_dict()
+                )
                 all_stats_dicts.append(chunk_stats_dict)
 
             self.checkpoint_manager.append_stats(all_stats_dicts)

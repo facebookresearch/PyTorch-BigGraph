@@ -187,9 +187,9 @@ class GPUProcess(mp.get_context("spawn").Process):
         for embeddings in all_embs.values():
             assert embeddings.is_pinned()
 
-        occurrences: Dict[
-            Tuple[EntityName, Partition, SubPartition], Set[Side]
-        ] = defaultdict(set)
+        occurrences: Dict[Tuple[EntityName, Partition, SubPartition], Set[Side]] = (
+            defaultdict(set)
+        )
         for entity_name in lhs_types:
             occurrences[entity_name, lhs_part, lhs_subpart].add(Side.LHS)
         for entity_name in rhs_types:
@@ -236,9 +236,9 @@ class GPUProcess(mp.get_context("spawn").Process):
         ) in self.sub_holder.items():
             for side in occurrences[entity_name, part, subpart]:
                 model.set_embeddings(entity_name, side, gpu_embeddings)
-                trainer.partitioned_optimizers[
-                    entity_name, part, subpart
-                ] = gpu_optimizer
+                trainer.partitioned_optimizers[entity_name, part, subpart] = (
+                    gpu_optimizer
+                )
 
         tk.start("translate_edges")
         num_edges = subbuckets[lhs_subpart, rhs_subpart][0].shape[0]
@@ -578,12 +578,12 @@ class GPUTrainingCoordinator(TrainingCoordinator):
                     rhs_part=cur_b.rhs,
                     lhs_subpart=this_bucket[0],
                     rhs_subpart=this_bucket[1],
-                    next_lhs_subpart=next_bucket[0]
-                    if next_bucket is not None
-                    else None,
-                    next_rhs_subpart=next_bucket[1]
-                    if next_bucket is not None
-                    else None,
+                    next_lhs_subpart=(
+                        next_bucket[0] if next_bucket is not None else None
+                    ),
+                    next_rhs_subpart=(
+                        next_bucket[1] if next_bucket is not None else None
+                    ),
                     trainer=self.trainer,
                     model=self.model,
                     all_embs=holder.partitioned_embeddings,

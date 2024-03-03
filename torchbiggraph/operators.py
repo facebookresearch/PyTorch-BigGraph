@@ -17,7 +17,6 @@ from torchbiggraph.util import match_shape
 
 
 class AbstractOperator(nn.Module, ABC):
-
     """Perform the same operation on many vectors.
 
     Given a tensor containing a set of vectors, perform the same operation on
@@ -159,7 +158,6 @@ class ComplexDiagonalOperator(AbstractOperator):
 
 
 class AbstractDynamicOperator(nn.Module, ABC):
-
     """Perform different operations on many vectors.
 
     The inputs are a tensor containing a set of vectors and another tensor
