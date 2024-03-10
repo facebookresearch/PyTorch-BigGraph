@@ -226,6 +226,11 @@ More information can be found in [the full documentation](https://torchbiggraph.
 - GitHub Issues: Bug reports, feature requests, install issues, etc.
 - The [PyTorch-BigGraph Slack](https://join.slack.com/t/pytorchbiggraph/shared_invite/zt-yxy7zl41-37ypKwOqLHhmMSac5XOh2w) is a forum for online discussion between developers and users, discussing features, collaboration, etc.
 
+### Working with the pre-trained embeddings
+
+You can run the pre-trained embeddings directly with [Weaviate](https://github.com/semi-technologies/weaviate). You can [import them yourself](https://github.com/semi-technologies/biggraph-wikidata-search-with-weaviate), run them from a [Weaviate backup](https://github.com/semi-technologies/biggraph-wikidata-search-with-weaviate#restore-as-weaviate-backup) or [use the live service](http://biggraph-wikidata-in-weaviate.vectors.network/).
+
+
 ## Citation
 
 To cite this work please use:
