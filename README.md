@@ -111,6 +111,17 @@ The outputs will be stored next to the inputs in the `data/FB15k` directory.
 
 This simple utility is only suitable for small graphs that fit entirely in memory. To handle larger data one will have to implement their own custom preprocessor.
 
+### Checking the data
+
+It is advised that you check the edgelist files using PBG's checking script. It catches common errors that our developers have run into before that can be hard to debug. This command is run by invoking the following:
+
+```bash
+torchbiggraph_check \
+  torchbiggraph/examples/configs/fb15k_config_cpu.py
+```
+
+This command will throw run-time errors with informative messages if it encounters problems. You will see ''Found no errors in the input'' logged if there are no errors.
+
 ### Training
 
 The `torchbiggraph_train` command is used to launch training. The training parameters are tucked away in a configuration file, whose path is given to the command. They can however be overridden from the command line with the `--param` flag. The sample config is used for both training and evaluation, so we will have to use the override to specify the edge set to use.
