@@ -105,6 +105,8 @@ def model_state_dict_private_to_public(
 ) -> Dict[str, ModelParameter]:
     public_state_dict: Dict[str, ModelParameter] = {}
     for private_name, tensor in private_state_dict.items():
+        if 'emb' in private_name:
+            continue
         if not isinstance(tensor, torch.Tensor):
             raise RuntimeError(
                 "Isn't the state dict supposed to be "

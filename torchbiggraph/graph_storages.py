@@ -416,6 +416,9 @@ class FileEdgeStorage(AbstractEdgeStorage):
         shared: bool = False,
     ) -> EdgeList:
         file_path = self.get_edges_file(lhs_p, rhs_p)
+        bin_path = self.path / f"edges_{lhs_p}_{rhs_p}_{chunk_idx}.pt"
+        if bin_path.is_file():
+            return torch.load(open(bin_path, mode='rb'))
         try:
             with h5py.File(file_path, "r") as hf:
                 if hf.attrs.get(FORMAT_VERSION_ATTR, None) != FORMAT_VERSION:
@@ -453,9 +456,11 @@ class FileEdgeStorage(AbstractEdgeStorage):
                         )
                 else:
                     weight = None
-                return EdgeList(
+                ret = EdgeList(
                     EntityList(lhs, lhsd), EntityList(rhs, rhsd), rel, weight
                 )
+                torch.save(ret, open(bin_path, mode='wb'))
+                return ret
         except OSError as err:
             # h5py refuses to make it easy to figure out what went wrong. The errno
             # attribute is set to None. See https://github.com/h5py/h5py/issues/493.
